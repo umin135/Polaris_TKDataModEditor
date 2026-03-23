@@ -1,0 +1,6 @@
+// PolarisTK Data Editor resource file
+
+#include "resource.h"
+
+IDI_TKMOD_FILE    ICON   "res\\tkmod_256.ico"
+IDR_HOME_LOGO_PNG RCDATA "res\\Home_Logo.png"
