@@ -1,10 +1,15 @@
 #pragma once
 #include "imgui/imgui.h"
 #include "editors/FbsDataView.h"
+#include "moveset/MovesetView.h"
+#include "moveset/MovesetEditorWindow.h"
+#include "extract/ExtractorView.h"
 #include <string>
+#include <vector>
 
 #ifdef _DEBUG
 #include "devmode/FbsDevView.h"
+#include "devmode/MotbinDiffView.h"
 #endif
 
 // Forward declarations to avoid pulling d3d11.h into all translation units
@@ -32,6 +37,7 @@ private:
         Home, FbsData, Moveset,
 #ifdef _DEBUG
         FbsDevMode,
+        MotbinDiff,
 #endif
     };
 
@@ -48,15 +54,31 @@ private:
     void RenderMovesetView();
 #ifdef _DEBUG
     void RenderFbsDevView();
+    void RenderMotbinDiffView();
 #endif
+
+    // Floating settings window
+    void RenderSettingsWindow();
+    void ApplyAndSaveSettings();
 
     ContentView  m_currentView = ContentView::Home;
     FbsDataView  m_fbsDataView;
+    MovesetView  m_movesetView;
+    ExtractorView m_extractorView{ "" };
+    std::vector<MovesetEditorWindow> m_editorWindows;
+    int          m_nextEditorUid = 0;
 #ifdef _DEBUG
-    FbsDevView   m_fbsDevView;
+    FbsDevView      m_fbsDevView;
+    MotbinDiffView  m_motbinDiffView;
 #endif
 
     // Home screen logo texture (loaded from res/Home_Logo.png)
     ID3D11ShaderResourceView* m_logoTex  = nullptr;
     ImVec2                    m_logoSize = { 0.0f, 0.0f };
+
+    // Settings window state
+    bool m_showSettings      = false;
+    bool m_settingsInitialized = false;
+    int  m_settingsCat       = 1;     // 0 = fbsdata, 1 = moveset
+    char m_settingsMovesetRoot[1024]  = {};
 };

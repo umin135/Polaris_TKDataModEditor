@@ -8,7 +8,7 @@
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  FlatBuffers binary reader/writer (dev-mode only)
-//  Supports: customize_item_common_list.bin
+//  Supports: customize_item_common_list.bin, character_list.bin
 // ─────────────────────────────────────────────────────────────────────────────
 
 namespace FbsBinaryIO

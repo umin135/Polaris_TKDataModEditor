@@ -1,0 +1,813 @@
+// MotbinData.cpp — binary parser for moveset.motbin
+// Field offsets based on OldTool2 (TekkenMovesetExtractor TK8) t8_offsetTable.
+// Move struct size = 0x448 bytes (FILE format, NOT in-memory).
+#include "MotbinData.h"
+#include "LabelDB.h"
+#include <windows.h>
+#include <cstring>
+#include <string>
+
+// ─────────────────────────────────────────────────────────────
+//  Helpers
+// ─────────────────────────────────────────────────────────────
+
+static std::wstring Utf8ToWide(const std::string& s)
+{
+    if (s.empty()) return {};
+    int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
+    std::wstring w(len > 0 ? len - 1 : 0, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, &w[0], len);
+    return w;
+}
+
+static std::vector<uint8_t> ReadFileBytes(const std::wstring& path)
+{
+    HANDLE h = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ,
+                           nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return {};
+
+    LARGE_INTEGER sz = {};
+    GetFileSizeEx(h, &sz);
+
+    if (sz.QuadPart == 0 || sz.QuadPart > 256LL * 1024 * 1024)
+    {
+        CloseHandle(h);
+        return {};
+    }
+
+    std::vector<uint8_t> buf(static_cast<size_t>(sz.QuadPart));
+    DWORD read = 0;
+    ReadFile(h, buf.data(), static_cast<DWORD>(buf.size()), &read, nullptr);
+    CloseHandle(h);
+
+    if (static_cast<size_t>(read) != buf.size()) return {};
+    return buf;
+}
+
+// Bounds-checked field reader — returns zero-initialised T on out-of-bounds
+template<typename T>
+static T ReadAt(const uint8_t* base, size_t capacity, size_t offset)
+{
+    T val = {};
+    if (offset + sizeof(T) <= capacity)
+        memcpy(&val, base + offset, sizeof(T));
+    return val;
+}
+
+// ─────────────────────────────────────────────────────────────
+//  Index expansion — converts index-format motbin to file-offset
+//  format so all downstream parsers can work with direct offsets.
+//
+//  moveset.motbin is saved by the extractor in index format:
+//    - Header block ptrs: (block_file_offset - 0x318)  (BASE-relative)
+//    - Element pointer fields: element index into target block
+//
+//  ExpandIndexes reverses this:
+//    - Header ptrs:  stored_val + 0x318  → file offset
+//    - Element ptrs: tgtBlockBase + idx * tgtStride  → file offset
+// ─────────────────────────────────────────────────────────────
+
+static constexpr size_t kMotbinBase = 0x318;
+
+struct ExpandPtrField {
+    size_t elemOff;       // byte offset within element
+    size_t tgtHdrPtrOff;  // header offset where target block's ptr is stored
+    size_t tgtStride;     // element size of target block
+};
+struct ExpandBlockDesc {
+    size_t ptrOff;   // header ptr offset of this block
+    size_t cntOff;   // header cnt offset of this block
+    size_t stride;   // element size of this block
+    int    numPtrs;
+    ExpandPtrField ptrs[8];
+};
+
+static const ExpandBlockDesc kExpandBlocks[] = {
+    // reaction_list: 7 pushback pointers at +0x00..+0x30; +0x38 is front_direction (not a ptr)
+    { 0x168, 0x178, 0x70, 7, {
+        {0x00,0x1B0,0x10},{0x08,0x1B0,0x10},{0x10,0x1B0,0x10},{0x18,0x1B0,0x10},
+        {0x20,0x1B0,0x10},{0x28,0x1B0,0x10},{0x30,0x1B0,0x10},
+    }},
+    { 0x180, 0x188, 0x14, 0, {} },  // requirements: no inner pointers
+    // hit_conditions: req @0x00, reaction_list @0x10
+    { 0x190, 0x198, 0x18, 2, { {0x00,0x180,0x14}, {0x10,0x168,0x70} }},
+    // projectile: hit_cond @0x90, cancel @0x98
+    { 0x1A0, 0x1A8, 0xE0, 2, { {0x90,0x190,0x18}, {0x98,0x1D0,0x28} }},
+    // pushback: pushback_extra @0x08
+    { 0x1B0, 0x1B8, 0x10, 1, { {0x08,0x1C0,0x02} }},
+    { 0x1C0, 0x1C8, 0x02, 0, {} },  // pushback_extra: no inner pointers
+    // cancel: req @0x08, cancel_extra @0x10
+    { 0x1D0, 0x1D8, 0x28, 2, { {0x08,0x180,0x14}, {0x10,0x1F0,0x04} }},
+    { 0x1E0, 0x1E8, 0x28, 2, { {0x08,0x180,0x14}, {0x10,0x1F0,0x04} }},  // group_cancel
+    { 0x1F0, 0x1F8, 0x04, 0, {} },  // cancel_extra
+    // extra_props (timed): req @0x08
+    { 0x200, 0x208, 0x28, 1, { {0x08,0x180,0x14} }},
+    // start/end props: req @0x00
+    { 0x210, 0x218, 0x20, 1, { {0x00,0x180,0x14} }},
+    { 0x220, 0x228, 0x20, 1, { {0x00,0x180,0x14} }},
+    // moves: cancel @0x98, hitcond @0x110, voice @0x130, exprop @0x138, sprop @0x140, eprop @0x148
+    // cancel2_addr @0xA0 is always 0 in file format (game-internal); not expanded.
+    { 0x230, 0x238, 0x448, 6, {
+        {0x98, 0x1D0,0x28}, {0x110,0x190,0x18},
+        {0x130,0x240,0x0C}, {0x138,0x200,0x28},
+        {0x140,0x210,0x20}, {0x148,0x220,0x20},
+    }},
+    { 0x240, 0x248, 0x0C, 0, {} },  // voiceclip
+    // input_sequence: input_extra @0x08
+    { 0x250, 0x258, 0x10, 1, { {0x08,0x260,0x08} }},
+    { 0x260, 0x268, 0x08, 0, {} },  // input_extra
+    { 0x270, 0x278, 0x04, 0, {} },  // parry
+    { 0x280, 0x288, 0x0C, 0, {} },  // throw_extra
+    // throws: throw_extra @0x08
+    { 0x290, 0x298, 0x10, 1, { {0x08,0x280,0x0C} }},
+    // dialogue: req @0x08  (0x10 is audio ID, not a block ptr)
+    { 0x2A0, 0x2A8, 0x18, 1, { {0x08,0x180,0x14} }},
+};
+
+static const size_t kExpandHdrPtrs[] = {
+    0x168,0x180,0x190,0x1A0,0x1B0,0x1C0,0x1D0,0x1E0,
+    0x1F0,0x200,0x210,0x220,0x230,0x240,0x250,0x260,
+    0x270,0x280,0x290,0x2A0,
+};
+
+// Expand index-format motbin to file-offset format in-place.
+static void ExpandIndexes(std::vector<uint8_t>& v)
+{
+    uint8_t*     b  = v.data();
+    const size_t sz = v.size();
+    if (sz < kMotbinBase) return;
+
+    // Pass 1: header block ptrs: BASE-relative → file offset
+    // NOTE: A BASE-relative value of 0 is valid — it means the block starts at
+    // exactly offset kMotbinBase (0x318) in the file (i.e. the first data block).
+    // We must NOT skip val==0; doing so would leave that ptr at 0, causing the
+    // block to be silently dropped during parsing (e.g. reaction_list in ant.motbin).
+    for (size_t o : kExpandHdrPtrs) {
+        if (o + 8 > sz) continue;
+        uint64_t val; memcpy(&val, b + o, 8);
+        val += kMotbinBase;
+        memcpy(b + o, &val, 8);
+    }
+
+    // Pass 2: element pointer fields: index → file offset
+    for (const ExpandBlockDesc& bd : kExpandBlocks) {
+        if (bd.numPtrs == 0) continue;
+        if (bd.ptrOff + 8 > sz || bd.cntOff + 8 > sz) continue;
+        uint64_t blockOff, cnt;
+        memcpy(&blockOff, b + bd.ptrOff, 8);  // file offset after pass 1
+        memcpy(&cnt,      b + bd.cntOff, 8);
+        if (!blockOff || !cnt || blockOff + cnt * bd.stride > sz) continue;
+
+        for (uint64_t i = 0; i < cnt; ++i) {
+            size_t elem = static_cast<size_t>(blockOff + i * bd.stride);
+            for (int p = 0; p < bd.numPtrs; ++p) {
+                const ExpandPtrField& pf = bd.ptrs[p];
+                size_t fOff = elem + pf.elemOff;
+                if (fOff + 8 > sz) continue;
+                uint64_t idx; memcpy(&idx, b + fOff, 8);
+                if (idx == 0xFFFFFFFFFFFFFFFFULL) continue;  // index -1 = null pointer
+                if (pf.tgtHdrPtrOff + 8 > sz) continue;
+                uint64_t tgtBase; memcpy(&tgtBase, b + pf.tgtHdrPtrOff, 8);
+                if (!tgtBase) continue;
+                uint64_t fileOff = tgtBase + idx * pf.tgtStride;
+                memcpy(b + fOff, &fileOff, 8);
+            }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+//  XOR_KEYS decryption for index-format encrypted move fields.
+//  Layout: 8 × uint32 at blockOff+0 .. blockOff+0x1C
+//  Slot [moveIdx%8] holds (rawValue ^ kXorKeys[slot]).
+// ─────────────────────────────────────────────────────────────
+
+static const uint32_t kXorKeys[8] = {
+    0x964f5b9eU, 0xd88448a2U, 0xa84b71e0U, 0xa27d5221U,
+    0x9b81329fU, 0xadfb76c8U, 0x7def1f1cU, 0x7ee2bc2cU,
+};
+
+static uint32_t XorDecryptMoveField(const uint8_t* mb, size_t blockOff, uint32_t moveIdx)
+{
+    uint32_t slot = moveIdx % 8;
+    uint32_t enc;
+    memcpy(&enc, mb + blockOff + slot * 4, 4);
+    return enc ^ kXorKeys[slot];
+}
+
+// ─────────────────────────────────────────────────────────────
+//  .motbin header constants (file format)
+// ─────────────────────────────────────────────────────────────
+static constexpr size_t kHdr_Signature  = 0x08;
+static constexpr size_t kHdr_MovesPtr   = 0x230;
+static constexpr size_t kHdr_MovesCount = 0x238;
+
+// ─────────────────────────────────────────────────────────────
+//  Move struct file offsets (OldTool2 t8_offsetTable)
+//  Total size: 0x448 bytes
+// ─────────────────────────────────────────────────────────────
+static constexpr size_t kMove_Size = 0x448;
+
+static constexpr size_t kMove_EncNameKey    = 0x00;
+static constexpr size_t kMove_EncAnimKey    = 0x20;
+static constexpr size_t kMove_AnimAddrEnc1  = 0x50;
+static constexpr size_t kMove_AnimAddrEnc2  = 0x54;
+static constexpr size_t kMove_EncVuln       = 0x58;
+static constexpr size_t kMove_EncHitlevel   = 0x78;
+
+static constexpr size_t kMove_CancelAddr    = 0x98;
+static constexpr size_t kMove_Cancel2Addr   = 0xA0;
+static constexpr size_t kMove_U1            = 0xA8;
+static constexpr size_t kMove_U2            = 0xB0;
+static constexpr size_t kMove_U3            = 0xB8;
+static constexpr size_t kMove_U4            = 0xC0;
+static constexpr size_t kMove_U6            = 0xC8;
+static constexpr size_t kMove_Transition    = 0xCC;
+static constexpr size_t kMove_0xCE          = 0xCE;
+
+static constexpr size_t kMove_EncCharId     = 0xD0;
+static constexpr size_t kMove_EncOrdinalId  = 0xF0;
+
+static constexpr size_t kMove_HitCondAddr   = 0x110;
+static constexpr size_t kMove_0x118         = 0x118;
+static constexpr size_t kMove_0x11C         = 0x11C;
+static constexpr size_t kMove_AnimLen       = 0x120;
+static constexpr size_t kMove_AirborneStart = 0x124;
+static constexpr size_t kMove_AirborneEnd   = 0x128;
+static constexpr size_t kMove_GroundFall    = 0x12C;
+static constexpr size_t kMove_VoicelipAddr  = 0x130;
+static constexpr size_t kMove_ExtraPropAddr = 0x138;
+static constexpr size_t kMove_StartPropAddr = 0x140;
+static constexpr size_t kMove_EndPropAddr   = 0x148;
+static constexpr size_t kMove_U15           = 0x150;
+static constexpr size_t kMove_0x154         = 0x154;
+static constexpr size_t kMove_Startup       = 0x158;
+static constexpr size_t kMove_Recovery      = 0x15C;
+
+static constexpr size_t kMove_Hitbox0       = 0x160;
+static constexpr size_t kMove_HitboxStride  = 0x30;
+
+static constexpr size_t kMove_Collision     = 0x2E0;
+static constexpr size_t kMove_Distance      = 0x2E2;
+
+// ─────────────────────────────────────────────────────────────
+//  Sub-struct sizes (TK8)
+// ─────────────────────────────────────────────────────────────
+static constexpr size_t kCancel_Size       = 0x28;
+static constexpr size_t kHitCond_Size      = 0x18;
+static constexpr size_t kExtraProp_Size    = 0x28;
+static constexpr size_t kOtherMoveProp_Size = 0x20;  // start/end properties
+
+static constexpr uint32_t kReqListEnd = 1100;  // Requirement list terminator value
+
+// (Sub-struct parsers removed — all blocks are now parsed globally in LoadMotbin)
+
+// ─────────────────────────────────────────────────────────────
+//  Public loader
+// ─────────────────────────────────────────────────────────────
+
+MotbinData LoadMotbin(const std::string& folderPath)
+{
+    MotbinData result;
+
+    std::string path = folderPath;
+    if (!path.empty() && path.back() != '\\' && path.back() != '/')
+        path += '\\';
+    path += "moveset.motbin";
+
+    auto bytes = ReadFileBytes(Utf8ToWide(path));
+    if (bytes.empty())
+    {
+        result.errorMsg = "moveset.motbin not found or unreadable.";
+        return result;
+    }
+
+    // File is index-format (saved by extractor via ExportLoaderBin).
+    // Expand BASE-relative header ptrs and element indexes to file offsets.
+    ExpandIndexes(bytes);
+
+    const uint8_t* buf = bytes.data();
+    const size_t   cap = bytes.size();
+
+    // Validate TEK signature
+    if (cap < 0x240 ||
+        buf[kHdr_Signature]     != 'T' ||
+        buf[kHdr_Signature + 1] != 'E' ||
+        buf[kHdr_Signature + 2] != 'K')
+    {
+        result.errorMsg = "Invalid file signature (expected 'TEK').";
+        return result;
+    }
+
+    const uint64_t movesOffset = ReadAt<uint64_t>(buf, cap, kHdr_MovesPtr);
+    const uint64_t movesCount  = ReadAt<uint64_t>(buf, cap, kHdr_MovesCount);
+
+    if (movesOffset == 0 || movesCount == 0 ||
+        movesOffset >= cap ||
+        movesCount > 32768 ||
+        movesOffset + movesCount * kMove_Size > cap)
+    {
+        result.errorMsg = "Move array out of file bounds.";
+        return result;
+    }
+
+    result.moveCount = static_cast<uint32_t>(movesCount);
+    result.moves.reserve(static_cast<size_t>(movesCount));
+
+    // ── Build global requirement block ───────────────────────
+    const uint64_t reqBase  = ReadAt<uint64_t>(buf, cap, 0x180);
+    const uint64_t reqCount = ReadAt<uint64_t>(buf, cap, 0x188);
+    const uint64_t reacBase = ReadAt<uint64_t>(buf, cap, 0x168);
+
+    if (reqBase != 0 && reqCount > 0 && reqCount <= 0x100000)
+    {
+        result.requirementBlock.reserve(static_cast<size_t>(reqCount));
+        for (uint64_t r = 0; r < reqCount; ++r)
+        {
+            size_t roff = static_cast<size_t>(reqBase) + static_cast<size_t>(r) * 0x14;
+            if (roff + 0x14 > cap) break;
+            ParsedRequirement pr;
+            pr.req    = ReadAt<uint32_t>(buf, cap, roff + 0x00);
+            pr.param  = ReadAt<uint32_t>(buf, cap, roff + 0x04);
+            pr.param2 = ReadAt<uint32_t>(buf, cap, roff + 0x08);
+            pr.param3 = ReadAt<uint32_t>(buf, cap, roff + 0x0C);
+            pr.param4 = ReadAt<uint32_t>(buf, cap, roff + 0x10);
+            result.requirementBlock.push_back(pr);
+        }
+    }
+
+    // ── cancelExtraBlock ────────────────────────────────────────
+    {
+        uint64_t base = ReadAt<uint64_t>(buf, cap, 0x1F0);
+        uint64_t cnt  = ReadAt<uint64_t>(buf, cap, 0x1F8);
+        if (base && cnt && cnt <= 0x100000)
+        {
+            result.cancelExtraBlock.reserve((size_t)cnt);
+            for (uint64_t k = 0; k < cnt; ++k)
+            {
+                size_t o = (size_t)base + (size_t)k * 4;
+                if (o + 4 > cap) break;
+                result.cancelExtraBlock.push_back(ReadAt<uint32_t>(buf, cap, o));
+            }
+        }
+    }
+
+    // ── pushbackExtraBlock ───────────────────────────────────────
+    {
+        uint64_t base = ReadAt<uint64_t>(buf, cap, 0x1C0);
+        uint64_t cnt  = ReadAt<uint64_t>(buf, cap, 0x1C8);
+        if (base && cnt && cnt <= 0x100000)
+        {
+            result.pushbackExtraBlock.reserve((size_t)cnt);
+            for (uint64_t k = 0; k < cnt; ++k)
+            {
+                size_t o = (size_t)base + (size_t)k * 2;
+                if (o + 2 > cap) break;
+                ParsedPushbackExtra pe;
+                pe.value = ReadAt<uint16_t>(buf, cap, o);
+                result.pushbackExtraBlock.push_back(pe);
+            }
+        }
+    }
+
+    // ── pushbackBlock ────────────────────────────────────────────
+    {
+        uint64_t pbBase = ReadAt<uint64_t>(buf, cap, 0x1B0);
+        uint64_t pbCnt  = ReadAt<uint64_t>(buf, cap, 0x1B8);
+        uint64_t peBase = ReadAt<uint64_t>(buf, cap, 0x1C0);
+        if (pbBase && pbCnt && pbCnt <= 0x100000)
+        {
+            result.pushbackBlock.reserve((size_t)pbCnt);
+            for (uint64_t k = 0; k < pbCnt; ++k)
+            {
+                size_t o = (size_t)pbBase + (size_t)k * 0x10;
+                if (o + 0x10 > cap) break;
+                ParsedPushback pb;
+                pb.val1       = ReadAt<uint16_t>(buf, cap, o + 0x00);
+                pb.val2       = ReadAt<uint16_t>(buf, cap, o + 0x02);
+                pb.val3       = ReadAt<uint32_t>(buf, cap, o + 0x04);
+                pb.extra_addr = ReadAt<uint64_t>(buf, cap, o + 0x08);
+                if (pb.extra_addr != 0 && pb.extra_addr < cap &&
+                    peBase != 0 && pb.extra_addr >= peBase)
+                    pb.pushback_extra_idx = (uint32_t)((pb.extra_addr - peBase) / 2);
+                result.pushbackBlock.push_back(pb);
+            }
+        }
+    }
+
+    // ── reactionListBlock ────────────────────────────────────────
+    {
+        uint64_t base   = ReadAt<uint64_t>(buf, cap, 0x168);
+        uint64_t cnt    = ReadAt<uint64_t>(buf, cap, 0x178);
+        uint64_t pbBase = ReadAt<uint64_t>(buf, cap, 0x1B0);
+        if (base && cnt && cnt <= 0x100000)
+        {
+            result.reactionListBlock.reserve((size_t)cnt);
+            for (uint64_t k = 0; k < cnt; ++k)
+            {
+                size_t o = (size_t)base + (size_t)k * 0x70;
+                if (o + 0x70 > cap) break;
+                ParsedReactionList rl;
+                // 7 pushback pointers (already expanded to file offsets by ExpandIndexes)
+                for (int p = 0; p < 7; ++p)
+                {
+                    rl.pushback_addr[p] = ReadAt<uint64_t>(buf, cap, o + p * 8);
+                    rl.pushback_idx[p]  = 0xFFFFFFFF;
+                    if (rl.pushback_addr[p] != 0 && rl.pushback_addr[p] < cap &&
+                        pbBase != 0 && rl.pushback_addr[p] >= pbBase)
+                        rl.pushback_idx[p] = (uint32_t)((rl.pushback_addr[p] - pbBase) / 0x10);
+                }
+                // directions
+                rl.front_direction      = ReadAt<uint16_t>(buf, cap, o + 0x38);
+                rl.back_direction       = ReadAt<uint16_t>(buf, cap, o + 0x3A);
+                rl.left_side_direction  = ReadAt<uint16_t>(buf, cap, o + 0x3C);
+                rl.right_side_direction = ReadAt<uint16_t>(buf, cap, o + 0x3E);
+                rl.front_ch_direction   = ReadAt<uint16_t>(buf, cap, o + 0x40);
+                rl.downed_direction     = ReadAt<uint16_t>(buf, cap, o + 0x42);
+                // rotations
+                rl.front_rotation       = ReadAt<uint16_t>(buf, cap, o + 0x44);
+                rl.back_rotation        = ReadAt<uint16_t>(buf, cap, o + 0x46);
+                rl.left_side_rotation   = ReadAt<uint16_t>(buf, cap, o + 0x48);
+                rl.right_side_rotation  = ReadAt<uint16_t>(buf, cap, o + 0x4A);
+                rl.vertical_pushback    = ReadAt<uint16_t>(buf, cap, o + 0x4C);
+                rl.downed_rotation      = ReadAt<uint16_t>(buf, cap, o + 0x4E);
+                // move indexes
+                rl.standing             = ReadAt<uint16_t>(buf, cap, o + 0x50);
+                rl.crouch               = ReadAt<uint16_t>(buf, cap, o + 0x52);
+                rl.ch                   = ReadAt<uint16_t>(buf, cap, o + 0x54);
+                rl.crouch_ch            = ReadAt<uint16_t>(buf, cap, o + 0x56);
+                rl.left_side            = ReadAt<uint16_t>(buf, cap, o + 0x58);
+                rl.left_side_crouch     = ReadAt<uint16_t>(buf, cap, o + 0x5A);
+                rl.right_side           = ReadAt<uint16_t>(buf, cap, o + 0x5C);
+                rl.right_side_crouch    = ReadAt<uint16_t>(buf, cap, o + 0x5E);
+                rl.back                 = ReadAt<uint16_t>(buf, cap, o + 0x60);
+                rl.back_crouch          = ReadAt<uint16_t>(buf, cap, o + 0x62);
+                rl.block                = ReadAt<uint16_t>(buf, cap, o + 0x64);
+                rl.crouch_block         = ReadAt<uint16_t>(buf, cap, o + 0x66);
+                rl.wallslump            = ReadAt<uint16_t>(buf, cap, o + 0x68);
+                rl.downed               = ReadAt<uint16_t>(buf, cap, o + 0x6A);
+                result.reactionListBlock.push_back(rl);
+            }
+        }
+    }
+
+    // ── hitConditionBlock ────────────────────────────────────────
+    {
+        uint64_t base   = ReadAt<uint64_t>(buf, cap, 0x190);
+        uint64_t cnt    = ReadAt<uint64_t>(buf, cap, 0x198);
+        uint64_t rlBase = ReadAt<uint64_t>(buf, cap, 0x168);
+        if (base && cnt && cnt <= 0x100000)
+        {
+            result.hitConditionBlock.reserve((size_t)cnt);
+            for (uint64_t k = 0; k < cnt; ++k)
+            {
+                size_t o = (size_t)base + (size_t)k * 0x18;
+                if (o + 0x18 > cap) break;
+                ParsedHitCondition h;
+                h.requirement_addr   = ReadAt<uint64_t>(buf, cap, o + 0x00);
+                h.damage             = ReadAt<uint32_t>(buf, cap, o + 0x08);
+                h._0x0C              = ReadAt<uint32_t>(buf, cap, o + 0x0C);
+                h.reaction_list_addr = ReadAt<uint64_t>(buf, cap, o + 0x10);
+                h.req_list_idx       = 0xFFFFFFFF;
+                h.reaction_list_idx  = 0xFFFFFFFF;
+                if (h.requirement_addr && h.requirement_addr < cap && reqBase && h.requirement_addr >= reqBase)
+                    h.req_list_idx = (uint32_t)((h.requirement_addr - reqBase) / 0x14);
+                if (h.reaction_list_addr && h.reaction_list_addr < cap && rlBase && h.reaction_list_addr >= rlBase)
+                    h.reaction_list_idx = (uint32_t)((h.reaction_list_addr - rlBase) / 0x70);
+                result.hitConditionBlock.push_back(h);
+            }
+        }
+    }
+
+    // ── cancelBlock ──────────────────────────────────────────────
+    {
+        uint64_t base   = ReadAt<uint64_t>(buf, cap, 0x1D0);
+        uint64_t cnt    = ReadAt<uint64_t>(buf, cap, 0x1D8);
+        uint64_t exBase = ReadAt<uint64_t>(buf, cap, 0x1F0);
+        if (base && cnt && cnt <= 0x200000)
+        {
+            result.cancelBlock.reserve((size_t)cnt);
+            for (uint64_t k = 0; k < cnt; ++k)
+            {
+                size_t o = (size_t)base + (size_t)k * 0x28;
+                if (o + 0x28 > cap) break;
+                ParsedCancel c;
+                c.command            = ReadAt<uint64_t>(buf, cap, o + 0x00);
+                c.requirement_addr   = ReadAt<uint64_t>(buf, cap, o + 0x08);
+                c.extradata_addr     = ReadAt<uint64_t>(buf, cap, o + 0x10);
+                c.frame_window_start = ReadAt<uint32_t>(buf, cap, o + 0x18);
+                c.frame_window_end   = ReadAt<uint32_t>(buf, cap, o + 0x1C);
+                c.starting_frame     = ReadAt<uint32_t>(buf, cap, o + 0x20);
+                c.move_id            = ReadAt<uint16_t>(buf, cap, o + 0x24);
+                c.cancel_option      = ReadAt<uint16_t>(buf, cap, o + 0x26);
+                c.req_list_idx       = 0xFFFFFFFF;
+                c.extradata_idx      = 0xFFFFFFFF;
+                c.extradata_value    = 0xFFFFFFFF;
+                if (c.requirement_addr && c.requirement_addr < cap && reqBase && c.requirement_addr >= reqBase)
+                    c.req_list_idx = (uint32_t)((c.requirement_addr - reqBase) / 0x14);
+                if (c.extradata_addr && c.extradata_addr < cap)
+                {
+                    if (exBase && c.extradata_addr >= exBase)
+                        c.extradata_idx = (uint32_t)((c.extradata_addr - exBase) / 4);
+                    c.extradata_value = ReadAt<uint32_t>(buf, cap, (size_t)c.extradata_addr);
+                }
+                result.cancelBlock.push_back(c);
+            }
+        }
+    }
+
+    // ── groupCancelBlock ─────────────────────────────────────────
+    {
+        uint64_t base   = ReadAt<uint64_t>(buf, cap, 0x1E0);
+        uint64_t cnt    = ReadAt<uint64_t>(buf, cap, 0x1E8);
+        uint64_t exBase = ReadAt<uint64_t>(buf, cap, 0x1F0);
+        if (base && cnt && cnt <= 0x200000)
+        {
+            result.groupCancelBlock.reserve((size_t)cnt);
+            for (uint64_t k = 0; k < cnt; ++k)
+            {
+                size_t o = (size_t)base + (size_t)k * 0x28;
+                if (o + 0x28 > cap) break;
+                ParsedCancel c;
+                c.command            = ReadAt<uint64_t>(buf, cap, o + 0x00);
+                c.requirement_addr   = ReadAt<uint64_t>(buf, cap, o + 0x08);
+                c.extradata_addr     = ReadAt<uint64_t>(buf, cap, o + 0x10);
+                c.frame_window_start = ReadAt<uint32_t>(buf, cap, o + 0x18);
+                c.frame_window_end   = ReadAt<uint32_t>(buf, cap, o + 0x1C);
+                c.starting_frame     = ReadAt<uint32_t>(buf, cap, o + 0x20);
+                c.move_id            = ReadAt<uint16_t>(buf, cap, o + 0x24);
+                c.cancel_option      = ReadAt<uint16_t>(buf, cap, o + 0x26);
+                c.req_list_idx       = 0xFFFFFFFF;
+                c.extradata_idx      = 0xFFFFFFFF;
+                c.extradata_value    = 0xFFFFFFFF;
+                if (c.requirement_addr && c.requirement_addr < cap && reqBase && c.requirement_addr >= reqBase)
+                    c.req_list_idx = (uint32_t)((c.requirement_addr - reqBase) / 0x14);
+                if (c.extradata_addr && c.extradata_addr < cap)
+                {
+                    if (exBase && c.extradata_addr >= exBase)
+                        c.extradata_idx = (uint32_t)((c.extradata_addr - exBase) / 4);
+                    c.extradata_value = ReadAt<uint32_t>(buf, cap, (size_t)c.extradata_addr);
+                }
+                result.groupCancelBlock.push_back(c);
+            }
+        }
+    }
+
+    // ── extraPropBlock ───────────────────────────────────────────
+    {
+        uint64_t base = ReadAt<uint64_t>(buf, cap, 0x200);
+        uint64_t cnt  = ReadAt<uint64_t>(buf, cap, 0x208);
+        if (base && cnt && cnt <= 0x100000)
+        {
+            result.extraPropBlock.reserve((size_t)cnt);
+            for (uint64_t k = 0; k < cnt; ++k)
+            {
+                size_t o = (size_t)base + (size_t)k * 0x28;
+                if (o + 0x28 > cap) break;
+                ParsedExtraProp e;
+                e.type             = ReadAt<uint32_t>(buf, cap, o + 0x00);
+                e._0x4             = ReadAt<uint32_t>(buf, cap, o + 0x04);
+                e.requirement_addr = ReadAt<uint64_t>(buf, cap, o + 0x08);
+                e.id               = ReadAt<uint32_t>(buf, cap, o + 0x10);
+                e.value            = ReadAt<uint32_t>(buf, cap, o + 0x14);
+                e.value2           = ReadAt<uint32_t>(buf, cap, o + 0x18);
+                e.value3           = ReadAt<uint32_t>(buf, cap, o + 0x1C);
+                e.value4           = ReadAt<uint32_t>(buf, cap, o + 0x20);
+                e.value5           = ReadAt<uint32_t>(buf, cap, o + 0x24);
+                e.req_list_idx     = 0xFFFFFFFF;
+                if (e.requirement_addr && e.requirement_addr < cap && reqBase && e.requirement_addr >= reqBase)
+                    e.req_list_idx = (uint32_t)((e.requirement_addr - reqBase) / 0x14);
+                result.extraPropBlock.push_back(e);
+            }
+        }
+    }
+
+    // ── startPropBlock ───────────────────────────────────────────
+    {
+        uint64_t base = ReadAt<uint64_t>(buf, cap, 0x210);
+        uint64_t cnt  = ReadAt<uint64_t>(buf, cap, 0x218);
+        if (base && cnt && cnt <= 0x100000)
+        {
+            result.startPropBlock.reserve((size_t)cnt);
+            for (uint64_t k = 0; k < cnt; ++k)
+            {
+                size_t o = (size_t)base + (size_t)k * 0x20;
+                if (o + 0x20 > cap) break;
+                ParsedExtraProp e = {};
+                e.requirement_addr = ReadAt<uint64_t>(buf, cap, o + 0x00);
+                e.id               = ReadAt<uint32_t>(buf, cap, o + 0x08);
+                e.value            = ReadAt<uint32_t>(buf, cap, o + 0x0C);
+                e.value2           = ReadAt<uint32_t>(buf, cap, o + 0x10);
+                e.value3           = ReadAt<uint32_t>(buf, cap, o + 0x14);
+                e.value4           = ReadAt<uint32_t>(buf, cap, o + 0x18);
+                e.value5           = ReadAt<uint32_t>(buf, cap, o + 0x1C);
+                e.req_list_idx     = 0xFFFFFFFF;
+                if (e.requirement_addr && e.requirement_addr < cap && reqBase && e.requirement_addr >= reqBase)
+                    e.req_list_idx = (uint32_t)((e.requirement_addr - reqBase) / 0x14);
+                result.startPropBlock.push_back(e);
+            }
+        }
+    }
+
+    // ── endPropBlock ─────────────────────────────────────────────
+    {
+        uint64_t base = ReadAt<uint64_t>(buf, cap, 0x220);
+        uint64_t cnt  = ReadAt<uint64_t>(buf, cap, 0x228);
+        if (base && cnt && cnt <= 0x100000)
+        {
+            result.endPropBlock.reserve((size_t)cnt);
+            for (uint64_t k = 0; k < cnt; ++k)
+            {
+                size_t o = (size_t)base + (size_t)k * 0x20;
+                if (o + 0x20 > cap) break;
+                ParsedExtraProp e = {};
+                e.requirement_addr = ReadAt<uint64_t>(buf, cap, o + 0x00);
+                e.id               = ReadAt<uint32_t>(buf, cap, o + 0x08);
+                e.value            = ReadAt<uint32_t>(buf, cap, o + 0x0C);
+                e.value2           = ReadAt<uint32_t>(buf, cap, o + 0x10);
+                e.value3           = ReadAt<uint32_t>(buf, cap, o + 0x14);
+                e.value4           = ReadAt<uint32_t>(buf, cap, o + 0x18);
+                e.value5           = ReadAt<uint32_t>(buf, cap, o + 0x1C);
+                e.req_list_idx     = 0xFFFFFFFF;
+                if (e.requirement_addr && e.requirement_addr < cap && reqBase && e.requirement_addr >= reqBase)
+                    e.req_list_idx = (uint32_t)((e.requirement_addr - reqBase) / 0x14);
+                result.endPropBlock.push_back(e);
+            }
+        }
+    }
+
+    // ── voiceclipBlock ───────────────────────────────────────────
+    {
+        uint64_t base = ReadAt<uint64_t>(buf, cap, 0x240);
+        uint64_t cnt  = ReadAt<uint64_t>(buf, cap, 0x248);
+        if (base && cnt && cnt <= 0x100000)
+        {
+            result.voiceclipBlock.reserve((size_t)cnt);
+            for (uint64_t k = 0; k < cnt; ++k)
+            {
+                size_t o = (size_t)base + (size_t)k * 0x0C;
+                if (o + 0x0C > cap) break;
+                ParsedVoiceclip vc;
+                vc.val1 = ReadAt<uint32_t>(buf, cap, o + 0x00);
+                vc.val2 = ReadAt<uint32_t>(buf, cap, o + 0x04);
+                vc.val3 = ReadAt<uint32_t>(buf, cap, o + 0x08);
+                result.voiceclipBlock.push_back(vc);
+            }
+        }
+    }
+
+    for (uint64_t i = 0; i < movesCount; ++i)
+    {
+        const size_t   base = static_cast<size_t>(movesOffset + i * kMove_Size);
+        const uint8_t* mb   = buf + base;
+
+        ParsedMove m = {};
+
+        // ── Encrypted blocks (raw storage) ──────────────────
+        m.encrypted_name_key     = ReadAt<uint64_t>(mb, kMove_Size, kMove_EncNameKey);
+        m.name_encryption_key    = ReadAt<uint64_t>(mb, kMove_Size, kMove_EncNameKey + 8);
+        for (int k = 0; k < 4; ++k)
+            m.name_related[k] = ReadAt<uint32_t>(mb, kMove_Size, kMove_EncNameKey + 16 + k * 4);
+
+        m.encrypted_anim_key     = ReadAt<uint64_t>(mb, kMove_Size, kMove_EncAnimKey);
+        m.anim_encryption_key    = ReadAt<uint64_t>(mb, kMove_Size, kMove_EncAnimKey + 8);
+        for (int k = 0; k < 8; ++k)
+            m.anim_related[k] = ReadAt<uint32_t>(mb, kMove_Size, kMove_EncAnimKey + 16 + k * 4);
+
+        m.anmbin_body_idx     = ReadAt<uint32_t>(mb, kMove_Size, kMove_AnimAddrEnc1);
+        m.anmbin_body_sub_idx = ReadAt<uint32_t>(mb, kMove_Size, kMove_AnimAddrEnc2);
+
+        m.encrypted_vuln          = ReadAt<uint64_t>(mb, kMove_Size, kMove_EncVuln);
+        m.vuln_encryption_key     = ReadAt<uint64_t>(mb, kMove_Size, kMove_EncVuln + 8);
+        for (int k = 0; k < 4; ++k)
+            m.vuln_related[k] = ReadAt<uint32_t>(mb, kMove_Size, kMove_EncVuln + 16 + k * 4);
+
+        m.encrypted_hitlevel          = ReadAt<uint64_t>(mb, kMove_Size, kMove_EncHitlevel);
+        m.hitlevel_encryption_key     = ReadAt<uint64_t>(mb, kMove_Size, kMove_EncHitlevel + 8);
+        for (int k = 0; k < 4; ++k)
+            m.hitlevel_related[k] = ReadAt<uint32_t>(mb, kMove_Size, kMove_EncHitlevel + 16 + k * 4);
+
+        // ── Decrypt encrypted fields (XOR_KEYS format) ──────
+        uint32_t moveIdx = static_cast<uint32_t>(i);
+        uint32_t nameKey = XorDecryptMoveField(mb, kMove_EncNameKey, moveIdx);
+        m.name_key = nameKey;
+        m.anim_key = XorDecryptMoveField(mb, kMove_EncAnimKey,  moveIdx);
+        m.vuln     = XorDecryptMoveField(mb, kMove_EncVuln,     moveIdx);
+        m.hitlevel = XorDecryptMoveField(mb, kMove_EncHitlevel, moveIdx);
+
+        m.encrypted_ordinal_id2  = ReadAt<uint64_t>(mb, kMove_Size, kMove_EncCharId);
+        m.ordinal_id2_enc_key    = ReadAt<uint64_t>(mb, kMove_Size, kMove_EncCharId + 8);
+        for (int k = 0; k < 4; ++k)
+            m.ordinal_id2_related[k] = ReadAt<uint32_t>(mb, kMove_Size, kMove_EncCharId + 16 + k * 4);
+
+        m.encrypted_ordinal_id   = ReadAt<uint64_t>(mb, kMove_Size, kMove_EncOrdinalId);
+        m.ordinal_encryption_key = ReadAt<uint64_t>(mb, kMove_Size, kMove_EncOrdinalId + 8);
+        for (int k = 0; k < 4; ++k)
+            m.ordinal_related[k] = ReadAt<uint32_t>(mb, kMove_Size, kMove_EncOrdinalId + 16 + k * 4);
+
+        m.moveId            = XorDecryptMoveField(mb, kMove_EncOrdinalId, moveIdx);
+        m.ordinal_id2       = XorDecryptMoveField(mb, kMove_EncCharId,    moveIdx);
+
+        // ── Cancel pointers ──────────────────────────────────
+        m.cancel_addr  = ReadAt<uint64_t>(mb, kMove_Size, kMove_CancelAddr);
+        m.cancel2_addr = ReadAt<uint64_t>(mb, kMove_Size, kMove_Cancel2Addr);
+        m.u1           = ReadAt<uint64_t>(mb, kMove_Size, kMove_U1);
+        m.u2           = ReadAt<uint64_t>(mb, kMove_Size, kMove_U2);
+        m.u3           = ReadAt<uint64_t>(mb, kMove_Size, kMove_U3);
+        m.u4           = ReadAt<uint64_t>(mb, kMove_Size, kMove_U4);
+        m.u6           = ReadAt<uint32_t>(mb, kMove_Size, kMove_U6);
+        m.transition   = ReadAt<uint16_t>(mb, kMove_Size, kMove_Transition);
+        m._0xCE        = ReadAt<int16_t> (mb, kMove_Size, kMove_0xCE);
+
+        // ── Plain fields ─────────────────────────────────────
+        m.hit_condition_addr         = ReadAt<uint64_t>(mb, kMove_Size, kMove_HitCondAddr);
+        m._0x118                     = ReadAt<uint32_t>(mb, kMove_Size, kMove_0x118);
+        m._0x11C                     = ReadAt<uint32_t>(mb, kMove_Size, kMove_0x11C);
+        m.anim_len                   = ReadAt<int32_t> (mb, kMove_Size, kMove_AnimLen);
+        m.airborne_start             = ReadAt<uint32_t>(mb, kMove_Size, kMove_AirborneStart);
+        m.airborne_end               = ReadAt<uint32_t>(mb, kMove_Size, kMove_AirborneEnd);
+        m.ground_fall                = ReadAt<uint32_t>(mb, kMove_Size, kMove_GroundFall);
+        m.voicelip_addr              = ReadAt<uint64_t>(mb, kMove_Size, kMove_VoicelipAddr);
+        m.extra_move_property_addr   = ReadAt<uint64_t>(mb, kMove_Size, kMove_ExtraPropAddr);
+        m.move_start_extraprop_addr  = ReadAt<uint64_t>(mb, kMove_Size, kMove_StartPropAddr);
+        m.move_end_extraprop_addr    = ReadAt<uint64_t>(mb, kMove_Size, kMove_EndPropAddr);
+        m.u15                        = ReadAt<uint32_t>(mb, kMove_Size, kMove_U15);
+        m._0x154                     = ReadAt<uint32_t>(mb, kMove_Size, kMove_0x154);
+        m.startup                    = ReadAt<uint32_t>(mb, kMove_Size, kMove_Startup);
+        m.recovery                   = ReadAt<uint32_t>(mb, kMove_Size, kMove_Recovery);
+
+        // ── Hitbox slots (8 × 0x30 bytes) ───────────────────
+        for (int h = 0; h < 8; ++h)
+        {
+            size_t hbase = kMove_Hitbox0 + h * kMove_HitboxStride;
+            m.hitbox_active_start[h] = ReadAt<uint32_t>(mb, kMove_Size, hbase + 0x00);
+            m.hitbox_active_last[h]  = ReadAt<uint32_t>(mb, kMove_Size, hbase + 0x04);
+            m.hitbox_location[h]     = ReadAt<uint32_t>(mb, kMove_Size, hbase + 0x08);
+            for (int f = 0; f < 9; ++f)
+                m.hitbox_floats[h][f] = ReadAt<float>(mb, kMove_Size, hbase + 0x0C + f * 4);
+        }
+
+        // ── Collision / distance ─────────────────────────────
+        m.collision = ReadAt<uint16_t>(mb, kMove_Size, kMove_Collision);
+        m.distance  = ReadAt<uint16_t>(mb, kMove_Size, kMove_Distance);
+        m.u18       = ReadAt<uint32_t>(mb, kMove_Size, 0x444);
+
+        // ── Compute block indexes from file addresses ────────
+        uint64_t cancelBase  = ReadAt<uint64_t>(buf, cap, 0x1D0);
+        uint64_t hitCondBase = ReadAt<uint64_t>(buf, cap, 0x190);
+        uint64_t voiceBase   = ReadAt<uint64_t>(buf, cap, 0x240);
+        uint64_t exPropBase  = ReadAt<uint64_t>(buf, cap, 0x200);
+        uint64_t stPropBase  = ReadAt<uint64_t>(buf, cap, 0x210);
+        uint64_t enPropBase  = ReadAt<uint64_t>(buf, cap, 0x220);
+
+        if (m.cancel_addr && m.cancel_addr < cap && cancelBase && m.cancel_addr >= cancelBase)
+            m.cancel_idx = (uint32_t)((m.cancel_addr - cancelBase) / 0x28);
+        if (m.hit_condition_addr && m.hit_condition_addr < cap && hitCondBase && m.hit_condition_addr >= hitCondBase)
+            m.hit_condition_idx = (uint32_t)((m.hit_condition_addr - hitCondBase) / 0x18);
+        if (m.voicelip_addr && m.voicelip_addr < cap && voiceBase && m.voicelip_addr >= voiceBase)
+            m.voiceclip_idx = (uint32_t)((m.voicelip_addr - voiceBase) / 0x0C);
+        if (m.extra_move_property_addr && m.extra_move_property_addr < cap && exPropBase && m.extra_move_property_addr >= exPropBase)
+            m.extra_prop_idx = (uint32_t)((m.extra_move_property_addr - exPropBase) / 0x28);
+        if (m.move_start_extraprop_addr && m.move_start_extraprop_addr < cap && stPropBase && m.move_start_extraprop_addr >= stPropBase)
+            m.start_prop_idx = (uint32_t)((m.move_start_extraprop_addr - stPropBase) / 0x20);
+        if (m.move_end_extraprop_addr && m.move_end_extraprop_addr < cap && enPropBase && m.move_end_extraprop_addr >= enPropBase)
+            m.end_prop_idx = (uint32_t)((m.move_end_extraprop_addr - enPropBase) / 0x20);
+
+        // ── Name lookup via name_keys.json ───────────────────
+        // Supplement entries are placeholder strings of the form "nkXXXXXXXX___"
+        // (nk + 8 uppercase hex digits + padding underscores).  These exist only
+        // to produce correct string-block byte offsets in the binary; they are not
+        // human-readable names, so we fall back to "move_N" for those.
+        if (nameKey != 0)
+        {
+            const char* name = LabelDB::Get().GetMoveName(nameKey);
+            if (name)
+            {
+                // Detect supplement placeholder: starts with "nk" followed by
+                // exactly 8 hex digits (e.g. "nk0E8134F4__________")
+                bool isPlaceholder = false;
+                if (name[0] == 'n' && name[1] == 'k')
+                {
+                    isPlaceholder = true;
+                    for (int hc = 0; hc < 8; ++hc)
+                    {
+                        char c = name[2 + hc];
+                        if (!((c >= '0' && c <= '9') ||
+                              (c >= 'A' && c <= 'F') ||
+                              (c >= 'a' && c <= 'f')))
+                        { isPlaceholder = false; break; }
+                    }
+                }
+                if (!isPlaceholder)
+                    m.displayName = name;
+            }
+        }
+        if (m.displayName.empty())
+            m.displayName = "move_" + std::to_string(static_cast<uint64_t>(i));
+
+        result.moves.push_back(std::move(m));
+    }
+
+    result.loaded = true;
+    return result;
+}

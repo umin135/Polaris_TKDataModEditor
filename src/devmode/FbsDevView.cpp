@@ -172,6 +172,9 @@ void FbsDevView::RenderEditorArea()
     case BinType::CustomizeItemCommonList:
         RenderCustomizeItemCommonEditor(bin);
         break;
+    case BinType::CharacterList:
+        RenderCharacterEditor(bin);
+        break;
     default:
         ImGui::TextDisabled("No editor available for this bin type.");
         break;
@@ -325,6 +328,132 @@ void FbsDevView::RenderCustomizeItemCommonEditor(ContentsBinData& bin)
 
     if (deleteIdx >= 0)
         bin.commonEntries.erase(bin.commonEntries.begin() + deleteIdx);
+
+    ImGui::EndTable();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  character_list editor (15 fields)
+// ─────────────────────────────────────────────────────────────────────────────
+
+void FbsDevView::RenderCharacterEditor(ContentsBinData& bin)
+{
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.82f, 1.00f, 1.00f));
+    ImGui::Text("character_list.bin");
+    ImGui::PopStyleColor();
+    ImGui::SameLine();
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.42f, 0.42f, 0.54f, 1.00f));
+    ImGui::Text("(%d entries)", (int)bin.characterEntries.size());
+    ImGui::PopStyleColor();
+
+    const float addBtnW = 100.0f;
+    ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
+    if (ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
+        bin.characterEntries.push_back(CharacterEntry{});
+
+    ImGui::Separator();
+
+    constexpr ImGuiTableFlags tFlags =
+        ImGuiTableFlags_ScrollX       |
+        ImGuiTableFlags_ScrollY       |
+        ImGuiTableFlags_RowBg         |
+        ImGuiTableFlags_BordersOuter  |
+        ImGuiTableFlags_BordersInnerV |
+        ImGuiTableFlags_Resizable     |
+        ImGuiTableFlags_Reorderable   |
+        ImGuiTableFlags_Hideable      |
+        ImGuiTableFlags_SizingFixedFit;
+
+    // 1 control column + 15 field columns = 16
+    if (!ImGui::BeginTable("##DevCharTable", 16, tFlags, ImGui::GetContentRegionAvail()))
+        return;
+
+    ImGui::TableSetupScrollFreeze(1, 1);
+
+    // Column widths indexed by schema id (same order as FieldNames::Character)
+    static const float k_ColWidths[15] = {
+       130.0f,  // id  0  character_code
+        95.0f,  // id  1  name_hash
+        78.0f,  // id  2  is_enabled
+        85.0f,  // id  3  is_selectable
+       100.0f,  // id  4  group
+        95.0f,  // id  5  camera_offset
+        78.0f,  // id  6  is_playable
+        82.0f,  // id  7  sort_order
+       175.0f,  // id  8  full_name_key
+       175.0f,  // id  9  short_name_jp_key
+       175.0f,  // id 10  short_name_key
+       160.0f,  // id 11  origin_key
+       175.0f,  // id 12  fighting_style_key
+       160.0f,  // id 13  height_key
+       160.0f,  // id 14  weight_key
+    };
+    ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 52.0f);
+    for (int fi = 0; fi < FieldNames::CharacterCount; ++fi)
+        ImGui::TableSetupColumn(FieldNames::Character[fi],
+                                ImGuiTableColumnFlags_WidthFixed, k_ColWidths[fi]);
+    ImGui::TableHeadersRow();
+
+    int deleteIdx = -1;
+
+    ImGuiListClipper clipper;
+    clipper.Begin(static_cast<int>(bin.characterEntries.size()));
+    while (clipper.Step())
+    {
+        for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i)
+        {
+            auto& e = bin.characterEntries[i];
+            ImGui::TableNextRow();
+            ImGui::PushID(i);
+
+            ImGui::TableSetColumnIndex(0);
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.50f, 0.50f, 0.60f, 1.00f));
+            ImGui::Text("%d", i + 1);
+            ImGui::PopStyleColor();
+            ImGui::SameLine(0, 4.0f);
+            ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
+            if (ImGui::SmallButton("X")) deleteIdx = i;
+            ImGui::PopStyleColor(3);
+
+            auto StrCell = [](const char* id, char* buf, size_t sz) {
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                ImGui::InputText(id, buf, sz);
+            };
+            auto U32Cell = [](const char* id, uint32_t& v) {
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                ImGui::InputScalar(id, ImGuiDataType_U32, &v);
+            };
+            auto BoolCell = [](const char* id, bool& v) { ImGui::Checkbox(id, &v); };
+            auto F32Cell  = [](const char* id, float& v) {
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                ImGui::InputScalar(id, ImGuiDataType_Float, &v);
+            };
+
+            ImGui::TableSetColumnIndex(1);  StrCell("##cc",   e.character_code,      sizeof(e.character_code));
+            ImGui::TableSetColumnIndex(2);  U32Cell("##nh",   e.name_hash);
+            ImGui::TableSetColumnIndex(3);  BoolCell("##enb", e.is_enabled);
+            ImGui::TableSetColumnIndex(4);  BoolCell("##sel", e.is_selectable);
+            ImGui::TableSetColumnIndex(5);  StrCell("##grp",  e.group,               sizeof(e.group));
+            ImGui::TableSetColumnIndex(6);  F32Cell("##cam",  e.camera_offset);
+            ImGui::TableSetColumnIndex(7);  BoolCell("##ply", e.is_playable);
+            ImGui::TableSetColumnIndex(8);  U32Cell("##sord", e.sort_order);
+            ImGui::TableSetColumnIndex(9);  StrCell("##fnk",  e.full_name_key,        sizeof(e.full_name_key));
+            ImGui::TableSetColumnIndex(10); StrCell("##snjp", e.short_name_jp_key,    sizeof(e.short_name_jp_key));
+            ImGui::TableSetColumnIndex(11); StrCell("##snk",  e.short_name_key,       sizeof(e.short_name_key));
+            ImGui::TableSetColumnIndex(12); StrCell("##ori",  e.origin_key,           sizeof(e.origin_key));
+            ImGui::TableSetColumnIndex(13); StrCell("##fsk",  e.fighting_style_key,   sizeof(e.fighting_style_key));
+            ImGui::TableSetColumnIndex(14); StrCell("##htk",  e.height_key,           sizeof(e.height_key));
+            ImGui::TableSetColumnIndex(15); StrCell("##wtk",  e.weight_key,           sizeof(e.weight_key));
+
+            ImGui::PopID();
+        }
+    }
+    clipper.End();
+
+    if (deleteIdx >= 0)
+        bin.characterEntries.erase(bin.characterEntries.begin() + deleteIdx);
 
     ImGui::EndTable();
 }

@@ -157,10 +157,20 @@
   <ItemGroup>
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\App.cpp" />
+    <ClCompile Include="src\Config.cpp" />
     <ClCompile Include="src\editors\FbsDataView.cpp" />
     <ClCompile Include="src\io\TkmodIO.cpp" />
+    <ClCompile Include="src\moveset\MovesetView.cpp" />
+    <ClCompile Include="src\moveset\MotbinData.cpp" />
+    <ClCompile Include="src\moveset\MovesetEditorWindow.cpp" />
+    <ClCompile Include="src\moveset\LabelDB.cpp" />
+    <ClCompile Include="src\moveset\MotbinSerialize.cpp" />
+    <ClCompile Include="src\extract\GameProcess.cpp" />
+    <ClCompile Include="src\extract\MovesetExtractor.cpp" />
+    <ClCompile Include="src\extract\ExtractorView.cpp" />
     <ClCompile Include="src\devmode\FbsBinaryIO.cpp" />
     <ClCompile Include="src\devmode\FbsDevView.cpp" />
+    <ClCompile Include="src\devmode\MotbinDiffView.cpp" />
   </ItemGroup>
 
   <!-- ════════════════════════════════════════════════════════ -->
@@ -180,12 +190,22 @@
   <!-- ════════════════════════════════════════════════════════ -->
   <ItemGroup>
     <ClInclude Include="src\App.h" />
+    <ClInclude Include="src\Config.h" />
     <ClInclude Include="src\data\ModData.h" />
     <ClInclude Include="src\data\FieldNames.h" />
     <ClInclude Include="src\editors\FbsDataView.h" />
     <ClInclude Include="src\io\TkmodIO.h" />
+    <ClInclude Include="src\moveset\MovesetView.h" />
+    <ClInclude Include="src\moveset\MotbinData.h" />
+    <ClInclude Include="src\moveset\MovesetEditorWindow.h" />
+    <ClInclude Include="src\moveset\LabelDB.h" />
+    <ClInclude Include="src\moveset\MotbinSerialize.h" />
+    <ClInclude Include="src\extract\GameProcess.h" />
+    <ClInclude Include="src\extract\MovesetExtractor.h" />
+    <ClInclude Include="src\extract\ExtractorView.h" />
     <ClInclude Include="src\devmode\FbsBinaryIO.h" />
     <ClInclude Include="src\devmode\FbsDevView.h" />
+    <ClInclude Include="src\devmode\MotbinDiffView.h" />
     <ClInclude Include="imgui\imgui.h" />
     <ClInclude Include="imgui\imgui_internal.h" />
     <ClInclude Include="imgui\imconfig.h" />
