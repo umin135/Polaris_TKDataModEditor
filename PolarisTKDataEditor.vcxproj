@@ -190,6 +190,7 @@
     <ClInclude Include="src\moveset\MovesetEditorWindow.h" />
     <ClInclude Include="src\moveset\GameLiveEdit.h" />
     <ClInclude Include="src\moveset\LabelDB.h" />
+    <ClInclude Include="src\moveset\EditorFieldLabel.h" />
     <ClInclude Include="src\moveset\MotbinSerialize.h" />
     <ClInclude Include="src\extract\GameProcess.h" />
     <ClInclude Include="src\extract\MovesetExtractor.h" />
