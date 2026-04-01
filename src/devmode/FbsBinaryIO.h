@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #ifdef _DEBUG
 
 #include "data/ModData.h"
@@ -6,10 +6,10 @@
 #include <string>
 #include <cstdint>
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  FlatBuffers binary reader/writer (dev-mode only)
 //  Supports: customize_item_common_list.bin, character_list.bin
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 namespace FbsBinaryIO
 {

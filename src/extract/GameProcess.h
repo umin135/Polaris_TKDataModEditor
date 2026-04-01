@@ -1,12 +1,12 @@
-#pragma once
+﻿#pragma once
 #include <windows.h>
 #include <cstdint>
 #include <string>
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  GameProcess
 //  Win32 helper to find, open, and read from a running process.
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 struct GameProcessInfo {
     HANDLE      handle     = INVALID_HANDLE_VALUE;
@@ -40,7 +40,7 @@ inline bool ReadGameValue(const GameProcessInfo& info, uintptr_t addr, T& out)
 bool ReadGamePointer(const GameProcessInfo& info, uintptr_t ptrAddr, uintptr_t& out);
 
 // Follow a chain of pointer dereferences:
-//   base → [base + offsets[0]] → [result + offsets[1]] → ...
+//   base -> [base + offsets[0]] -> [result + offsets[1]] -> ...
 bool ReadPointerChain(const GameProcessInfo& info,
                       uintptr_t base,
                       const size_t* offsets,

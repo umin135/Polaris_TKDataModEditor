@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include "MotbinData.h"
 #include <string>
 
@@ -23,22 +23,26 @@ public:
     };
 
     struct CancelsWinState {
-        bool         open          = false;
-        bool         pendingFocus  = false;
+        bool         open                  = false;
+        bool         pendingFocus          = false;
         TwoLevelSel  cancelSel;
         TwoLevelSel  groupCancelSel;
-        int          extradataSel  = 0;
+        int          extradataSel          = 0;
+        bool         extraScrollPending    = false;
     };
 
     struct ReactionListWinState {
-        bool open        = false;
-        int  selectedIdx = 0;
+        bool open            = false;
+        int  selectedIdx     = 0;
+        bool scrollPending   = false;
     };
 
     struct PushbackWinState {
-        bool open        = false;
-        int  pushbackSel = 0;
-        int  extraSel    = 0;
+        bool open                 = false;
+        int  pushbackSel          = 0;
+        int  extraSel             = 0;
+        bool extraScrollPending   = false;
+        bool pbScrollPending      = false;
     };
 
     struct PropertiesWinState {
@@ -56,7 +60,7 @@ public:
 
     bool Render();
 
-    // Called by RenderCancelSection (free static) — must be public for that access
+    // Called by RenderCancelSection (free static) -- must be public for that access
     void RenderCancelInnerDetail(
         const ParsedCancel& c, int localIdx, uint32_t blockIdx,
         const std::vector<std::pair<uint32_t,uint32_t>>& gcGroups);

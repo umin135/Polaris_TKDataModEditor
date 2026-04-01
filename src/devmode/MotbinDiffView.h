@@ -1,14 +1,14 @@
-#pragma once
+﻿#pragma once
 #ifdef _DEBUG
 
 #include <string>
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  MotbinDiffView  (Debug only)
 //
 //  Loads two state-1 .motbin files (original vs extracted) and writes a
 //  field-level diff report to <movesetRootDir>\report.txt.
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 class MotbinDiffView
 {

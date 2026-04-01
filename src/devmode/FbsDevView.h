@@ -1,15 +1,15 @@
-#pragma once
+﻿#pragma once
 #ifdef _DEBUG
 
 #include "data/ModData.h"
 #include <string>
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  FbsDevView  —  Developer-mode fbsdata editor
+// -----------------------------------------------------------------------------
+//  FbsDevView  --  Developer-mode fbsdata editor
 //
 //  Reads/writes original .bin files (FlatBuffers binary) instead of .tkmod.
 //  Only compiled in Debug builds.
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 class FbsDevView
 {

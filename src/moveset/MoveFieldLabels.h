@@ -1,5 +1,5 @@
-#pragma once
-// ─────────────────────────────────────────────────────────────────────────────
+﻿#pragma once
+// -----------------------------------------------------------------------------
 //  Move field display labels.
 //  Edit this file to rename how fields appear in the editor.
 //
@@ -36,7 +36,7 @@
 //  0x2E0   | collision?             | short (u16)    | collision-related
 //  0x2E2   | distance               | short (u17)    | distance-related
 //  0x444   | u18                    | int            | unknown
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 namespace MoveLabel {
     static constexpr const char* Name         = "name";
     static constexpr const char* NameKey      = "name_key";

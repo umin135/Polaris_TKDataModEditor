@@ -1,25 +1,25 @@
-// MotbinSerialize.cpp
-// Converts state-3 raw motbin dump → state-1 loader-compatible binary.
+﻿// MotbinSerialize.cpp
+// Converts state-3 raw motbin dump -> state-1 loader-compatible binary.
 // Reference: OldTool2 jsonToBin.py
 #include "MotbinSerialize.h"
 #include <cstring>
 #include <algorithm>
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  Constants
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 static constexpr size_t   kBase       = 0x318;
 static constexpr size_t   kHdrSize    = kBase;
 static constexpr uint64_t kSentinel   = 0xFFFFFFFFFFFFFFFFULL;
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  XOR_KEYS encryption  (jsonToBin.py encrypt_value)
 //
-//  Each encrypted field occupies 0x20 bytes (8 × uint32).
+//  Each encrypted field occupies 0x20 bytes (8 ? uint32).
 //  Slot [moveIdx % 8] stores (value ^ key[slot]).
 //  All other slots store ((0x765 + moveIdx) ^ key[j]).
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 static const uint32_t kXorKeys[8] = {
     0x964f5b9eU, 0xd88448a2U, 0xa84b71e0U, 0xa27d5221U,
@@ -38,10 +38,10 @@ static void XorEncrypt(uint8_t* moveBuf, size_t attrOff,
     }
 }
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  Game-memory decryption  (validateAndTransform64BitValue)
 //  Used to recover decrypted values from raw state-3 move blocks.
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 static uint32_t CalcChecksum(uint32_t input_value, uint64_t key)
 {
@@ -87,10 +87,10 @@ uint32_t DecryptMotbinMoveKey(const uint8_t* moveBuf, size_t blockOff)
     return DecryptMoveBlock(moveBuf, blockOff);
 }
 
-// ─────────────────────────────────────────────────────────────
-//  Pointer fixup  (absolute addresses → file-relative offsets)
+// -------------------------------------------------------------
+//  Pointer fixup  (absolute addresses -> file-relative offsets)
 //  Mirrors MotbinData.cpp ApplyFixup.
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 struct FBDesc { size_t ptrOff, cntOff, stride; int n; size_t ep[8]; };
 
@@ -156,9 +156,9 @@ static void ApplyFixup(std::vector<uint8_t>& v, uint64_t base)
         }
 }
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  Block layout helpers
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 struct BL { uint64_t off, cnt; size_t stride; };
 
@@ -171,9 +171,9 @@ static BL ReadBL(const uint8_t* b, size_t sz,
     return bl;
 }
 
-// Convert file offset → element index within a block.
+// Convert file offset -> element index within a block.
 // Null (0) and kSentinel pass through unchanged.
-// Values outside the block's range also pass through unchanged — they are
+// Values outside the block's range also pass through unchanged -- they are
 // game-internal sentinels (e.g. 0xEAABEAABEAABEAAB in reaction_list) that
 // survive ApplyFixup and must be preserved as-is in the state-1 file.
 static uint64_t ToIdx(uint64_t fileOff, const BL& bl)
@@ -197,9 +197,9 @@ static void W16(uint8_t* b, size_t o, uint16_t v) { memcpy(b+o, &v, 2); }
 static void W32(uint8_t* b, size_t o, uint32_t v) { memcpy(b+o, &v, 4); }
 static void W64(uint8_t* b, size_t o, uint64_t v) { memcpy(b+o, &v, 8); }
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  ExportLoaderBin
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 std::vector<uint8_t> ExportLoaderBin(const std::vector<uint8_t>& rawBytes,
                                       uint64_t motbinBase,
@@ -214,7 +214,7 @@ std::vector<uint8_t> ExportLoaderBin(const std::vector<uint8_t>& rawBytes,
     const uint8_t* src     = fixed.data();
     const size_t   srcSize = fixed.size();
 
-    // ── Read block layouts from fixed header ──────────────────────────
+    // -- Read block layouts from fixed header --------------------------
     BL bl_react  = ReadBL(src, srcSize, 0x168, 0x178, 0x70);
     BL bl_req    = ReadBL(src, srcSize, 0x180, 0x188, 0x14);
     BL bl_hitc   = ReadBL(src, srcSize, 0x190, 0x198, 0x18);
@@ -236,11 +236,11 @@ std::vector<uint8_t> ExportLoaderBin(const std::vector<uint8_t>& rawBytes,
     BL bl_thr    = ReadBL(src, srcSize, 0x290, 0x298, 0x10);
     BL bl_dia    = ReadBL(src, srcSize, 0x2A0, 0x2A8, 0x18);
 
-    // ── Virtual string-block offsets ─────────────────────────────────
+    // -- Virtual string-block offsets ---------------------------------
     // charName is always at offset 0 in the virtual block (header 0x10 = 0).
-    // creatorOff / dateOff / fullDateOff → header 0x18 / 0x20 / 0x28.
-    // totalSize → header 0x170 (string_block_end_offset).
-    // nameOff[i] / animOff[i] → move[i]+0x040 / move[i]+0x048.
+    // creatorOff / dateOff / fullDateOff -> header 0x18 / 0x20 / 0x28.
+    // totalSize -> header 0x170 (string_block_end_offset).
+    // nameOff[i] / animOff[i] -> move[i]+0x040 / move[i]+0x048.
     struct VStrBlock {
         uint64_t creatorOff  = 0;
         uint64_t dateOff     = 0;
@@ -270,7 +270,7 @@ std::vector<uint8_t> ExportLoaderBin(const std::vector<uint8_t>& rawBytes,
         vsb.totalSize = cur;
     }
 
-    // ── Compute output layout (blocks start at kBase = 0x318) ─────────
+    // -- Compute output layout (blocks start at kBase = 0x318) ---------
     size_t outSz = kBase;
     size_t o_react  = outSz; outSz += static_cast<size_t>(bl_react.cnt)  * 0x70;
     size_t o_req    = outSz; outSz += static_cast<size_t>(bl_req.cnt)    * 0x14;
@@ -297,7 +297,7 @@ std::vector<uint8_t> ExportLoaderBin(const std::vector<uint8_t>& rawBytes,
     std::vector<uint8_t> out(outSz, 0);
     uint8_t* dst = out.data();
 
-    // ── Header ────────────────────────────────────────────────────────
+    // -- Header --------------------------------------------------------
     // 0x00: disable_anim_lookup = 0
     // 0x04: _0x4 (copy from src)
     W32(dst, 0x04, RAt<uint32_t>(src, srcSize, 0x04));
@@ -350,7 +350,7 @@ std::vector<uint8_t> ExportLoaderBin(const std::vector<uint8_t>& rawBytes,
     }
     // 0x2B0-0x317: mota pointers (zero)
 
-    // ── Helper: safe block copy ───────────────────────────────────────
+    // -- Helper: safe block copy ---------------------------------------
     auto CopyBlock = [&](size_t dstOff, const BL& bl, size_t elemSz) {
         if (!bl.off || !bl.cnt) return;
         size_t blkSz = static_cast<size_t>(bl.cnt * elemSz);
@@ -358,8 +358,8 @@ std::vector<uint8_t> ExportLoaderBin(const std::vector<uint8_t>& rawBytes,
             memcpy(dst + dstOff, src + bl.off, blkSz);
     };
 
-    // ── reaction_list ─────────────────────────────────────────────────
-    // 7 × uint64 pushback pointers at +0x00..+0x30; +0x38 is front_direction (uint16, not a ptr)
+    // -- reaction_list -------------------------------------------------
+    // 7 ? uint64 pushback pointers at +0x00..+0x30; +0x38 is front_direction (uint16, not a ptr)
     for (uint64_t i = 0; i < bl_react.cnt; ++i) {
         size_t si = static_cast<size_t>(bl_react.off + i * 0x70);
         size_t di = o_react + static_cast<size_t>(i * 0x70);
@@ -369,10 +369,10 @@ std::vector<uint8_t> ExportLoaderBin(const std::vector<uint8_t>& rawBytes,
             W64(dst, di + p * 8, ToIdx(RAt<uint64_t>(src, srcSize, si + p * 8), bl_push));
     }
 
-    // ── requirements (no inner pointers) ─────────────────────────────
+    // -- requirements (no inner pointers) -----------------------------
     CopyBlock(o_req, bl_req, 0x14);
 
-    // ── hit_conditions ────────────────────────────────────────────────
+    // -- hit_conditions ------------------------------------------------
     // [0x00] requirement_idx (uint64)
     // [0x08] damage (written as uint64 in jsonToBin)
     // [0x10] reaction_list_idx (uint64)
@@ -385,7 +385,7 @@ std::vector<uint8_t> ExportLoaderBin(const std::vector<uint8_t>& rawBytes,
         W64(dst, di + 0x10, ToIdx(RAt<uint64_t>(src, srcSize, si + 0x10), bl_react));
     }
 
-    // ── projectiles ───────────────────────────────────────────────────
+    // -- projectiles ---------------------------------------------------
     // Pointer fields: hit_condition_idx @0x90, cancel_idx @0x98
     // Runtime fields: 0xAC (u32), 0xB0 (u64)
     //   0xAC: game computes this at load time (= 0x30 * 2) for normal projectiles
@@ -400,13 +400,13 @@ std::vector<uint8_t> ExportLoaderBin(const std::vector<uint8_t>& rawBytes,
         W64(dst, di + 0x90, ToIdx(RAt<uint64_t>(src, srcSize, si + 0x90), bl_hitc));
         W64(dst, di + 0x98, ToIdx(RAt<uint64_t>(src, srcSize, si + 0x98), bl_can));
         // 0xAC: zero only for normal projectile types (no 0x800 bit in type @0x00).
-        // Special types (0x800 bit) preserve the file value — game doesn't overwrite.
+        // Special types (0x800 bit) preserve the file value -- game doesn't overwrite.
         if (!(RAt<uint32_t>(src, srcSize, si + 0x00) & 0x800u))
             W32(dst, di + 0xAC, 0);
         W64(dst, di + 0xB0, 0);  // always runtime, always 0 in file format
     }
 
-    // ── pushbacks  (pointer field: pushbackextra_idx @0x08) ──────────
+    // -- pushbacks  (pointer field: pushbackextra_idx @0x08) ----------
     for (uint64_t i = 0; i < bl_push.cnt; ++i) {
         size_t si = static_cast<size_t>(bl_push.off + i * 0x10);
         size_t di = o_push + static_cast<size_t>(i * 0x10);
@@ -415,10 +415,10 @@ std::vector<uint8_t> ExportLoaderBin(const std::vector<uint8_t>& rawBytes,
         W64(dst, di + 0x08, ToIdx(RAt<uint64_t>(src, srcSize, si + 0x08), bl_pushex));
     }
 
-    // ── pushback_extras (no inner pointers) ──────────────────────────
+    // -- pushback_extras (no inner pointers) --------------------------
     CopyBlock(o_pushex, bl_pushex, 0x02);
 
-    // ── cancels  (requirement_idx @0x08, extradata_idx @0x10) ─────────
+    // -- cancels  (requirement_idx @0x08, extradata_idx @0x10) ---------
     auto WriteCancels = [&](size_t dstBase, const BL& bl_src) {
         for (uint64_t i = 0; i < bl_src.cnt; ++i) {
             size_t si = static_cast<size_t>(bl_src.off + i * 0x28);
@@ -435,10 +435,10 @@ std::vector<uint8_t> ExportLoaderBin(const std::vector<uint8_t>& rawBytes,
     WriteCancels(o_can,  bl_can);
     WriteCancels(o_gcan, bl_gcan);
 
-    // ── cancel_extradata (no inner pointers) ─────────────────────────
+    // -- cancel_extradata (no inner pointers) -------------------------
     CopyBlock(o_canex, bl_canex, 0x04);
 
-    // ── extra_move_properties (timed) — requirement_idx @0x08 ────────
+    // -- extra_move_properties (timed) -- requirement_idx @0x08 --------
     for (uint64_t i = 0; i < bl_exprop.cnt; ++i) {
         size_t si = static_cast<size_t>(bl_exprop.off + i * 0x28);
         size_t di = o_exprop + static_cast<size_t>(i * 0x28);
@@ -447,7 +447,7 @@ std::vector<uint8_t> ExportLoaderBin(const std::vector<uint8_t>& rawBytes,
         W64(dst, di + 0x08, ToIdx(RAt<uint64_t>(src, srcSize, si + 0x08), bl_req));
     }
 
-    // ── move_start/end_props (untimed) — requirement_idx @0x00 ───────
+    // -- move_start/end_props (untimed) -- requirement_idx @0x00 -------
     auto WriteUntimed = [&](size_t dstBase, const BL& bl_src) {
         for (uint64_t i = 0; i < bl_src.cnt; ++i) {
             size_t si = static_cast<size_t>(bl_src.off + i * 0x20);
@@ -460,7 +460,7 @@ std::vector<uint8_t> ExportLoaderBin(const std::vector<uint8_t>& rawBytes,
     WriteUntimed(o_sprop, bl_sprop);
     WriteUntimed(o_eprop, bl_eprop);
 
-    // ── moves (complex: re-encrypt + convert pointer fields) ──────────
+    // -- moves (complex: re-encrypt + convert pointer fields) ----------
     for (uint64_t i = 0; i < bl_moves.cnt; ++i) {
         size_t    si  = static_cast<size_t>(bl_moves.off + i * 0x448);
         size_t    di  = o_moves + static_cast<size_t>(i * 0x448);
@@ -501,22 +501,22 @@ std::vector<uint8_t> ExportLoaderBin(const std::vector<uint8_t>& rawBytes,
         XorEncrypt(dst + di, 0xD0, DecryptMoveBlock(mb, 0xD0), idx);  // t_char_id
         XorEncrypt(dst + di, 0xF0, DecryptMoveBlock(mb, 0xF0), idx);  // ordinal_id
 
-        // anim_addr_enc1/2: mode=0 → (move_idx, 0)
+        // anim_addr_enc1/2: mode=0 -> (move_idx, 0)
         W32(dst, di + 0x50, idx);
         W32(dst, di + 0x54, 0);
 
-        // Convert pointer fields → indices
+        // Convert pointer fields -> indices
         auto cvt = [&](size_t off, const BL& bl) {
             W64(dst, di + off, ToIdx(RAt<uint64_t>(src, srcSize, si + off), bl));
         };
-        // Optional pointer fields: null (0) in state-3 → sentinel (0xFFFFFFFFFFFFFFFF)
+        // Optional pointer fields: null (0) in state-3 -> sentinel (0xFFFFFFFFFFFFFFFF)
         // in index format.  The original working motbin uses sentinel for "no data".
         auto cvtOpt = [&](size_t off, const BL& bl) {
             uint64_t fileOff = RAt<uint64_t>(src, srcSize, si + off);
             W64(dst, di + off, (fileOff == 0) ? kSentinel : ToIdx(fileOff, bl));
         };
-        cvt(0x98,  bl_can);     // cancel_addr  → regular cancel index
-        W64(dst, di + 0xA0, 0); // cancel2_addr → 0 (game-internal, always 0 in file format)
+        cvt(0x98,  bl_can);     // cancel_addr  -> regular cancel index
+        W64(dst, di + 0xA0, 0); // cancel2_addr -> 0 (game-internal, always 0 in file format)
         cvt(0x110, bl_hitc);    // hit_condition_addr
         // u1/u2/u3/u4 @0xA8-0xC0: pointer fields fixed by ApplyFixup; target block
         // unknown.  Zero them (matches motbinImport.py behaviour for 0xA0/0xA8).
@@ -524,17 +524,17 @@ std::vector<uint8_t> ExportLoaderBin(const std::vector<uint8_t>& rawBytes,
         W64(dst, di + 0xB0, 0);
         W64(dst, di + 0xB8, 0);
         W64(dst, di + 0xC0, 0);
-        // Optional fields: null → sentinel so loader recognises "not present"
+        // Optional fields: null -> sentinel so loader recognises "not present"
         cvtOpt(0x130, bl_voice);
         cvtOpt(0x138, bl_exprop);
         cvtOpt(0x140, bl_sprop);
         cvtOpt(0x148, bl_eprop);
     }
 
-    // ── voiceclips (no inner pointers) ───────────────────────────────
+    // -- voiceclips (no inner pointers) -------------------------------
     CopyBlock(o_voice, bl_voice, 0x0C);
 
-    // ── input_sequences  (extradata_idx @0x08) ───────────────────────
+    // -- input_sequences  (extradata_idx @0x08) -----------------------
     for (uint64_t i = 0; i < bl_inseq.cnt; ++i) {
         size_t si = static_cast<size_t>(bl_inseq.off + i * 0x10);
         size_t di = o_inseq + static_cast<size_t>(i * 0x10);
@@ -543,16 +543,16 @@ std::vector<uint8_t> ExportLoaderBin(const std::vector<uint8_t>& rawBytes,
         W64(dst, di + 0x08, ToIdx(RAt<uint64_t>(src, srcSize, si + 0x08), bl_inex));
     }
 
-    // ── input_extradata (no inner pointers) ──────────────────────────
+    // -- input_extradata (no inner pointers) --------------------------
     CopyBlock(o_inex, bl_inex, 0x08);
 
-    // ── parry_related (no inner pointers) ────────────────────────────
+    // -- parry_related (no inner pointers) ----------------------------
     CopyBlock(o_parry, bl_parry, 0x04);
 
-    // ── throw_extras (no inner pointers) ─────────────────────────────
+    // -- throw_extras (no inner pointers) -----------------------------
     CopyBlock(o_threx, bl_threx, 0x0C);
 
-    // ── throws  (throwextra_idx @0x08) ────────────────────────────────
+    // -- throws  (throwextra_idx @0x08) --------------------------------
     for (uint64_t i = 0; i < bl_thr.cnt; ++i) {
         size_t si = static_cast<size_t>(bl_thr.off + i * 0x10);
         size_t di = o_thr + static_cast<size_t>(i * 0x10);
@@ -561,15 +561,15 @@ std::vector<uint8_t> ExportLoaderBin(const std::vector<uint8_t>& rawBytes,
         W64(dst, di + 0x08, ToIdx(RAt<uint64_t>(src, srcSize, si + 0x08), bl_threx));
     }
 
-    // ── dialogues  (requirement_idx @0x08, audio-ID @0x10 is not a block ptr) ──
+    // -- dialogues  (requirement_idx @0x08, audio-ID @0x10 is not a block ptr) --
     for (uint64_t i = 0; i < bl_dia.cnt; ++i) {
         size_t si = static_cast<size_t>(bl_dia.off + i * 0x18);
         size_t di = o_dia + static_cast<size_t>(i * 0x18);
         if (si + 0x18 > srcSize) break;
         memcpy(dst + di, src + si, 0x18);
-        // 0x08: requirement pointer → index (confirmed from original file analysis)
+        // 0x08: requirement pointer -> index (confirmed from original file analysis)
         W64(dst, di + 0x08, ToIdx(RAt<uint64_t>(src, srcSize, si + 0x08), bl_req));
-        // 0x10: audio/voice ID — not a block pointer, memcpy'd as-is above
+        // 0x10: audio/voice ID -- not a block pointer, memcpy'd as-is above
     }
 
     return out;

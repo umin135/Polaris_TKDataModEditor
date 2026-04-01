@@ -4,3 +4,5 @@
 
 IDI_TKMOD_FILE    ICON   "res\\tkmod_256.ico"
 IDR_HOME_LOGO_PNG RCDATA "res\\Home_Logo.png"
+IDR_FONT_REGULAR  RCDATA "res\\fonts\\en\\NotoSans-Regular.ttf"
+IDR_FONT_BOLD     RCDATA "res\\fonts\\en\\NotoSans-Bold.ttf"

@@ -1,4 +1,4 @@
-// GameProcess.cpp — Win32 process read utilities
+﻿// GameProcess.cpp -- Win32 process read utilities
 #include "GameProcess.h"
 #include <tlhelp32.h>
 #include <psapi.h>
@@ -7,9 +7,9 @@
 
 static constexpr wchar_t kProcessName[] = L"Polaris-Win64-Shipping.exe";
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  FindGameProcess
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 bool FindGameProcess(GameProcessInfo& out)
 {
@@ -86,7 +86,7 @@ bool FindGameProcess(GameProcessInfo& out)
     return true;
 }
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 void CloseGameProcess(GameProcessInfo& info)
 {

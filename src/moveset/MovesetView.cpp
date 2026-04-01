@@ -1,4 +1,4 @@
-// MovesetView.cpp
+﻿// MovesetView.cpp
 // Scans a root directory for moveset folders and renders a list table.
 #include "MovesetView.h"
 #include "Config.h"
@@ -8,9 +8,9 @@
 #include <cstdio>
 #include <string>
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  String helpers
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 static std::wstring Utf8ToWide(const std::string& s)
 {
@@ -30,9 +30,9 @@ static std::string WideToUtf8(const wchar_t* w)
     return s;
 }
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  INI parser for moveset.ini
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 bool MovesetView::ParseIni(const std::wstring& iniPath,
                             std::string& origChar,
@@ -89,9 +89,9 @@ bool MovesetView::ParseIni(const std::wstring& iniPath,
     return true;
 }
 
-// ─────────────────────────────────────────────────────────────
-//  Scan — enumerate subdirectories and detect moveset folders
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
+//  Scan -- enumerate subdirectories and detect moveset folders
+// -------------------------------------------------------------
 
 static const wchar_t* k_MovesetFiles[] = {
     L"moveset.anmbin",
@@ -159,9 +159,9 @@ void MovesetView::RefreshIfNeeded(const std::string& rootDir)
         Scan(rootDir);
 }
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  Render
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 void MovesetView::Render()
 {
@@ -198,7 +198,7 @@ void MovesetView::Render()
         return;
     }
 
-    // ── Table ──────────────────────────────────────────────────
+    // -- Table --------------------------------------------------
     constexpr ImGuiTableFlags kTableFlags =
         ImGuiTableFlags_BordersOuter      |
         ImGuiTableFlags_BordersInnerH     |

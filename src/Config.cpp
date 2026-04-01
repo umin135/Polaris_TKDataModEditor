@@ -1,4 +1,4 @@
-// Config.cpp — simple INI-based config persistence
+﻿// Config.cpp -- simple INI-based config persistence
 #include "Config.h"
 #include <windows.h>
 #include <cstdio>
@@ -28,9 +28,9 @@ std::string Config::GetConfigPath()
     return dir + "config.ini";
 }
 
-// ─────────────────────────────────────────────────────────────
-//  Load — parse a minimal key=value INI file
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
+//  Load -- parse a minimal key=value INI file
+// -------------------------------------------------------------
 
 void Config::Load()
 {
@@ -84,9 +84,9 @@ void Config::Load()
     fclose(f);
 }
 
-// ─────────────────────────────────────────────────────────────
-//  Save — write current config to config.ini
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
+//  Save -- write current config to config.ini
+// -------------------------------------------------------------
 
 void Config::Save() const
 {

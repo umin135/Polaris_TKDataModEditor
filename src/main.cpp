@@ -1,4 +1,4 @@
-// PolarisTK Data Editor - Entry point
+﻿// PolarisTK Data Editor - Entry point
 // Win32 + DirectX 11 + ImGui application
 
 #include <d3d11.h>
@@ -17,6 +17,10 @@
 #include "imgui/backends/imgui_impl_win32.h"
 #include "imgui/backends/imgui_impl_dx11.h"
 #include "App.h"
+#include "../resource.h"
+
+// Global bold font -- loaded once at startup, used throughout the UI
+ImFont* g_fontBold = nullptr;
 
 // DX11 global state
 static ID3D11Device*            g_pd3dDevice            = nullptr;
@@ -26,9 +30,9 @@ static UINT                     g_ResizeWidth           = 0;
 static UINT                     g_ResizeHeight          = 0;
 static ID3D11RenderTargetView*  g_mainRenderTargetView  = nullptr;
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  .tkmod file association registration (HKCU, no admin required)
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 static void RegisterFileAssociation()
 {
@@ -61,7 +65,7 @@ static void RegisterFileAssociation()
         }
     };
 
-    // .tkmod → ProgID
+    // .tkmod -> ProgID
     SetKey(L"Software\\Classes\\.tkmod",                                                       L"PolarisTKDataEditor.Document");
     // ProgID display name
     SetKey(L"Software\\Classes\\PolarisTKDataEditor.Document",                                 L"PolarisTK Mod Data");
@@ -74,10 +78,10 @@ static void RegisterFileAssociation()
     SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
 }
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  Command-line argument parser
 //  Returns the first argument as UTF-8 if one exists, else empty.
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 static std::string ParseStartupFilePath()
 {
@@ -151,10 +155,43 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
 
     ImGui::StyleColorsDark();
 
+    // Load custom fonts from embedded Win32 resources (RCDATA)
+    // g_fontBold is used for highlighted items (e.g. generic-ID moves in the move list)
+    {
+        ImGuiIO& ioRef = ImGui::GetIO();
+        constexpr float kFontSize = 15.0f;
+
+        auto LoadFontFromResource = [&](int resourceId) -> ImFont*
+        {
+            HRSRC   hRes  = FindResource(nullptr, MAKEINTRESOURCE(resourceId), RT_RCDATA);
+            if (!hRes) return nullptr;
+            HGLOBAL hGlob = LoadResource(nullptr, hRes);
+            if (!hGlob) return nullptr;
+            void*  data = LockResource(hGlob);
+            DWORD  size = SizeofResource(nullptr, hRes);
+            if (!data || size == 0) return nullptr;
+            // ImGui takes ownership of a copy -- pass font_data_owned_by_atlas = false
+            // so we keep the resource memory alive (it stays for the process lifetime)
+            ImFontConfig cfg;
+            cfg.FontDataOwnedByAtlas = false;
+            return ioRef.Fonts->AddFontFromMemoryTTF(data, (int)size, kFontSize, &cfg);
+        };
+
+        // Regular -- becomes the ImGui default font (index 0)
+        ImFont* fontRegular = LoadFontFromResource(IDR_FONT_REGULAR);
+        if (!fontRegular)
+            ioRef.Fonts->AddFontDefault();
+
+        // Bold
+        g_fontBold = LoadFontFromResource(IDR_FONT_BOLD);
+        if (!g_fontBold)
+            g_fontBold = ioRef.Fonts->Fonts[0]; // fallback to regular
+    }
+
     ImGui_ImplWin32_Init(hwnd);
     ImGui_ImplDX11_Init(g_pd3dDevice, g_pd3dDeviceContext);
 
-    // Create application instance — pass DX11 device for texture loading
+    // Create application instance -- pass DX11 device for texture loading
     App app(g_pd3dDevice);
 
     // When viewports are enabled, platform windows must have no rounding

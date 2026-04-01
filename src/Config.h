@@ -1,11 +1,11 @@
-#pragma once
+﻿#pragma once
 #include <string>
 
 struct AppConfig {
     std::string movesetRootDir;
 };
 
-// Singleton config — loaded from / saved to config.ini next to the exe.
+// Singleton config -- loaded from / saved to config.ini next to the exe.
 class Config {
 public:
     static Config& Get();

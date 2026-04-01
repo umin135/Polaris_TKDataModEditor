@@ -1,13 +1,13 @@
-#pragma once
+﻿#pragma once
 #include "GameProcess.h"
 #include <string>
 #include <vector>
 
 struct MotbinNameData;  // defined in MotbinSerialize.h
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  Player slot info (resolved from game memory)
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 struct PlayerSlotInfo {
     bool      valid        = false;
     int       slotIndex    = -1;    // 0 = P1, 1 = P2
@@ -18,19 +18,19 @@ struct PlayerSlotInfo {
     std::string charaName;
 };
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  MovesetExtractor
 //  Reads moveset data from the running game and saves .motbin.
 //
 //  Pointer chain (TK8):
-//    moduleBase + 0x9B7A950  → P1 player ptr
-//    playerAddr + 0x38C8     → motbin ptr
-//    playerAddr + 0x168      → character_id (uint32)
+//    moduleBase + 0x9B7A950  -> P1 player ptr
+//    playerAddr + 0x38C8     -> motbin ptr
+//    playerAddr + 0x168      -> character_id (uint32)
 //
 //  Extraction saves state-3 (populated, absolute pointers) raw dump.
 //  Original base address is written to moveset.base so the editor can
 //  apply fixup at load time. The loader receives the raw file as-is.
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 class MovesetExtractor {
 public:
     MovesetExtractor();

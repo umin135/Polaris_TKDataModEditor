@@ -1,7 +1,7 @@
-// MovesetEditorWindow.cpp
+﻿// MovesetEditorWindow.cpp
 // UI layout mirrors OldTool (TKMovesets2):
-//   Left panel  — searchable move list
-//   Right panel — collapsible property sections per move
+//   Left panel  -- searchable move list
+//   Right panel -- collapsible property sections per move
 #include "MovesetEditorWindow.h"
 #include "LabelDB.h"
 #include "MoveFieldLabels.h"
@@ -12,9 +12,11 @@
 #include <cctype>
 #include <algorithm>
 
-// ─────────────────────────────────────────────────────────────
+extern ImFont* g_fontBold;
+
+// -------------------------------------------------------------
 //  Construction
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 MovesetEditorWindow::MovesetEditorWindow(const std::string& folderPath,
                                          const std::string& movesetName,
@@ -28,9 +30,9 @@ MovesetEditorWindow::MovesetEditorWindow(const std::string& folderPath,
     m_windowTitle = buf;
 }
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  Main render
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 bool MovesetEditorWindow::Render()
 {
@@ -56,10 +58,10 @@ bool MovesetEditorWindow::Render()
         return m_open;
     }
 
-    // ── Menu bar ────────────────────────────────────────────────
+    // -- Menu bar ------------------------------------------------
     RenderViewMenu();
 
-    // ── Two-panel split ──────────────────────────────────
+    // -- Two-panel split ----------------------------------
     const float listW = 240.0f;
 
     ImGui::BeginChild("##mew_list", ImVec2(listW, 0.0f), true,
@@ -103,9 +105,9 @@ bool MovesetEditorWindow::Render()
     return m_open;
 }
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  Requirement viewer floating window
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 void MovesetEditorWindow::RenderReqViewWindow()
 {
@@ -148,9 +150,9 @@ void MovesetEditorWindow::RenderReqViewWindow()
     ImGui::End();
 }
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  Extradata viewer floating window
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 void MovesetEditorWindow::RenderExtradataViewWindow()
 {
@@ -170,9 +172,96 @@ void MovesetEditorWindow::RenderExtradataViewWindow()
     ImGui::End();
 }
 
-// ─────────────────────────────────────────────────────────────
-//  Left panel — move list
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
+//  Move list -- color classification (mirrors OldTool2 getMoveColor)
+// -------------------------------------------------------------
+
+enum class MoveCategory { None, Reaction, Attack, Throw, Generic };
+
+static MoveCategory ClassifyMove(
+    const ParsedMove& mv, uint32_t gid, int moveIdx,
+    const std::vector<ParsedReactionList>& reacBlock)
+{
+    if (gid) return MoveCategory::Generic;
+
+    // Throw: lower 12 bits of hitlevel == 0xA00
+    if ((mv.hitlevel & 0xFFF) == 0xA00) return MoveCategory::Throw;
+
+    // Attack: any hitbox slot with non-zero startup, recovery, or location
+    for (int h = 0; h < 8; ++h)
+    {
+        if (mv.hitbox_active_start[h] || mv.hitbox_active_last[h] || mv.hitbox_location[h])
+            return MoveCategory::Attack;
+    }
+
+    // Reaction: this move is referenced by any reaction list entry
+    for (const auto& rl : reacBlock)
+    {
+        if (rl.standing          == (uint16_t)moveIdx ||
+            rl.ch                == (uint16_t)moveIdx ||
+            rl.crouch            == (uint16_t)moveIdx ||
+            rl.crouch_ch         == (uint16_t)moveIdx ||
+            rl.left_side         == (uint16_t)moveIdx ||
+            rl.left_side_crouch  == (uint16_t)moveIdx ||
+            rl.right_side        == (uint16_t)moveIdx ||
+            rl.right_side_crouch == (uint16_t)moveIdx ||
+            rl.back              == (uint16_t)moveIdx ||
+            rl.back_crouch       == (uint16_t)moveIdx ||
+            rl.block             == (uint16_t)moveIdx ||
+            rl.crouch_block      == (uint16_t)moveIdx ||
+            rl.wallslump         == (uint16_t)moveIdx ||
+            rl.downed            == (uint16_t)moveIdx)
+            return MoveCategory::Reaction;
+    }
+
+    return MoveCategory::None;
+}
+
+struct MoveRowColors { ImU32 bg; ImVec4 selected; };
+
+static MoveRowColors GetMoveRowColors(MoveCategory cat)
+{
+    switch (cat)
+    {
+    case MoveCategory::Generic:
+        return { IM_COL32( 30,  80, 160, 100), ImVec4(0.18f, 0.42f, 0.80f, 1.0f) };
+    case MoveCategory::Throw:
+        return { IM_COL32(120,  50, 160,  90), ImVec4(0.52f, 0.25f, 0.72f, 1.0f) };
+    case MoveCategory::Attack:
+        return { IM_COL32(160,  45,  45,  95), ImVec4(0.68f, 0.22f, 0.22f, 1.0f) };
+    case MoveCategory::Reaction:
+        return { IM_COL32(130, 100,  20,  90), ImVec4(0.58f, 0.46f, 0.12f, 1.0f) };
+    default:
+        return { 0, ImVec4(0.28f, 0.28f, 0.32f, 1.0f) };
+    }
+}
+
+// Draw colored background rect for the current list item row
+static void DrawMoveRowBg(MoveCategory cat)
+{
+    if (cat == MoveCategory::None) return;
+    ImU32 col = GetMoveRowColors(cat).bg;
+    ImVec2 p = ImGui::GetCursorScreenPos();
+    float  w = ImGui::GetContentRegionAvail().x;
+    float  h = ImGui::GetTextLineHeightWithSpacing();
+    ImGui::GetWindowDrawList()->AddRectFilled(p, ImVec2(p.x + w, p.y + h), col);
+}
+
+// Draw selection indicator: white outline + left accent bar
+static void DrawMoveRowSelected()
+{
+    ImVec2 mn = ImGui::GetItemRectMin();
+    ImVec2 mx = ImGui::GetItemRectMax();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    // Outer outline
+    dl->AddRect(mn, mx, IM_COL32(255, 255, 255, 180), 0.0f, 0, 1.5f);
+    // Left accent bar (3px wide)
+    dl->AddRectFilled(mn, ImVec2(mn.x + 3.0f, mx.y), IM_COL32(255, 255, 255, 230));
+}
+
+// -------------------------------------------------------------
+//  Left panel -- move list
+// -------------------------------------------------------------
 
 void MovesetEditorWindow::RenderMoveList()
 {
@@ -221,11 +310,18 @@ void MovesetEditorWindow::RenderMoveList()
                     else     snprintf(label, sizeof(label), "#%04d", i);
                 }
 
+                MoveCategory cat = ClassifyMove(mv, gid, i, m_data.reactionListBlock);
                 bool sel = (m_selectedIdx == i);
+                DrawMoveRowBg(cat);
+                ImGui::PushStyleColor(ImGuiCol_Header, GetMoveRowColors(cat).selected);
+                if (cat == MoveCategory::Generic) ImGui::PushFont(g_fontBold);
                 if (ImGui::Selectable(label, sel, ImGuiSelectableFlags_SpanAllColumns))
                     m_selectedIdx = i;
+                if (cat == MoveCategory::Generic) ImGui::PopFont();
+                ImGui::PopStyleColor();
                 if (sel)
                 {
+                    DrawMoveRowSelected();
                     ImGui::SetItemDefaultFocus();
                     if (m_moveListScrollPending)
                     {
@@ -272,11 +368,16 @@ void MovesetEditorWindow::RenderMoveList()
                 else     snprintf(label, sizeof(label), "#%04d", i);
             }
 
+            MoveCategory cat = ClassifyMove(mv, gid, i, m_data.reactionListBlock);
             bool sel = (m_selectedIdx == i);
+            DrawMoveRowBg(cat);
+            if (cat == MoveCategory::Generic) ImGui::PushFont(g_fontBold);
             if (ImGui::Selectable(label, sel, ImGuiSelectableFlags_SpanAllColumns))
                 m_selectedIdx = i;
+            if (cat == MoveCategory::Generic) ImGui::PopFont();
             if (sel)
             {
+                DrawMoveRowSelected();
                 ImGui::SetItemDefaultFocus();
                 if (m_moveListScrollPending)
                 {
@@ -290,11 +391,11 @@ void MovesetEditorWindow::RenderMoveList()
     ImGui::EndChild();
 }
 
-// ─────────────────────────────────────────────────────────────
-//  Right panel — move property sections
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
+//  Right panel -- move property sections
+// -------------------------------------------------------------
 
-// ── Shared property table helpers ────────────────────────────
+// -- Shared property table helpers ----------------------------
 
 static bool BeginPropTable(const char* id = "##pt")
 {
@@ -390,8 +491,8 @@ static void RowI16(const char* lbl, int16_t v)
 }
 
 // Clickable index-reference row.
-//   valid=true  → light green label, "[N]" value, "Click to navigate" tooltip
-//   valid=false → pink label, "[N]" or "--" value, "Navigate target not found." tooltip
+//   valid=true  -> light green label, "[N]" value, "Click to navigate" tooltip
+//   valid=false -> pink label, "[N]" or "--" value, "Navigate target not found." tooltip
 static bool RowIdxLink(const char* lbl, uint32_t idx, bool valid)
 {
     static constexpr ImVec4 kGreen = {0.55f, 0.85f, 0.55f, 1.0f};
@@ -423,8 +524,8 @@ static bool RowIdxLink(const char* lbl, uint32_t idx, bool valid)
 }
 
 // Clickable move-reference row for transition field (shows signed int value).
-//   valid=true  → light green + clickable
-//   valid=false → pink + non-clickable + tooltip
+//   valid=true  -> light green + clickable
+//   valid=false -> pink + non-clickable + tooltip
 static bool RowTransitionLink(const char* lbl, int16_t val, bool valid)
 {
     static constexpr ImVec4 kGreen = {0.55f, 0.85f, 0.55f, 1.0f};
@@ -454,9 +555,9 @@ static bool RowTransitionLink(const char* lbl, int16_t val, bool valid)
     }
 }
 
-// Clickable move-reference row — displays as #NNNN format.
-//   valid=true  → light green, "Click to navigate" tooltip
-//   valid=false → pink, "Navigate target not found." tooltip
+// Clickable move-reference row -- displays as #NNNN format.
+//   valid=true  -> light green, "Click to navigate" tooltip
+//   valid=false -> pink, "Navigate target not found." tooltip
 static bool RowMoveLink(const char* lbl, uint16_t moveId, bool valid)
 {
     static constexpr ImVec4 kGreen = {0.55f, 0.85f, 0.55f, 1.0f};
@@ -485,7 +586,7 @@ static bool RowMoveLink(const char* lbl, uint16_t moveId, bool valid)
     }
 }
 
-// Generic move ID (>=0x8000) link — shows "0x%04X" with tooltip "(→ move #N)" when valid.
+// Generic move ID (>=0x8000) link -- shows "0x%04X" with tooltip "(-> move #N)" when valid.
 static bool RowGenericMoveLink(const char* lbl, uint16_t genericId, int resolvedIdx, bool valid)
 {
     static constexpr ImVec4 kGreen = {0.55f, 0.85f, 0.55f, 1.0f};
@@ -526,13 +627,15 @@ static int FindGroupOuter(const std::vector<std::pair<uint32_t,uint32_t>>& group
     return -1;
 }
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
+
+static void RenderSection_Hitboxes(const ParsedMove& m);
 
 void MovesetEditorWindow::RenderMoveProperties(int idx)
 {
     const ParsedMove& m = m_data.moves[idx];
 
-    // ── Title + summary strip ────────────────────────────────
+    // -- Title + summary strip --------------------------------
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.85f, 0.90f, 1.00f, 1.00f));
     if (!m.displayName.empty())
         ImGui::Text("Move  #%04d   %s", idx, m.displayName.c_str());
@@ -542,7 +645,7 @@ void MovesetEditorWindow::RenderMoveProperties(int idx)
 
     ImGui::Separator();
 
-    // ── Tab bar ──────────────────────────────────────────────
+    // -- Tab bar ----------------------------------------------
     if (!ImGui::BeginTabBar("##move_tabs")) return;
 
     {
@@ -557,6 +660,13 @@ void MovesetEditorWindow::RenderMoveProperties(int idx)
         }
     }
 
+    if (ImGui::BeginTabItem("Hitboxes###tab_hitboxes"))
+    {
+        ImGui::Spacing();
+        RenderSection_Hitboxes(m);
+        ImGui::EndTabItem();
+    }
+
     if (ImGui::BeginTabItem("Debug###tab_debug"))
     {
         ImGui::Spacing();
@@ -567,10 +677,10 @@ void MovesetEditorWindow::RenderMoveProperties(int idx)
     ImGui::EndTabBar();
 }
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  Group computation helpers (placed here so navigation handlers in
 //  RenderSection_Overview can call them without forward-declaration issues)
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 template<typename T>
 static std::vector<std::pair<uint32_t,uint32_t>>
@@ -593,19 +703,19 @@ ComputeGroups(const std::vector<T>& block,
     return groups;
 }
 
-// Forward declaration — full definition lives near RenderSubWin_Properties
+// Forward declaration -- full definition lives near RenderSubWin_Properties
 static std::vector<std::pair<uint32_t,uint32_t>>
 ComputeOtherPropGroups(const std::vector<ParsedExtraProp>&,
                        const std::vector<ParsedRequirement>&);
 
-// ── Section: Overview (3-column layout matching OldTool2 field order) ─────────
+// -- Section: Overview (3-column layout matching OldTool2 field order) ---------
 void MovesetEditorWindow::RenderSection_Overview(const ParsedMove& m)
 {
     using namespace MoveLabel;
     const float spacing = ImGui::GetStyle().ItemSpacing.x;
     const float colW    = (ImGui::GetContentRegionAvail().x - spacing * 2.0f) / 3.0f;
 
-    // ── Pre-compute groups (used for both validity checks and click navigation) ─
+    // -- Pre-compute groups (used for both validity checks and click navigation) -
     const auto cancelGroups = ComputeGroups(m_data.cancelBlock,
         +[](const ParsedCancel& c)->bool{ return c.command == 0x8000; });
 
@@ -632,7 +742,7 @@ void MovesetEditorWindow::RenderSection_Overview(const ParsedMove& m)
     const auto spGroups = ComputeOtherPropGroups(m_data.startPropBlock, m_data.requirementBlock);
     const auto npGroups = ComputeOtherPropGroups(m_data.endPropBlock,   m_data.requirementBlock);
 
-    // ── Validity flags ────────────────────────────────────────────────────────
+    // -- Validity flags --------------------------------------------------------
     const uint16_t transU16        = m.transition;
     const bool     transIsGeneric  = (transU16 >= 0x8000);
     // Resolve transition: generic IDs use original_aliases; direct IDs check move count
@@ -660,7 +770,7 @@ void MovesetEditorWindow::RenderSection_Overview(const ParsedMove& m)
     const bool spValid        = (m.start_prop_idx    != 0xFFFFFFFF) && (FindGroupOuter(spGroups,       m.start_prop_idx)    >= 0);
     const bool npValid        = (m.end_prop_idx      != 0xFFFFFFFF) && (FindGroupOuter(npGroups,       m.end_prop_idx)      >= 0);
 
-    // ── Column 1 ─────────────────────────────────────────────────────────────
+    // -- Column 1 -------------------------------------------------------------
     bool clickCancel    = false, clickTrans    = false, clickHitCond   = false;
     bool clickVoiceclip = false, clickExtraProp = false;
     bool clickStartProp = false, clickEndProp   = false;
@@ -692,32 +802,13 @@ void MovesetEditorWindow::RenderSection_Overview(const ParsedMove& m)
         clickExtraProp = RowIdxLink      (ExtraPropIdx, m.extra_prop_idx,    epValid);
         clickStartProp = RowIdxLink      (StartPropIdx, m.start_prop_idx,    spValid);
         clickEndProp   = RowIdxLink      (EndPropIdx,   m.end_prop_idx,      npValid);
-        RowHex32(HitboxLoc,    m.hitbox_location[0]);
-        RowU32  (FirstActive,  m.startup);
-        RowU32  (LastActive,   m.recovery);
         ImGui::EndTable();
     }
     ImGui::EndChild(); ImGui::SameLine();
 
-    // ── Column 2 (hitbox1..4) ────────────────────────────────────────────────
-    ImGui::BeginChild("##ov_c2", ImVec2(colW, 0.0f), false);
+    // -- Column 2 -------------------------------------------------------------
+    ImGui::BeginChild("##ov_c2", ImVec2(0.0f, 0.0f), false);
     if (BeginPropTable("##ov2")) {
-        for (int h = 0; h < 4; ++h) {
-            char lbl[32];
-            snprintf(lbl, sizeof(lbl), "hitbox%d", h + 1);
-            RowHex32(lbl, m.hitbox_location[h]);
-            snprintf(lbl, sizeof(lbl), "hitbox%d first", h + 1);
-            RowU32(lbl, m.hitbox_active_start[h]);
-            snprintf(lbl, sizeof(lbl), "hitbox%d last", h + 1);
-            RowU32(lbl, m.hitbox_active_last[h]);
-        }
-        ImGui::EndTable();
-    }
-    ImGui::EndChild(); ImGui::SameLine();
-
-    // ── Column 3 ─────────────────────────────────────────────────────────────
-    ImGui::BeginChild("##ov_c3", ImVec2(0.0f, 0.0f), false);
-    if (BeginPropTable("##ov3")) {
         RowI16  (CE,            m._0xCE);
         RowHex32(TCharId,       m.ordinal_id2);
         RowHex32(OrdinalId,     m.moveId);
@@ -736,7 +827,7 @@ void MovesetEditorWindow::RenderSection_Overview(const ParsedMove& m)
     }
     ImGui::EndChild();
 
-    // ── Index navigation handlers (reuse pre-computed groups) ─────────────────
+    // -- Index navigation handlers (reuse pre-computed groups) -----------------
     if (clickCancel)
     {
         int gi = FindGroupOuter(cancelGroups, m.cancel_idx);
@@ -814,7 +905,7 @@ void MovesetEditorWindow::RenderSection_Overview(const ParsedMove& m)
     }
 }
 
-// ── Section: Debug (raw encrypted blocks) ────────────────────
+// -- Section: Debug (raw encrypted blocks) --------------------
 
 void MovesetEditorWindow::RenderSection_Unknown(const ParsedMove& m)
 {
@@ -843,37 +934,56 @@ void MovesetEditorWindow::RenderSection_Unknown(const ParsedMove& m)
     RowU32  ("anmbin_body_idx [0x50]", m.anmbin_body_idx);
     ImGui::EndTable();
 
-    ImGui::Spacing();
-    ImGui::TextDisabled("Hitbox slots 5-8:");
-    ImGui::Spacing();
-    if (BeginPropTable("##unk_hb58")) {
-        bool anySlot = false;
-        for (int h = 4; h < 8; ++h) {
-            if (m.hitbox_active_start[h] == 0 && m.hitbox_active_last[h] == 0 && m.hitbox_location[h] == 0)
-                continue;
-            anySlot = true;
-            char lbl[32];
-            snprintf(lbl, sizeof(lbl), "hitbox%d", h + 1);
-            RowHex32(lbl, m.hitbox_location[h]);
-            snprintf(lbl, sizeof(lbl), "hitbox%d first", h + 1);
-            RowU32(lbl, m.hitbox_active_start[h]);
-            snprintf(lbl, sizeof(lbl), "hitbox%d last", h + 1);
-            RowU32(lbl, m.hitbox_active_last[h]);
-        }
-        if (!anySlot) {
-            ImGui::TableNextRow();
-            ImGui::TableSetColumnIndex(0);
-            ImGui::TextDisabled("(all zero)");
-        }
-        ImGui::EndTable();
-    }
-    ImGui::Spacing();
 }
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
+//  Hitbox tab
+// -------------------------------------------------------------
+
+static void RenderSection_Hitboxes(const ParsedMove& m)
+{
+    for (int h = 0; h < 8; ++h)
+    {
+        const uint32_t start = m.hitbox_active_start[h];
+        const uint32_t last  = m.hitbox_active_last[h];
+        const uint32_t loc   = m.hitbox_location[h];
+        const float*   fl    = m.hitbox_floats[h];
+
+        // Collapsed header label: one line summary
+        char header[256];
+        snprintf(header, sizeof(header),
+            "Hitbox %d   ACTIVE: %u -> %u   LOC: 0x%08X   "
+            "RELATED FLOATS: %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f##hb%d",
+            h + 1, start, last, loc,
+            fl[0], fl[1], fl[2], fl[3], fl[4], fl[5], fl[6], fl[7], fl[8],
+            h);
+
+        if (ImGui::CollapsingHeader(header))
+        {
+            ImGui::Indent(16.0f);
+
+            ImGui::Text("Active   : %u - %u", start, last);
+            ImGui::Text("Location : 0x%08X", loc);
+
+            // Related floats in 3x3 grid
+            ImGui::Text("Related Floats :  %.3f, %.3f, %.3f", fl[0], fl[1], fl[2]);
+            float baseX  = ImGui::GetCursorPosX();
+            float indent = ImGui::CalcTextSize("Related Floats :  ").x;
+            ImGui::SetCursorPosX(baseX + indent);
+            ImGui::Text("%.3f, %.3f, %.3f", fl[3], fl[4], fl[5]);
+            ImGui::SetCursorPosX(baseX + indent);
+            ImGui::Text("%.3f, %.3f, %.3f", fl[6], fl[7], fl[8]);
+
+            ImGui::Unindent(16.0f);
+            ImGui::Spacing();
+        }
+    }
+}
+
+// -------------------------------------------------------------
 //  2-level list helper: renders outer list in current child window.
 //  Returns true if the selected inner item changed.
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 static void Render2LevelOuterList(
     const std::vector<std::pair<uint32_t,uint32_t>>& groups,
@@ -902,9 +1012,9 @@ static void Render2LevelOuterList(
     }
 }
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  View menu
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 void MovesetEditorWindow::RenderViewMenu()
 {
@@ -923,10 +1033,10 @@ void MovesetEditorWindow::RenderViewMenu()
     ImGui::EndMenuBar();
 }
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  Requirements subwindow  (3-panel: outer groups | inner items | detail)
 //  Outer groups: sequences ending with req==1100
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 void MovesetEditorWindow::RenderSubWin_Requirements()
 {
@@ -1003,9 +1113,9 @@ void MovesetEditorWindow::RenderSubWin_Requirements()
     ImGui::End();
 }
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  Cancels subwindow  (3-panel cancel + 3-panel group-cancel + extradata column)
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 void MovesetEditorWindow::RenderCancelInnerDetail(
     const ParsedCancel& c, int localIdx, uint32_t blockIdx,
@@ -1019,17 +1129,62 @@ void MovesetEditorWindow::RenderCancelInnerDetail(
     ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("command");
     ImGui::TableSetColumnIndex(1); ImGui::Text("0x%llX", (unsigned long long)c.command);
 
-    ImGui::TableNextRow();
-    ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("cancel-extra");
-    ImGui::TableSetColumnIndex(1);
-    if (c.extradata_idx == 0xFFFFFFFF) ImGui::TextDisabled("--");
-    else ImGui::Text("[%u]", c.extradata_idx);
+    // cancel-extra link
+    {
+        static constexpr ImVec4 kGreen = {0.55f, 0.85f, 0.55f, 1.0f};
+        static constexpr ImVec4 kPink  = {1.00f, 0.50f, 0.65f, 1.0f};
+        bool hasVal = (c.extradata_idx != 0xFFFFFFFF);
+        bool valid  = hasVal && (c.extradata_idx < (uint32_t)m_data.cancelExtraBlock.size());
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        if (!hasVal) {
+            ImGui::TextDisabled("cancel-extra");
+            ImGui::TableSetColumnIndex(1); ImGui::TextDisabled("--");
+        } else {
+            ImGui::PushStyleColor(ImGuiCol_Text, valid ? kGreen : kPink);
+            bool clicked = ImGui::Selectable("cancel-extra##cxlbl", false, ImGuiSelectableFlags_SpanAllColumns);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip(valid ? "Click to navigate" : "Navigate target not found.");
+            ImGui::PopStyleColor();
+            ImGui::TableSetColumnIndex(1);
+            ImGui::Text("[%u]", c.extradata_idx);
+            if (clicked && valid) {
+                m_cancelsWin.extradataSel       = (int)c.extradata_idx;
+                m_cancelsWin.extraScrollPending = true;
+            }
+        }
+    }
 
-    ImGui::TableNextRow();
-    ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("requirement");
-    ImGui::TableSetColumnIndex(1);
-    if (c.req_list_idx == 0xFFFFFFFF) ImGui::TextDisabled("--");
-    else ImGui::Text("[%u]", c.req_list_idx);
+    // requirement link
+    {
+        static constexpr ImVec4 kGreen = {0.55f, 0.85f, 0.55f, 1.0f};
+        static constexpr ImVec4 kPink  = {1.00f, 0.50f, 0.65f, 1.0f};
+        bool hasVal = (c.req_list_idx != 0xFFFFFFFF);
+        bool valid  = hasVal && (c.req_list_idx < (uint32_t)m_data.requirementBlock.size());
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        if (!hasVal) {
+            ImGui::TextDisabled("requirement");
+            ImGui::TableSetColumnIndex(1); ImGui::TextDisabled("--");
+        } else {
+            ImGui::PushStyleColor(ImGuiCol_Text, valid ? kGreen : kPink);
+            bool clicked = ImGui::Selectable("requirement##rqlbl", false, ImGuiSelectableFlags_SpanAllColumns);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip(valid ? "Click to navigate" : "Navigate target not found.");
+            ImGui::PopStyleColor();
+            ImGui::TableSetColumnIndex(1);
+            ImGui::Text("[%u]", c.req_list_idx);
+            if (clicked && valid) {
+                const auto& blk = m_data.requirementBlock;
+                auto grps = ComputeGroups(blk, +[](const ParsedRequirement& r)->bool{ return r.req==1100; });
+                int gi = FindGroupOuter(grps, c.req_list_idx);
+                if (gi >= 0) {
+                    m_reqWinSel.outer       = gi;
+                    m_reqWinSel.inner       = 0;
+                    m_reqWinSel.scrollOuter = true;
+                }
+                m_reqWinOpen = true;
+            }
+        }
+    }
 
     RowU32("frame_window_start", c.frame_window_start);
     RowU32("frame_window_end",   c.frame_window_end);
@@ -1059,7 +1214,7 @@ void MovesetEditorWindow::RenderCancelInnerDetail(
         const bool isTerm = ((c.command == 0x8000 || c.command == 0x8013) && c.move_id == 0x8000);
         if (!isTerm && c.move_id >= 0x8000)
         {
-            // Generic move ID — resolve via original_aliases
+            // Generic move ID -- resolve via original_aliases
             const uint32_t aliasIdx = c.move_id - 0x8000u;
             int resolvedIdx = -1;
             if (aliasIdx < m_data.originalAliases.size())
@@ -1207,6 +1362,10 @@ void MovesetEditorWindow::RenderSubWin_Cancels()
             char lbl[16]; snprintf(lbl, sizeof(lbl), "%d##cx%d", i, i);
             if (ImGui::Selectable(lbl, sel, ImGuiSelectableFlags_SpanAllColumns))
                 m_cancelsWin.extradataSel = i;
+            if (sel && m_cancelsWin.extraScrollPending) {
+                ImGui::SetScrollHereY(0.5f);
+                m_cancelsWin.extraScrollPending = false;
+            }
             ImGui::TableSetColumnIndex(1); ImGui::Text("%u", exb[i]);
         }
         ImGui::EndTable();
@@ -1216,10 +1375,10 @@ void MovesetEditorWindow::RenderSubWin_Cancels()
     ImGui::End();
 }
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  Hit Conditions subwindow  (3-panel)
 //  Outer groups: sequences ending with req==1100 terminator
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 void MovesetEditorWindow::RenderSubWin_HitConditions()
 {
@@ -1309,17 +1468,57 @@ void MovesetEditorWindow::RenderSubWin_HitConditions()
             ImGui::Separator();
             if (BeginPropTable("##hcdt"))
             {
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("requirement");
-                ImGui::TableSetColumnIndex(1);
-                if (h.req_list_idx == 0xFFFFFFFF) ImGui::TextDisabled("--");
-                else ImGui::Text("[%u]", h.req_list_idx);
+                // requirement link
+                {
+                    static constexpr ImVec4 kGreen = {0.55f, 0.85f, 0.55f, 1.0f};
+                    static constexpr ImVec4 kPink  = {1.00f, 0.50f, 0.65f, 1.0f};
+                    bool hasVal = (h.req_list_idx != 0xFFFFFFFF);
+                    bool valid  = hasVal && (h.req_list_idx < (uint32_t)m_data.requirementBlock.size());
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    if (!hasVal) {
+                        ImGui::TextDisabled("requirement");
+                        ImGui::TableSetColumnIndex(1); ImGui::TextDisabled("--");
+                    } else {
+                        ImGui::PushStyleColor(ImGuiCol_Text, valid ? kGreen : kPink);
+                        bool clicked = ImGui::Selectable("requirement##hcrqlbl", false, ImGuiSelectableFlags_SpanAllColumns);
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip(valid ? "Click to navigate" : "Navigate target not found.");
+                        ImGui::PopStyleColor();
+                        ImGui::TableSetColumnIndex(1); ImGui::Text("[%u]", h.req_list_idx);
+                        if (clicked && valid) {
+                            const auto& blk = m_data.requirementBlock;
+                            auto grps = ComputeGroups(blk, +[](const ParsedRequirement& r)->bool{ return r.req==1100; });
+                            int gi = FindGroupOuter(grps, h.req_list_idx);
+                            if (gi >= 0) { m_reqWinSel.outer = gi; m_reqWinSel.inner = 0; m_reqWinSel.scrollOuter = true; }
+                            m_reqWinOpen = true;
+                        }
+                    }
+                }
                 RowU32("damage", h.damage);
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("reaction_list");
-                ImGui::TableSetColumnIndex(1);
-                if (h.reaction_list_idx == 0xFFFFFFFF) ImGui::TextDisabled("--");
-                else ImGui::Text("[%u]", h.reaction_list_idx);
+                // reaction_list link
+                {
+                    static constexpr ImVec4 kGreen = {0.55f, 0.85f, 0.55f, 1.0f};
+                    static constexpr ImVec4 kPink  = {1.00f, 0.50f, 0.65f, 1.0f};
+                    bool hasVal = (h.reaction_list_idx != 0xFFFFFFFF);
+                    bool valid  = hasVal && (h.reaction_list_idx < (uint32_t)m_data.reactionListBlock.size());
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    if (!hasVal) {
+                        ImGui::TextDisabled("reaction_list");
+                        ImGui::TableSetColumnIndex(1); ImGui::TextDisabled("--");
+                    } else {
+                        ImGui::PushStyleColor(ImGuiCol_Text, valid ? kGreen : kPink);
+                        bool clicked = ImGui::Selectable("reaction_list##hcrllbl", false, ImGuiSelectableFlags_SpanAllColumns);
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip(valid ? "Click to navigate" : "Navigate target not found.");
+                        ImGui::PopStyleColor();
+                        ImGui::TableSetColumnIndex(1); ImGui::Text("[%u]", h.reaction_list_idx);
+                        if (clicked && valid) {
+                            m_reacWin.open          = true;
+                            m_reacWin.selectedIdx   = (int)h.reaction_list_idx;
+                            m_reacWin.scrollPending = true;
+                        }
+                    }
+                }
                 ImGui::EndTable();
             }
         }
@@ -1329,10 +1528,10 @@ void MovesetEditorWindow::RenderSubWin_HitConditions()
     ImGui::End();
 }
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  ReactionLists subwindow  (master + 3-column detail)
-//  (unchanged from before — no 2-level needed, each entry is standalone)
-// ─────────────────────────────────────────────────────────────
+//  (unchanged from before -- no 2-level needed, each entry is standalone)
+// -------------------------------------------------------------
 
 void MovesetEditorWindow::RenderSubWin_ReactionLists()
 {
@@ -1352,6 +1551,10 @@ void MovesetEditorWindow::RenderSubWin_ReactionLists()
         char lbl[24]; snprintf(lbl, sizeof(lbl), "#%d", i);
         bool sel = (m_reacWin.selectedIdx == i);
         if (ImGui::Selectable(lbl, sel)) m_reacWin.selectedIdx = i;
+        if (sel && m_reacWin.scrollPending) {
+            ImGui::SetScrollHereY(0.5f);
+            m_reacWin.scrollPending = false;
+        }
     }
     ImGui::EndChild();
 
@@ -1365,23 +1568,57 @@ void MovesetEditorWindow::RenderSubWin_ReactionLists()
 
         float thirdW = ImGui::GetContentRegionAvail().x / 3.0f - ImGui::GetStyle().ItemSpacing.x;
 
+        // Helper: resolve uint16 move id and emit a navigable link
+        auto RlMoveRow = [&](const char* lbl, uint16_t id) -> bool {
+            bool clicked = false;
+            if (id >= 0x8000) {
+                const uint32_t ai = id - 0x8000u;
+                int resolved = -1;
+                if (ai < m_data.originalAliases.size()) {
+                    uint16_t r = m_data.originalAliases[ai];
+                    if ((size_t)r < m_data.moves.size()) resolved = (int)r;
+                }
+                clicked = RowGenericMoveLink(lbl, id, resolved, resolved >= 0);
+            } else {
+                bool valid = (id < (uint16_t)m_data.moves.size());
+                clicked = RowMoveLink(lbl, id, valid);
+            }
+            return clicked;
+        };
+
         ImGui::BeginChild("##rl_mv", ImVec2(thirdW, 0.0f), true);
         ImGui::TextDisabled("reaction moves"); ImGui::Separator();
         if (BeginPropTable("##rlm")) {
-            RowU16("default (standing)", rl.standing);
-            RowU16("ch",                rl.ch);
-            RowU16("crouch",            rl.crouch);
-            RowU16("crouch_ch",         rl.crouch_ch);
-            RowU16("left_side",         rl.left_side);
-            RowU16("left_side_crouch",  rl.left_side_crouch);
-            RowU16("right_side",        rl.right_side);
-            RowU16("right_side_crouch", rl.right_side_crouch);
-            RowU16("back",              rl.back);
-            RowU16("back_crouch",       rl.back_crouch);
-            RowU16("block",             rl.block);
-            RowU16("crouch_block",      rl.crouch_block);
-            RowU16("wallslump",         rl.wallslump);
-            RowU16("downed",            rl.downed);
+            const uint16_t* ids[] = {
+                &rl.standing, &rl.ch, &rl.crouch, &rl.crouch_ch,
+                &rl.left_side, &rl.left_side_crouch, &rl.right_side, &rl.right_side_crouch,
+                &rl.back, &rl.back_crouch, &rl.block, &rl.crouch_block,
+                &rl.wallslump, &rl.downed
+            };
+            const char* names[] = {
+                "default (standing)", "ch", "crouch", "crouch_ch",
+                "left_side", "left_side_crouch", "right_side", "right_side_crouch",
+                "back", "back_crouch", "block", "crouch_block",
+                "wallslump", "downed"
+            };
+            for (int r = 0; r < 14; ++r) {
+                if (RlMoveRow(names[r], *ids[r])) {
+                    uint16_t id = *ids[r];
+                    if (id >= 0x8000) {
+                        const uint32_t ai = id - 0x8000u;
+                        if (ai < m_data.originalAliases.size()) {
+                            uint16_t res = m_data.originalAliases[ai];
+                            if ((size_t)res < m_data.moves.size()) {
+                                m_selectedIdx = (int)res;
+                                m_moveListScrollPending = true;
+                            }
+                        }
+                    } else if (id < (uint16_t)m_data.moves.size()) {
+                        m_selectedIdx = (int)id;
+                        m_moveListScrollPending = true;
+                    }
+                }
+            }
             ImGui::EndTable();
         }
         ImGui::EndChild(); ImGui::SameLine();
@@ -1393,12 +1630,30 @@ void MovesetEditorWindow::RenderSubWin_ReactionLists()
         ImGui::BeginChild("##rl_pb", ImVec2(thirdW, 0.0f), true);
         ImGui::TextDisabled("Pushbacks"); ImGui::Separator();
         if (BeginPropTable("##rlp")) {
+            static constexpr ImVec4 kGreen = {0.55f, 0.85f, 0.55f, 1.0f};
+            static constexpr ImVec4 kPink  = {1.00f, 0.50f, 0.65f, 1.0f};
             for (int p = 0; p < 7; ++p) {
+                bool hasVal = (rl.pushback_idx[p] != 0xFFFFFFFF);
+                bool valid  = hasVal && (rl.pushback_idx[p] < (uint32_t)m_data.pushbackBlock.size());
                 ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("%s", kPbN[p]);
-                ImGui::TableSetColumnIndex(1);
-                if (rl.pushback_idx[p] == 0xFFFFFFFF) ImGui::TextDisabled("--");
-                else ImGui::Text("[%u]", rl.pushback_idx[p]);
+                ImGui::TableSetColumnIndex(0);
+                if (!hasVal) {
+                    ImGui::TextDisabled("%s", kPbN[p]);
+                    ImGui::TableSetColumnIndex(1); ImGui::TextDisabled("--");
+                } else {
+                    char lnk[40]; snprintf(lnk, sizeof(lnk), "%s##rlpblbl%d", kPbN[p], p);
+                    ImGui::PushStyleColor(ImGuiCol_Text, valid ? kGreen : kPink);
+                    bool clicked = ImGui::Selectable(lnk, false, ImGuiSelectableFlags_SpanAllColumns);
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip(valid ? "Click to navigate" : "Navigate target not found.");
+                    ImGui::PopStyleColor();
+                    ImGui::TableSetColumnIndex(1);
+                    ImGui::Text("[%u]", rl.pushback_idx[p]);
+                    if (clicked && valid) {
+                        m_pushbackWin.open            = true;
+                        m_pushbackWin.pushbackSel     = (int)rl.pushback_idx[p];
+                        m_pushbackWin.pbScrollPending = true;
+                    }
+                }
             }
             ImGui::EndTable();
         }
@@ -1427,10 +1682,10 @@ void MovesetEditorWindow::RenderSubWin_ReactionLists()
     ImGui::End();
 }
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  Pushbacks subwindow  (master list + detail + pushback-extra column)
-//  (no 2-level needed — each pushback entry is standalone)
-// ─────────────────────────────────────────────────────────────
+//  (no 2-level needed -- each pushback entry is standalone)
+// -------------------------------------------------------------
 
 void MovesetEditorWindow::RenderSubWin_Pushbacks()
 {
@@ -1452,6 +1707,10 @@ void MovesetEditorWindow::RenderSubWin_Pushbacks()
             char lbl[24]; snprintf(lbl, sizeof(lbl), "#%d", i);
             bool sel = (m_pushbackWin.pushbackSel == i);
             if (ImGui::Selectable(lbl, sel)) m_pushbackWin.pushbackSel = i;
+            if (sel && m_pushbackWin.pbScrollPending) {
+                ImGui::SetScrollHereY(0.5f);
+                m_pushbackWin.pbScrollPending = false;
+            }
         }
         ImGui::EndChild();
 
@@ -1467,8 +1726,21 @@ void MovesetEditorWindow::RenderSubWin_Pushbacks()
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("pushback-extra");
                 ImGui::TableSetColumnIndex(1);
-                if (p.pushback_extra_idx == 0xFFFFFFFF) ImGui::TextDisabled("--");
-                else ImGui::Text("[%u]", p.pushback_extra_idx);
+                if (p.pushback_extra_idx == 0xFFFFFFFF) {
+                    ImGui::TextDisabled("--");
+                } else {
+                    bool valid = (p.pushback_extra_idx < (uint32_t)pe.size());
+                    char lnk[32]; snprintf(lnk, sizeof(lnk), "[%u]##pelnk", p.pushback_extra_idx);
+                    if (valid) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.40f, 0.85f, 0.40f, 1.0f));
+                    else       ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.85f, 0.40f, 0.40f, 1.0f));
+                    if (ImGui::Selectable(lnk, false, ImGuiSelectableFlags_None) && valid) {
+                        m_pushbackWin.extraSel = (int)p.pushback_extra_idx;
+                        m_pushbackWin.extraScrollPending = true;
+                    }
+                    ImGui::PopStyleColor();
+                    if (valid && ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Click to navigate");
+                }
                 ImGui::EndTable();
             }
         }
@@ -1490,6 +1762,10 @@ void MovesetEditorWindow::RenderSubWin_Pushbacks()
             bool sel = (m_pushbackWin.extraSel == i);
             char lbl[16]; snprintf(lbl, sizeof(lbl), "%d##pe%d", i, i);
             if (ImGui::Selectable(lbl, sel, ImGuiSelectableFlags_SpanAllColumns)) m_pushbackWin.extraSel = i;
+            if (sel && m_pushbackWin.extraScrollPending) {
+                ImGui::SetScrollHereY(0.5f);
+                m_pushbackWin.extraScrollPending = false;
+            }
             ImGui::TableSetColumnIndex(1); ImGui::Text("%u", (uint32_t)pe[i].value);
         }
         ImGui::EndTable();
@@ -1498,9 +1774,9 @@ void MovesetEditorWindow::RenderSubWin_Pushbacks()
     ImGui::End();
 }
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  Voiceclips subwindow
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 void MovesetEditorWindow::RenderSubWin_Voiceclips()
 {
@@ -1541,10 +1817,10 @@ void MovesetEditorWindow::RenderSubWin_Voiceclips()
     ImGui::End();
 }
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  Properties subwindow  (3-panel for each of extraProp/startProp/endProp)
 //  Outer groups: extraProp ends with id==0; start/endProp end with req==1100 terminator
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 static void RenderPropSection(
     const char* outerChildId, const char* innerChildId, const char* detailChildId,
@@ -1553,7 +1829,9 @@ static void RenderPropSection(
     const std::vector<std::pair<uint32_t,uint32_t>>& groups,
     MovesetEditorWindow::TwoLevelSel& sel,
     const char* listLabel,
-    bool isExtraProp)
+    bool isExtraProp,
+    MovesetEditorWindow::TwoLevelSel& reqWinSel,
+    bool& reqWinOpen)
 {
     float colW = ImGui::GetContentRegionAvail().x / 3.0f - ImGui::GetStyle().ItemSpacing.x;
 
@@ -1607,11 +1885,31 @@ static void RenderPropSection(
                 if (isExtraProp)
                     RowU32("starting_frame", e.type);
                 RowU32("id", e.id);
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("requirement");
-                ImGui::TableSetColumnIndex(1);
-                if (e.req_list_idx == 0xFFFFFFFF) ImGui::TextDisabled("--");
-                else ImGui::Text("[%u]", e.req_list_idx);
+                // requirement link
+                {
+                    static constexpr ImVec4 kGreen = {0.55f, 0.85f, 0.55f, 1.0f};
+                    static constexpr ImVec4 kPink  = {1.00f, 0.50f, 0.65f, 1.0f};
+                    bool hasVal = (e.req_list_idx != 0xFFFFFFFF);
+                    bool valid  = hasVal && (e.req_list_idx < (uint32_t)reqBlk.size());
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    if (!hasVal) {
+                        ImGui::TextDisabled("requirement");
+                        ImGui::TableSetColumnIndex(1); ImGui::TextDisabled("--");
+                    } else {
+                        ImGui::PushStyleColor(ImGuiCol_Text, valid ? kGreen : kPink);
+                        bool clicked = ImGui::Selectable("requirement##proplbl", false, ImGuiSelectableFlags_SpanAllColumns);
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip(valid ? "Click to navigate" : "Navigate target not found.");
+                        ImGui::PopStyleColor();
+                        ImGui::TableSetColumnIndex(1); ImGui::Text("[%u]", e.req_list_idx);
+                        if (clicked && valid) {
+                            auto grps = ComputeGroups(reqBlk, +[](const ParsedRequirement& r)->bool{ return r.req==1100; });
+                            int gi = FindGroupOuter(grps, e.req_list_idx);
+                            if (gi >= 0) { reqWinSel.outer = gi; reqWinSel.inner = 0; reqWinSel.scrollOuter = true; }
+                            reqWinOpen = true;
+                        }
+                    }
+                }
                 RowU32("value1", e.value);
                 RowU32("value2", e.value2);
                 RowU32("value3", e.value3);
@@ -1675,7 +1973,7 @@ void MovesetEditorWindow::RenderSubWin_Properties()
     {
         RenderPropSection("##epo","##epi","##epd",
             m_data.extraPropBlock, reqBlk, epGroups, m_propertiesWin.epSel,
-            "property-lists", true);
+            "property-lists", true, m_reqWinSel, m_reqWinOpen);
         ImGui::EndTabItem();
     }
     if (ImGui::BeginTabItem("Start", nullptr,
@@ -1683,7 +1981,7 @@ void MovesetEditorWindow::RenderSubWin_Properties()
     {
         RenderPropSection("##spo","##spi","##spd",
             m_data.startPropBlock, reqBlk, spGroups, m_propertiesWin.spSel,
-            "start-property-lists", false);
+            "start-property-lists", false, m_reqWinSel, m_reqWinOpen);
         ImGui::EndTabItem();
     }
     if (ImGui::BeginTabItem("End", nullptr,
@@ -1691,7 +1989,7 @@ void MovesetEditorWindow::RenderSubWin_Properties()
     {
         RenderPropSection("##npo","##npi","##npd",
             m_data.endPropBlock, reqBlk, npGroups, m_propertiesWin.npSel,
-            "end-property-lists", false);
+            "end-property-lists", false, m_reqWinSel, m_reqWinOpen);
         ImGui::EndTabItem();
     }
 

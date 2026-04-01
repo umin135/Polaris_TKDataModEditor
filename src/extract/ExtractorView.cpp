@@ -1,4 +1,4 @@
-// ExtractorView.cpp — ImGui panel for game moveset extraction
+﻿// ExtractorView.cpp -- ImGui panel for game moveset extraction
 #include "ExtractorView.h"
 #include "imgui/imgui.h"
 #include <cstdio>
@@ -8,9 +8,9 @@ ExtractorView::ExtractorView(const std::string& movesetRootDir)
 {
 }
 
-// ─────────────────────────────────────────────────────────────
-//  TryExtract — one-click: connect → refresh slot → extract
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
+//  TryExtract -- one-click: connect -> refresh slot -> extract
+// -------------------------------------------------------------
 
 void ExtractorView::TryExtract(int slotIndex)
 {
@@ -58,9 +58,9 @@ void ExtractorView::TryExtract(int slotIndex)
     }
 }
 
-// ─────────────────────────────────────────────────────────────
-//  RenderButtons — Extract P1 / Extract P2 only
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
+//  RenderButtons -- Extract P1 / Extract P2 only
+// -------------------------------------------------------------
 
 void ExtractorView::RenderButtons()
 {
@@ -84,13 +84,13 @@ void ExtractorView::RenderButtons()
     }
 }
 
-// ─────────────────────────────────────────────────────────────
-//  RenderLog — status, slot info, save-path hint
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
+//  RenderLog -- status, slot info, save-path hint
+// -------------------------------------------------------------
 
 void ExtractorView::RenderLog()
 {
-    // ── Status message ───────────────────────────────────────
+    // -- Status message ---------------------------------------
     if (!m_lastMsg.empty())
     {
         ImVec4 col = m_lastOk
@@ -99,7 +99,7 @@ void ExtractorView::RenderLog()
         ImGui::TextColored(col, "%s", m_lastMsg.c_str());
     }
 
-    // ── Slot info (shown after a successful connect) ─────────
+    // -- Slot info (shown after a successful connect) ---------
     if (m_extractor.IsConnected())
     {
         ImGui::Spacing();
@@ -126,13 +126,13 @@ void ExtractorView::RenderLog()
             }
             else
             {
-                ImGui::TextDisabled("%s  —  (no moveset)", i == 0 ? "P1" : "P2");
+                ImGui::TextDisabled("%s  --  (no moveset)", i == 0 ? "P1" : "P2");
             }
             ImGui::PopID();
         }
     }
 
-    // ── Output path hint ─────────────────────────────────────
+    // -- Output path hint -------------------------------------
     ImGui::Spacing();
     ImGui::TextDisabled("Save path: <root>/TK8_<CharaName>/moveset.motbin");
 }

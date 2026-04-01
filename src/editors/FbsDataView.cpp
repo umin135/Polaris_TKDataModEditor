@@ -1,4 +1,4 @@
-// FbsData editor view implementation
+﻿// FbsData editor view implementation
 #include "editors/FbsDataView.h"
 #include "data/FieldNames.h"
 #include "io/TkmodIO.h"
@@ -6,9 +6,9 @@
 #include <cstring>
 #include <cctype>
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  All fbsdata bin files with support status
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 struct BinInfo
 {
@@ -20,7 +20,7 @@ struct BinInfo
 
 static const BinInfo k_AllBins[] =
 {
-    // ── Supported ────────────────────────────────────────────────────────────
+    // -- Supported ------------------------------------------------------------
     { "arcade_cpu_list.bin",                     BinType::ArcadeCpuList,                  true,  "Supported"     },
     { "area_list.bin",                           BinType::AreaList,                        true,  "Supported"     },
     { "assist_input_list.bin",                   BinType::AssistInputList,                 true,  "Supported"     },
@@ -46,7 +46,7 @@ static const BinInfo k_AllBins[] =
     { "stage_list.bin",                          BinType::StageList,                       true,  "Supported"     },
     { "tam_mission_list.bin",                    BinType::TamMissionList,                  true,  "Supported"     },
 
-    // ── Not Supported ─────────────────────────────────────────────────────────
+    // -- Not Supported ---------------------------------------------------------
     { "button_help_list.bin",                    BinType::None,                            false, "Not Supported" },
     { "button_image_list.bin",                   BinType::None,                            false, "Not Supported" },
     { "character_episode_list.bin",              BinType::None,                            false, "Not Supported" },
@@ -119,9 +119,9 @@ static constexpr int k_AllBinsCount = (int)(sizeof(k_AllBins) / sizeof(k_AllBins
 
 static const float LIST_WIDTH = 290.0f;  // Contents List panel width
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  Top toolbar
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 void FbsDataView::RenderToolbar()
 {
@@ -165,9 +165,9 @@ void FbsDataView::RenderToolbar()
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  Main render entry
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 bool FbsDataView::LoadFromPath(const std::string& path)
 {
@@ -178,7 +178,7 @@ bool FbsDataView::LoadFromPath(const std::string& path)
     return true;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 void FbsDataView::Render()
 {
@@ -192,7 +192,7 @@ void FbsDataView::Render()
     const float totalW = ImGui::GetContentRegionAvail().x;
     const float editorW = totalW - LIST_WIDTH - 1.0f;
 
-    // ── Editor area (left) ──
+    // -- Editor area (left) --
     ImGui::BeginChild("##FbsEditor", ImVec2(editorW, totalH), false,
                       ImGuiWindowFlags_NoScrollbar);
     RenderEditorArea();
@@ -208,7 +208,7 @@ void FbsDataView::Render()
 
     ImGui::SameLine(0, 0);
 
-    // ── Contents list (right) ──
+    // -- Contents list (right) --
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.09f, 0.09f, 0.12f, 1.00f));
     ImGui::BeginChild("##FbsList", ImVec2(LIST_WIDTH, totalH), false,
                       ImGuiWindowFlags_NoScrollbar);
@@ -217,16 +217,16 @@ void FbsDataView::Render()
     ImGui::EndChild();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  Editor area
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 void FbsDataView::RenderEditorArea()
 {
     if (m_data.selectedIndex < 0 ||
         m_data.selectedIndex >= (int)m_data.contents.size())
     {
-        // Nothing selected — show hint
+        // Nothing selected -- show hint
         const float cw = ImGui::GetContentRegionAvail().x;
         const float ch = ImGui::GetContentRegionAvail().y;
         const char* hint = "Add a bin from the Contents List on the right.";
@@ -321,13 +321,13 @@ void FbsDataView::RenderEditorArea()
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  customize_item_common_list table editor
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 void FbsDataView::RenderCustomizeItemCommonEditor(ContentsBinData& bin)
 {
-    // ── Header row ──
+    // -- Header row --
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.82f, 1.00f, 1.00f));
     ImGui::Text("customize_item_common_list.bin");
     ImGui::PopStyleColor();
@@ -336,7 +336,7 @@ void FbsDataView::RenderCustomizeItemCommonEditor(ContentsBinData& bin)
     ImGui::Text("(%d entries)", (int)bin.commonEntries.size());
     ImGui::PopStyleColor();
 
-    // ── Add Entry button (right-aligned) ──
+    // -- Add Entry button (right-aligned) --
     const float addBtnW = 100.0f;
     ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
     if (ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
@@ -344,7 +344,7 @@ void FbsDataView::RenderCustomizeItemCommonEditor(ContentsBinData& bin)
 
     ImGui::Separator();
 
-    // ── Table ──
+    // -- Table --
     constexpr ImGuiTableFlags tFlags =
         ImGuiTableFlags_ScrollX          |
         ImGuiTableFlags_ScrollY          |
@@ -364,8 +364,8 @@ void FbsDataView::RenderCustomizeItemCommonEditor(ContentsBinData& bin)
     // Freeze first column (row controls) and header row
     ImGui::TableSetupScrollFreeze(1, 1);
 
-    // Columns shown in the regular editor (subset of 26 — unknown fields omitted)
-    // Schema id → display width
+    // Columns shown in the regular editor (subset of 26 -- unknown fields omitted)
+    // Schema id -> display width
     static const struct { int id; float w; } k_Cols[] = {
         {  0, 95.0f }, {  1, 62.0f }, {  2, 195.0f },
         {  3, 95.0f }, {  4, 95.0f }, {  5, 215.0f },
@@ -389,7 +389,7 @@ void FbsDataView::RenderCustomizeItemCommonEditor(ContentsBinData& bin)
         ImGui::TableNextRow();
         ImGui::PushID(i);
 
-        // ── # column: row number + delete button ──
+        // -- # column: row number + delete button --
         ImGui::TableSetColumnIndex(0);
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.50f, 0.50f, 0.60f, 1.00f));
         ImGui::Text("%d", i + 1);
@@ -401,7 +401,7 @@ void FbsDataView::RenderCustomizeItemCommonEditor(ContentsBinData& bin)
         if (ImGui::SmallButton("X")) deleteIdx = i;
         ImGui::PopStyleColor(3);
 
-        // Inline helpers —— fill the entire column width
+        // Inline helpers ---- fill the entire column width
         auto U32Cell = [](const char* id, uint32_t& v) {
             ImGui::SetNextItemWidth(-FLT_MIN);
             ImGui::InputScalar(id, ImGuiDataType_U32, &v);
@@ -446,13 +446,13 @@ void FbsDataView::RenderCustomizeItemCommonEditor(ContentsBinData& bin)
     ImGui::EndTable();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  character_list table editor
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 void FbsDataView::RenderCharacterListEditor(ContentsBinData& bin)
 {
-    // ── Header row ──
+    // -- Header row --
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.82f, 1.00f, 1.00f));
     ImGui::Text("character_list.bin");
     ImGui::PopStyleColor();
@@ -461,7 +461,7 @@ void FbsDataView::RenderCharacterListEditor(ContentsBinData& bin)
     ImGui::Text("(%d entries)", (int)bin.characterEntries.size());
     ImGui::PopStyleColor();
 
-    // ── Add Entry button (right-aligned) ──
+    // -- Add Entry button (right-aligned) --
     const float addBtnW = 100.0f;
     ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
     if (ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
@@ -469,7 +469,7 @@ void FbsDataView::RenderCharacterListEditor(ContentsBinData& bin)
 
     ImGui::Separator();
 
-    // ── Table ──
+    // -- Table --
     constexpr ImGuiTableFlags tFlags =
         ImGuiTableFlags_ScrollX          |
         ImGuiTableFlags_ScrollY          |
@@ -519,7 +519,7 @@ void FbsDataView::RenderCharacterListEditor(ContentsBinData& bin)
         ImGui::TableNextRow();
         ImGui::PushID(i);
 
-        // ── # column: row number + delete button ──
+        // -- # column: row number + delete button --
         ImGui::TableSetColumnIndex(0);
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.50f, 0.50f, 0.60f, 1.00f));
         ImGui::Text("%d", i + 1);
@@ -572,13 +572,13 @@ void FbsDataView::RenderCharacterListEditor(ContentsBinData& bin)
     ImGui::EndTable();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  customize_item_exclusive_list editor (5 sub-tables via tab bar)
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 void FbsDataView::RenderCustomizeItemExclusiveListEditor(ContentsBinData& bin)
 {
-    // ── Header row ──
+    // -- Header row --
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.82f, 1.00f, 1.00f));
     ImGui::Text("customize_item_exclusive_list.bin");
     ImGui::PopStyleColor();
@@ -742,9 +742,9 @@ void FbsDataView::RenderCustomizeItemExclusiveListEditor(ContentsBinData& bin)
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  Contents list panel (right side)
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 void FbsDataView::RenderContentsList(float listWidth)
 {
@@ -756,7 +756,7 @@ void FbsDataView::RenderContentsList(float listWidth)
 
     ImGui::SameLine(listWidth - 74.0f);
 
-    // "+ Add" button — opens popup on hover or click
+    // "+ Add" button -- opens popup on hover or click
     if (ImGui::Button("+ Add") || ImGui::IsItemHovered())
         ImGui::OpenPopup("##AddPopup");
 
@@ -818,9 +818,9 @@ void FbsDataView::RenderContentsList(float listWidth)
     ImGui::EndChild();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  Add popup (fbsdata > bins grouped by category)
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 void FbsDataView::RenderAddPopup()
 {
@@ -946,9 +946,9 @@ void FbsDataView::RenderAddPopup()
     ImGui::EndPopup();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  area_list editor
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 void FbsDataView::RenderAreaListEditor(ContentsBinData& bin)
 {
@@ -1025,9 +1025,9 @@ void FbsDataView::RenderAreaListEditor(ContentsBinData& bin)
     ImGui::EndTable();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  battle_subtitle_info editor
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 void FbsDataView::RenderBattleSubtitleInfoEditor(ContentsBinData& bin)
 {
@@ -1100,9 +1100,9 @@ void FbsDataView::RenderBattleSubtitleInfoEditor(ContentsBinData& bin)
     ImGui::EndTable();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  fate_drama_player_start_list editor
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 void FbsDataView::RenderFateDramaPlayerStartListEditor(ContentsBinData& bin)
 {
@@ -1182,9 +1182,9 @@ void FbsDataView::RenderFateDramaPlayerStartListEditor(ContentsBinData& bin)
     ImGui::EndTable();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  jukebox_list editor
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 void FbsDataView::RenderJukeboxListEditor(ContentsBinData& bin)
 {
@@ -1268,9 +1268,9 @@ void FbsDataView::RenderJukeboxListEditor(ContentsBinData& bin)
     ImGui::EndTable();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  series_list editor
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 void FbsDataView::RenderSeriesListEditor(ContentsBinData& bin)
 {
@@ -1353,9 +1353,9 @@ void FbsDataView::RenderSeriesListEditor(ContentsBinData& bin)
     ImGui::EndTable();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  tam_mission_list editor
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 void FbsDataView::RenderTamMissionListEditor(ContentsBinData& bin)
 {
@@ -1445,9 +1445,9 @@ void FbsDataView::RenderTamMissionListEditor(ContentsBinData& bin)
     ImGui::EndTable();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  drama_player_start_list editor
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 void FbsDataView::RenderDramaPlayerStartListEditor(ContentsBinData& bin)
 {
@@ -1537,9 +1537,9 @@ void FbsDataView::RenderDramaPlayerStartListEditor(ContentsBinData& bin)
     ImGui::EndTable();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  stage_list editor
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 void FbsDataView::RenderStageListEditor(ContentsBinData& bin)
 {
@@ -1648,9 +1648,9 @@ void FbsDataView::RenderStageListEditor(ContentsBinData& bin)
     ImGui::EndTable();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  ball_property_list editor
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 void FbsDataView::RenderBallPropertyListEditor(ContentsBinData& bin)
 {
@@ -1746,9 +1746,9 @@ void FbsDataView::RenderBallPropertyListEditor(ContentsBinData& bin)
     ImGui::EndTable();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  body_cylinder_data_list editor
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 void FbsDataView::RenderBodyCylinderDataListEditor(ContentsBinData& bin)
 {
@@ -1847,9 +1847,9 @@ void FbsDataView::RenderBodyCylinderDataListEditor(ContentsBinData& bin)
     ImGui::EndTable();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  customize_item_unique_list editor
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 void FbsDataView::RenderCustomizeItemUniqueListEditor(ContentsBinData& bin)
 {
@@ -2002,9 +2002,9 @@ void FbsDataView::RenderCustomizeItemUniqueListEditor(ContentsBinData& bin)
     ImGui::EndTabBar();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  character_select_list editor
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 void FbsDataView::RenderCharacterSelectListEditor(ContentsBinData& bin)
 {
@@ -2137,9 +2137,9 @@ void FbsDataView::RenderCharacterSelectListEditor(ContentsBinData& bin)
     ImGui::EndTabBar();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  customize_item_prohibit_drama_list editor
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 void FbsDataView::RenderCustomizeItemProhibitDramaListEditor(ContentsBinData& bin)
 {
@@ -2259,9 +2259,9 @@ void FbsDataView::RenderCustomizeItemProhibitDramaListEditor(ContentsBinData& bi
     ImGui::EndTabBar();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  battle_motion_list editor
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 void FbsDataView::RenderBattleMotionListEditor(ContentsBinData& bin)
 {
@@ -2270,7 +2270,7 @@ void FbsDataView::RenderBattleMotionListEditor(ContentsBinData& bin)
     ImGui::PopStyleColor();
     ImGui::Separator();
 
-    // Scalar header section — 2-column grid
+    // Scalar header section -- 2-column grid
     {
         float* floatVals[10] = {
             &bin.battleMotionValue1,  &bin.battleMotionValue2,
@@ -2383,9 +2383,9 @@ void FbsDataView::RenderBattleMotionListEditor(ContentsBinData& bin)
     ImGui::EndTabBar();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  arcade_cpu_list editor
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 void FbsDataView::RenderArcadeCpuListEditor(ContentsBinData& bin)
 {
@@ -2617,9 +2617,9 @@ void FbsDataView::RenderArcadeCpuListEditor(ContentsBinData& bin)
     ImGui::EndTabBar();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  ball_recommend_list editor
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 void FbsDataView::RenderBallRecommendListEditor(ContentsBinData& bin)
 {
@@ -2749,9 +2749,9 @@ void FbsDataView::RenderBallRecommendListEditor(ContentsBinData& bin)
     ImGui::EndTabBar();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  ball_setting_list editor (property grid)
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 void FbsDataView::RenderBallSettingListEditor(ContentsBinData& bin)
 {
@@ -2846,9 +2846,9 @@ void FbsDataView::RenderBallSettingListEditor(ContentsBinData& bin)
     ImGui::EndTable();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  battle_common_list editor
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 void FbsDataView::RenderBattleCommonListEditor(ContentsBinData& bin)
 {
@@ -3108,9 +3108,9 @@ void FbsDataView::RenderBattleCommonListEditor(ContentsBinData& bin)
     ImGui::EndTabBar();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  battle_cpu_list editor
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 void FbsDataView::RenderBattleCpuListEditor(ContentsBinData& bin)
 {
@@ -3295,9 +3295,9 @@ void FbsDataView::RenderBattleCpuListEditor(ContentsBinData& bin)
     ImGui::EndTabBar();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  rank_list editor
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 void FbsDataView::RenderRankListEditor(ContentsBinData& bin)
 {
@@ -3316,7 +3316,7 @@ void FbsDataView::RenderRankListEditor(ContentsBinData& bin)
     const float totalW = ImGui::GetContentRegionAvail().x;
     const float leftW  = 180.0f;
 
-    // Left panel — group list
+    // Left panel -- group list
     ImGui::BeginChild("##RankGroupList", ImVec2(leftW, totalH), true);
 
     if (ImGui::SmallButton("+ Add Group"))
@@ -3364,7 +3364,7 @@ void FbsDataView::RenderRankListEditor(ContentsBinData& bin)
     ImGui::EndChild();
     ImGui::SameLine();
 
-    // Right panel — items for selected group
+    // Right panel -- items for selected group
     ImGui::BeginChild("##RankItemPanel", ImVec2(totalW - leftW - 4.0f, totalH), false);
 
     if (s_selectedRankGroup >= 0 && s_selectedRankGroup < (int)bin.rankGroups.size())
@@ -3436,9 +3436,9 @@ void FbsDataView::RenderRankListEditor(ContentsBinData& bin)
     ImGui::EndChild();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  assist_input_list editor
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 void FbsDataView::RenderAssistInputListEditor(ContentsBinData& bin)
 {

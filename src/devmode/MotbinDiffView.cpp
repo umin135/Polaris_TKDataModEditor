@@ -1,4 +1,4 @@
-#ifdef _DEBUG
+﻿#ifdef _DEBUG
 
 #include "MotbinDiffView.h"
 #include "Config.h"
@@ -17,15 +17,15 @@
 #include <algorithm>
 #include <map>
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  Constants
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 static constexpr size_t kMotbinBase = 0x318;
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  Low-level helpers
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 static std::vector<uint8_t> LoadFile(const char* path)
 {
@@ -60,10 +60,10 @@ static uint64_t BlockCnt(const uint8_t* b, size_t sz, size_t cntOff)
     return RAt<uint64_t>(b, sz, cntOff);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  Move struct field name table (4-byte granularity)
 //  Offsets that fall in the hitbox/unk5 bulk ranges are handled separately.
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 struct MoveField { uint32_t off; const char* name; };
 static const MoveField kMoveFields[] = {
@@ -135,9 +135,9 @@ static const char* FindMoveFieldName(uint32_t off)
     return nullptr;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  Block definitions
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 struct BlockDef { const char* name; size_t ptrOff; size_t cntOff; size_t stride; };
 static const BlockDef kBlockDefs[] = {
@@ -163,9 +163,9 @@ static const BlockDef kBlockDefs[] = {
     { "dialogues",      0x2A0, 0x2A8, 0x18  },
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  Core diff logic
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 static std::string BuildDiffReport(const char* pathA, const char* pathB,
                                    const std::string& outDir)
@@ -232,7 +232,7 @@ static std::string BuildDiffReport(const char* pathA, const char* pathB,
         rpt << "  All block counts match.\n";
     rpt << "\n";
 
-    // ── Move-level diff ──────────────────────────────────────────────────────
+    // -- Move-level diff ------------------------------------------------------
     uint64_t moveCntA  = BlockCnt(A, szA, 0x238);
     uint64_t moveCntB  = BlockCnt(B, szB, 0x238);
     uint64_t moveCnt   = std::min(moveCntA, moveCntB);
@@ -244,7 +244,7 @@ static std::string BuildDiffReport(const char* pathA, const char* pathB,
         rpt << ", A=" << moveCntA << " B=" << moveCntB << " MISMATCH";
     rpt << ") ===\n";
 
-    // frequency map: field-offset → count of moves where it differs
+    // frequency map: field-offset -> count of moves where it differs
     std::map<uint32_t, int> freqMap;
 
     int totalMovesDiff = 0;
@@ -369,7 +369,7 @@ static std::string BuildDiffReport(const char* pathA, const char* pathB,
         }
     }
 
-    // ── Non-move block diffs (element-level byte comparison) ────────────────
+    // -- Non-move block diffs (element-level byte comparison) ----------------
     rpt << "\n=== OTHER BLOCK ELEMENT DIFFS ===\n";
     bool anyNonMoveDiff = false;
     for (const BlockDef& bd : kBlockDefs)
@@ -424,9 +424,9 @@ static std::string BuildDiffReport(const char* pathA, const char* pathB,
     return "Report written to: " + outPath;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  File picker
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 static std::string BrowseForMotbin()
 {
@@ -465,9 +465,9 @@ static std::string BrowseForMotbin()
     return result;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 //  UI
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 void MotbinDiffView::Render()
 {
@@ -487,7 +487,7 @@ void MotbinDiffView::Render()
     const float pathW = ImGui::GetContentRegionAvail().x
                       - btnW - ImGui::GetStyle().ItemSpacing.x;
 
-    // ── Original motbin ──────────────────────────────────────────────────────
+    // -- Original motbin ------------------------------------------------------
     ImGui::TextUnformatted("Original motbin (working reference):");
     ImGui::SetNextItemWidth(pathW);
     ImGui::InputText("##pathA", m_pathA, sizeof(m_pathA));
@@ -501,7 +501,7 @@ void MotbinDiffView::Render()
 
     ImGui::Spacing();
 
-    // ── Extracted motbin ─────────────────────────────────────────────────────
+    // -- Extracted motbin -----------------------------------------------------
     ImGui::TextUnformatted("Extracted motbin (generated by editor):");
     ImGui::SetNextItemWidth(pathW);
     ImGui::InputText("##pathB", m_pathB, sizeof(m_pathB));
@@ -525,7 +525,7 @@ void MotbinDiffView::Render()
     ImGui::Separator();
     ImGui::Spacing();
 
-    // ── Generate button ──────────────────────────────────────────────────────
+    // -- Generate button ------------------------------------------------------
     const bool canGenerate = (m_pathA[0] != '\0') && (m_pathB[0] != '\0') && !rootDir.empty();
     if (!canGenerate) ImGui::BeginDisabled();
     if (ImGui::Button("Generate Report", ImVec2(160.0f, 0.0f)))

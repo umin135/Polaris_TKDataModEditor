@@ -1,4 +1,4 @@
-// MotbinData.cpp — binary parser for moveset.motbin
+﻿// MotbinData.cpp -- binary parser for moveset.motbin
 // Field offsets based on OldTool2 (TekkenMovesetExtractor TK8) t8_offsetTable.
 // Move struct size = 0x448 bytes (FILE format, NOT in-memory).
 #include "MotbinData.h"
@@ -7,9 +7,9 @@
 #include <cstring>
 #include <string>
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  Helpers
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 static std::wstring Utf8ToWide(const std::string& s)
 {
@@ -44,7 +44,7 @@ static std::vector<uint8_t> ReadFileBytes(const std::wstring& path)
     return buf;
 }
 
-// Bounds-checked field reader — returns zero-initialised T on out-of-bounds
+// Bounds-checked field reader -- returns zero-initialised T on out-of-bounds
 template<typename T>
 static T ReadAt(const uint8_t* base, size_t capacity, size_t offset)
 {
@@ -54,8 +54,8 @@ static T ReadAt(const uint8_t* base, size_t capacity, size_t offset)
     return val;
 }
 
-// ─────────────────────────────────────────────────────────────
-//  Index expansion — converts index-format motbin to file-offset
+// -------------------------------------------------------------
+//  Index expansion -- converts index-format motbin to file-offset
 //  format so all downstream parsers can work with direct offsets.
 //
 //  moveset.motbin is saved by the extractor in index format:
@@ -63,9 +63,9 @@ static T ReadAt(const uint8_t* base, size_t capacity, size_t offset)
 //    - Element pointer fields: element index into target block
 //
 //  ExpandIndexes reverses this:
-//    - Header ptrs:  stored_val + 0x318  → file offset
-//    - Element ptrs: tgtBlockBase + idx * tgtStride  → file offset
-// ─────────────────────────────────────────────────────────────
+//    - Header ptrs:  stored_val + 0x318  -> file offset
+//    - Element ptrs: tgtBlockBase + idx * tgtStride  -> file offset
+// -------------------------------------------------------------
 
 static constexpr size_t kMotbinBase = 0x318;
 
@@ -137,8 +137,8 @@ static void ExpandIndexes(std::vector<uint8_t>& v)
     const size_t sz = v.size();
     if (sz < kMotbinBase) return;
 
-    // Pass 1: header block ptrs: BASE-relative → file offset
-    // NOTE: A BASE-relative value of 0 is valid — it means the block starts at
+    // Pass 1: header block ptrs: BASE-relative -> file offset
+    // NOTE: A BASE-relative value of 0 is valid -- it means the block starts at
     // exactly offset kMotbinBase (0x318) in the file (i.e. the first data block).
     // We must NOT skip val==0; doing so would leave that ptr at 0, causing the
     // block to be silently dropped during parsing (e.g. reaction_list in ant.motbin).
@@ -149,7 +149,7 @@ static void ExpandIndexes(std::vector<uint8_t>& v)
         memcpy(b + o, &val, 8);
     }
 
-    // Pass 2: element pointer fields: index → file offset
+    // Pass 2: element pointer fields: index -> file offset
     for (const ExpandBlockDesc& bd : kExpandBlocks) {
         if (bd.numPtrs == 0) continue;
         if (bd.ptrOff + 8 > sz || bd.cntOff + 8 > sz) continue;
@@ -176,11 +176,11 @@ static void ExpandIndexes(std::vector<uint8_t>& v)
     }
 }
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  XOR_KEYS decryption for index-format encrypted move fields.
-//  Layout: 8 × uint32 at blockOff+0 .. blockOff+0x1C
+//  Layout: 8 ? uint32 at blockOff+0 .. blockOff+0x1C
 //  Slot [moveIdx%8] holds (rawValue ^ kXorKeys[slot]).
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 static const uint32_t kXorKeys[8] = {
     0x964f5b9eU, 0xd88448a2U, 0xa84b71e0U, 0xa27d5221U,
@@ -195,17 +195,17 @@ static uint32_t XorDecryptMoveField(const uint8_t* mb, size_t blockOff, uint32_t
     return enc ^ kXorKeys[slot];
 }
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  .motbin header constants (file format)
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 static constexpr size_t kHdr_Signature  = 0x08;
 static constexpr size_t kHdr_MovesPtr   = 0x230;
 static constexpr size_t kHdr_MovesCount = 0x238;
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  Move struct file offsets (OldTool2 t8_offsetTable)
 //  Total size: 0x448 bytes
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 static constexpr size_t kMove_Size = 0x448;
 
 static constexpr size_t kMove_EncNameKey    = 0x00;
@@ -250,9 +250,9 @@ static constexpr size_t kMove_HitboxStride  = 0x30;
 static constexpr size_t kMove_Collision     = 0x2E0;
 static constexpr size_t kMove_Distance      = 0x2E2;
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  Sub-struct sizes (TK8)
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 static constexpr size_t kCancel_Size       = 0x28;
 static constexpr size_t kHitCond_Size      = 0x18;
 static constexpr size_t kExtraProp_Size    = 0x28;
@@ -260,11 +260,11 @@ static constexpr size_t kOtherMoveProp_Size = 0x20;  // start/end properties
 
 static constexpr uint32_t kReqListEnd = 1100;  // Requirement list terminator value
 
-// (Sub-struct parsers removed — all blocks are now parsed globally in LoadMotbin)
+// (Sub-struct parsers removed -- all blocks are now parsed globally in LoadMotbin)
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  Public loader
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 MotbinData LoadMotbin(const std::string& folderPath)
 {
@@ -314,13 +314,13 @@ MotbinData LoadMotbin(const std::string& folderPath)
     result.moveCount = static_cast<uint32_t>(movesCount);
     result.moves.reserve(static_cast<size_t>(movesCount));
 
-    // ── original_aliases (header 0x30..0xA7, 60 × uint16) ──────────────────
-    // genericId - 0x8000 = index → real move id
+    // -- original_aliases (header 0x30..0xA7, 60 ? uint16) ------------------
+    // genericId - 0x8000 = index -> real move id
     result.originalAliases.resize(60);
     for (size_t ai = 0; ai < 60; ++ai)
         result.originalAliases[ai] = ReadAt<uint16_t>(buf, cap, 0x30 + ai * 2);
 
-    // ── reverse map: move index → first generic ID that references it ────────
+    // -- reverse map: move index -> first generic ID that references it --------
     result.moveToGenericId.assign(result.moveCount, 0u);
     for (size_t ai = 0; ai < result.originalAliases.size(); ++ai)
     {
@@ -329,7 +329,7 @@ MotbinData LoadMotbin(const std::string& folderPath)
             result.moveToGenericId[mid] = static_cast<uint32_t>(0x8000u + ai);
     }
 
-    // ── Build global requirement block ───────────────────────
+    // -- Build global requirement block -----------------------
     const uint64_t reqBase  = ReadAt<uint64_t>(buf, cap, 0x180);
     const uint64_t reqCount = ReadAt<uint64_t>(buf, cap, 0x188);
     const uint64_t reacBase = ReadAt<uint64_t>(buf, cap, 0x168);
@@ -351,7 +351,7 @@ MotbinData LoadMotbin(const std::string& folderPath)
         }
     }
 
-    // ── cancelExtraBlock ────────────────────────────────────────
+    // -- cancelExtraBlock ----------------------------------------
     {
         uint64_t base = ReadAt<uint64_t>(buf, cap, 0x1F0);
         uint64_t cnt  = ReadAt<uint64_t>(buf, cap, 0x1F8);
@@ -367,7 +367,7 @@ MotbinData LoadMotbin(const std::string& folderPath)
         }
     }
 
-    // ── pushbackExtraBlock ───────────────────────────────────────
+    // -- pushbackExtraBlock ---------------------------------------
     {
         uint64_t base = ReadAt<uint64_t>(buf, cap, 0x1C0);
         uint64_t cnt  = ReadAt<uint64_t>(buf, cap, 0x1C8);
@@ -385,7 +385,7 @@ MotbinData LoadMotbin(const std::string& folderPath)
         }
     }
 
-    // ── pushbackBlock ────────────────────────────────────────────
+    // -- pushbackBlock --------------------------------------------
     {
         uint64_t pbBase = ReadAt<uint64_t>(buf, cap, 0x1B0);
         uint64_t pbCnt  = ReadAt<uint64_t>(buf, cap, 0x1B8);
@@ -410,7 +410,7 @@ MotbinData LoadMotbin(const std::string& folderPath)
         }
     }
 
-    // ── reactionListBlock ────────────────────────────────────────
+    // -- reactionListBlock ----------------------------------------
     {
         uint64_t base   = ReadAt<uint64_t>(buf, cap, 0x168);
         uint64_t cnt    = ReadAt<uint64_t>(buf, cap, 0x178);
@@ -466,7 +466,7 @@ MotbinData LoadMotbin(const std::string& folderPath)
         }
     }
 
-    // ── hitConditionBlock ────────────────────────────────────────
+    // -- hitConditionBlock ----------------------------------------
     {
         uint64_t base   = ReadAt<uint64_t>(buf, cap, 0x190);
         uint64_t cnt    = ReadAt<uint64_t>(buf, cap, 0x198);
@@ -494,7 +494,7 @@ MotbinData LoadMotbin(const std::string& folderPath)
         }
     }
 
-    // ── cancelBlock ──────────────────────────────────────────────
+    // -- cancelBlock ----------------------------------------------
     {
         uint64_t base   = ReadAt<uint64_t>(buf, cap, 0x1D0);
         uint64_t cnt    = ReadAt<uint64_t>(buf, cap, 0x1D8);
@@ -531,7 +531,7 @@ MotbinData LoadMotbin(const std::string& folderPath)
         }
     }
 
-    // ── groupCancelBlock ─────────────────────────────────────────
+    // -- groupCancelBlock -----------------------------------------
     {
         uint64_t base   = ReadAt<uint64_t>(buf, cap, 0x1E0);
         uint64_t cnt    = ReadAt<uint64_t>(buf, cap, 0x1E8);
@@ -568,7 +568,7 @@ MotbinData LoadMotbin(const std::string& folderPath)
         }
     }
 
-    // ── extraPropBlock ───────────────────────────────────────────
+    // -- extraPropBlock -------------------------------------------
     {
         uint64_t base = ReadAt<uint64_t>(buf, cap, 0x200);
         uint64_t cnt  = ReadAt<uint64_t>(buf, cap, 0x208);
@@ -597,7 +597,7 @@ MotbinData LoadMotbin(const std::string& folderPath)
         }
     }
 
-    // ── startPropBlock ───────────────────────────────────────────
+    // -- startPropBlock -------------------------------------------
     {
         uint64_t base = ReadAt<uint64_t>(buf, cap, 0x210);
         uint64_t cnt  = ReadAt<uint64_t>(buf, cap, 0x218);
@@ -624,7 +624,7 @@ MotbinData LoadMotbin(const std::string& folderPath)
         }
     }
 
-    // ── endPropBlock ─────────────────────────────────────────────
+    // -- endPropBlock ---------------------------------------------
     {
         uint64_t base = ReadAt<uint64_t>(buf, cap, 0x220);
         uint64_t cnt  = ReadAt<uint64_t>(buf, cap, 0x228);
@@ -651,7 +651,7 @@ MotbinData LoadMotbin(const std::string& folderPath)
         }
     }
 
-    // ── voiceclipBlock ───────────────────────────────────────────
+    // -- voiceclipBlock -------------------------------------------
     {
         uint64_t base = ReadAt<uint64_t>(buf, cap, 0x240);
         uint64_t cnt  = ReadAt<uint64_t>(buf, cap, 0x248);
@@ -678,7 +678,7 @@ MotbinData LoadMotbin(const std::string& folderPath)
 
         ParsedMove m = {};
 
-        // ── Encrypted blocks (raw storage) ──────────────────
+        // -- Encrypted blocks (raw storage) ------------------
         m.encrypted_name_key     = ReadAt<uint64_t>(mb, kMove_Size, kMove_EncNameKey);
         m.name_encryption_key    = ReadAt<uint64_t>(mb, kMove_Size, kMove_EncNameKey + 8);
         for (int k = 0; k < 4; ++k)
@@ -702,7 +702,7 @@ MotbinData LoadMotbin(const std::string& folderPath)
         for (int k = 0; k < 4; ++k)
             m.hitlevel_related[k] = ReadAt<uint32_t>(mb, kMove_Size, kMove_EncHitlevel + 16 + k * 4);
 
-        // ── Decrypt encrypted fields (XOR_KEYS format) ──────
+        // -- Decrypt encrypted fields (XOR_KEYS format) ------
         uint32_t moveIdx = static_cast<uint32_t>(i);
         uint32_t nameKey = XorDecryptMoveField(mb, kMove_EncNameKey, moveIdx);
         m.name_key = nameKey;
@@ -723,7 +723,7 @@ MotbinData LoadMotbin(const std::string& folderPath)
         m.moveId            = XorDecryptMoveField(mb, kMove_EncOrdinalId, moveIdx);
         m.ordinal_id2       = XorDecryptMoveField(mb, kMove_EncCharId,    moveIdx);
 
-        // ── Cancel pointers ──────────────────────────────────
+        // -- Cancel pointers ----------------------------------
         m.cancel_addr  = ReadAt<uint64_t>(mb, kMove_Size, kMove_CancelAddr);
         m.cancel2_addr = ReadAt<uint64_t>(mb, kMove_Size, kMove_Cancel2Addr);
         m.u1           = ReadAt<uint64_t>(mb, kMove_Size, kMove_U1);
@@ -734,7 +734,7 @@ MotbinData LoadMotbin(const std::string& folderPath)
         m.transition   = ReadAt<uint16_t>(mb, kMove_Size, kMove_Transition);
         m._0xCE        = ReadAt<int16_t> (mb, kMove_Size, kMove_0xCE);
 
-        // ── Plain fields ─────────────────────────────────────
+        // -- Plain fields -------------------------------------
         m.hit_condition_addr         = ReadAt<uint64_t>(mb, kMove_Size, kMove_HitCondAddr);
         m._0x118                     = ReadAt<uint32_t>(mb, kMove_Size, kMove_0x118);
         m._0x11C                     = ReadAt<uint32_t>(mb, kMove_Size, kMove_0x11C);
@@ -751,7 +751,7 @@ MotbinData LoadMotbin(const std::string& folderPath)
         m.startup                    = ReadAt<uint32_t>(mb, kMove_Size, kMove_Startup);
         m.recovery                   = ReadAt<uint32_t>(mb, kMove_Size, kMove_Recovery);
 
-        // ── Hitbox slots (8 × 0x30 bytes) ───────────────────
+        // -- Hitbox slots (8 ? 0x30 bytes) -------------------
         for (int h = 0; h < 8; ++h)
         {
             size_t hbase = kMove_Hitbox0 + h * kMove_HitboxStride;
@@ -762,12 +762,12 @@ MotbinData LoadMotbin(const std::string& folderPath)
                 m.hitbox_floats[h][f] = ReadAt<float>(mb, kMove_Size, hbase + 0x0C + f * 4);
         }
 
-        // ── Collision / distance ─────────────────────────────
+        // -- Collision / distance -----------------------------
         m.collision = ReadAt<uint16_t>(mb, kMove_Size, kMove_Collision);
         m.distance  = ReadAt<uint16_t>(mb, kMove_Size, kMove_Distance);
         m.u18       = ReadAt<uint32_t>(mb, kMove_Size, 0x444);
 
-        // ── Compute block indexes from file addresses ────────
+        // -- Compute block indexes from file addresses --------
         uint64_t cancelBase  = ReadAt<uint64_t>(buf, cap, 0x1D0);
         uint64_t hitCondBase = ReadAt<uint64_t>(buf, cap, 0x190);
         uint64_t voiceBase   = ReadAt<uint64_t>(buf, cap, 0x240);
@@ -788,7 +788,7 @@ MotbinData LoadMotbin(const std::string& folderPath)
         if (m.move_end_extraprop_addr && m.move_end_extraprop_addr < cap && enPropBase && m.move_end_extraprop_addr >= enPropBase)
             m.end_prop_idx = (uint32_t)((m.move_end_extraprop_addr - enPropBase) / 0x20);
 
-        // ── Name lookup via name_keys.json ───────────────────
+        // -- Name lookup via name_keys.json -------------------
         // Supplement entries are placeholder strings of the form "nkXXXXXXXX___"
         // (nk + 8 uppercase hex digits + padding underscores).  These exist only
         // to produce correct string-block byte offsets in the binary; they are not

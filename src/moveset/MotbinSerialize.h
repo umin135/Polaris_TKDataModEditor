@@ -1,9 +1,9 @@
-#pragma once
+﻿#pragma once
 #include <cstdint>
 #include <string>
 #include <vector>
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  MotbinNameData
 //
 //  String data extracted from the game's virtual string block.
@@ -21,8 +21,8 @@
 //    offset moves[0].nameOff : move[0] name
 //    offset moves[0].animOff : move[0] anim name
 //    ...interleaved per move...
-//  Total size → header 0x170 (string_block_end_offset).
-// ─────────────────────────────────────────────────────────────
+//  Total size -> header 0x170 (string_block_end_offset).
+// -------------------------------------------------------------
 struct MotbinNameData {
     std::string charName;
     std::string charCreator;
@@ -32,7 +32,7 @@ struct MotbinNameData {
     std::vector<MoveNameEntry> moves;
 };
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  ExportLoaderBin
 //
 //  Converts a raw state-3 motbin dump (absolute pointers from game
@@ -50,8 +50,8 @@ struct MotbinNameData {
 //              fields (move+0x040/0x048) and header string-block offsets
 //              (0x18/0x20/0x28) and string_block_end (0x170) are written.
 //  Returns   : state-1 binary, or empty on failure
-// ─────────────────────────────────────────────────────────────
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
+// -------------------------------------------------------------
 //  DecryptMotbinMoveKey
 //
 //  Decrypts one 16-byte XOR-encoded field block from a move buffer.
@@ -59,7 +59,7 @@ struct MotbinNameData {
 //  blockOff: byte offset of the block within the move
 //            (0x00 = name_key, 0x20 = anim_key, 0x58 = vuln, ...)
 //  Returns the decrypted uint32 value.
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 uint32_t DecryptMotbinMoveKey(const uint8_t* moveBuf, size_t blockOff);
 
 std::vector<uint8_t> ExportLoaderBin(const std::vector<uint8_t>& rawBytes,

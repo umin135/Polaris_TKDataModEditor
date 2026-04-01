@@ -1,10 +1,10 @@
-#pragma once
+﻿#pragma once
 #include <vector>
 #include <string>
 #include <cstdint>
 #include <cstring>
 
-// ── Supported bin types ──────────────────────────────────────────────────────
+// -- Supported bin types ------------------------------------------------------
 enum class BinType
 {
     None,
@@ -35,7 +35,7 @@ enum class BinType
     AssistInputList,
 };
 
-// ── customize_item_common_list entry ─────────────────────────────────────────
+// -- customize_item_common_list entry -----------------------------------------
 struct CustomizeItemCommonEntry
 {
     uint32_t item_id;
@@ -87,7 +87,7 @@ struct CustomizeItemCommonEntry
     }
 };
 
-// ── character_list entry ──────────────────────────────────────────────────────
+// -- character_list entry ------------------------------------------------------
 struct CharacterEntry
 {
     char     character_code[64];
@@ -122,7 +122,7 @@ struct CharacterEntry
     }
 };
 
-// ── customize_item_exclusive_list entries ────────────────────────────────────
+// -- customize_item_exclusive_list entries ------------------------------------
 struct CustomizeExclusiveRuleEntry
 {
     uint32_t item_id    = 0;
@@ -138,21 +138,21 @@ struct CustomizeExclusivePairEntry
     uint32_t flag      = 0;
 };
 
-// ── area_list entry ───────────────────────────────────────────────────────────
+// -- area_list entry -----------------------------------------------------------
 struct AreaEntry
 {
     uint32_t area_hash = 0;
     char     area_code[256] = {};
 };
 
-// ── battle_subtitle_info entry ────────────────────────────────────────────────
+// -- battle_subtitle_info entry ------------------------------------------------
 struct BattleSubtitleInfoEntry
 {
     uint32_t subtitle_hash = 0;
     uint32_t subtitle_type = 0;
 };
 
-// ── fate_drama_player_start_list entry ───────────────────────────────────────
+// -- fate_drama_player_start_list entry ---------------------------------------
 struct FateDramaPlayerStartEntry
 {
     uint32_t character1_hash = 0;
@@ -162,7 +162,7 @@ struct FateDramaPlayerStartEntry
     bool     value_4         = false;
 };
 
-// ── jukebox_list entry ────────────────────────────────────────────────────────
+// -- jukebox_list entry --------------------------------------------------------
 struct JukeboxEntry
 {
     uint32_t bgm_hash    = 0;
@@ -176,7 +176,7 @@ struct JukeboxEntry
     char     display_text_key[256]  = {};
 };
 
-// ── series_list entry ─────────────────────────────────────────────────────────
+// -- series_list entry ---------------------------------------------------------
 struct SeriesEntry
 {
     uint32_t series_hash    = 0;
@@ -186,7 +186,7 @@ struct SeriesEntry
     char     logo_icon_key[256]   = {};
 };
 
-// ── tam_mission_list entry ────────────────────────────────────────────────────
+// -- tam_mission_list entry ----------------------------------------------------
 struct TamMissionEntry
 {
     uint32_t mission_id = 0;
@@ -203,7 +203,7 @@ struct TamMissionEntry
     uint32_t value_11   = 0;
 };
 
-// ── drama_player_start_list entry ─────────────────────────────────────────────
+// -- drama_player_start_list entry ---------------------------------------------
 struct DramaPlayerStartEntry
 {
     uint32_t character_hash  = 0;
@@ -271,7 +271,7 @@ struct DramaPlayerStartEntry
     float    extra_param_d   = 0.0f;
 };
 
-// ── stage_list entry ──────────────────────────────────────────────────────────
+// -- stage_list entry ----------------------------------------------------------
 struct StageEntry
 {
     char     stage_code[128]    = {};
@@ -313,7 +313,7 @@ struct StageEntry
     bool     is_default_variant = false;
 };
 
-// ── ball_property_list entry ──────────────────────────────────────────────────
+// -- ball_property_list entry --------------------------------------------------
 struct BallPropertyEntry
 {
     uint32_t ball_hash   = 0;
@@ -337,7 +337,7 @@ struct BallPropertyEntry
     float    value_18    = 0.0f;
 };
 
-// ── body_cylinder_data_list entry ─────────────────────────────────────────────
+// -- body_cylinder_data_list entry ---------------------------------------------
 struct BodyCylinderDataEntry
 {
     uint32_t character_hash  = 0;
@@ -361,7 +361,7 @@ struct BodyCylinderDataEntry
     uint32_t cyl2_unk_hash   = 0;
 };
 
-// ── customize_item_unique_list entries ────────────────────────────────────────
+// -- customize_item_unique_list entries ----------------------------------------
 struct CustomizeItemUniqueEntry
 {
     uint32_t char_item_id     = 0;
@@ -394,7 +394,7 @@ struct CustomizeItemUniqueBodyEntry
     uint32_t char_item_id    = 0;
 };
 
-// ── character_select_list entries ─────────────────────────────────────────────
+// -- character_select_list entries ---------------------------------------------
 struct CharacterSelectHashEntry
 {
     uint32_t character_hash = 0;
@@ -406,14 +406,14 @@ struct CharacterSelectParamEntry
     uint32_t value_1      = 0;
 };
 
-// ── customize_item_prohibit_drama_list entry ──────────────────────────────────
+// -- customize_item_prohibit_drama_list entry ----------------------------------
 struct CustomizeItemProhibitDramaEntry
 {
     int32_t value_0 = 0;
     int32_t value_1 = 0;
 };
 
-// ── battle_motion_list entry ──────────────────────────────────────────────────
+// -- battle_motion_list entry --------------------------------------------------
 struct BattleMotionEntry
 {
     uint8_t  motion_id = 0;
@@ -421,7 +421,7 @@ struct BattleMotionEntry
     uint32_t value_2   = 0;
 };
 
-// ── arcade_cpu_list entries ───────────────────────────────────────────────────
+// -- arcade_cpu_list entries ---------------------------------------------------
 struct ArcadeCpuSettings
 {
     uint32_t unk_0 = 0;
@@ -453,7 +453,7 @@ struct ArcadeCpuRuleEntry
     uint32_t value_3 = 0;
 };
 
-// ── ball_recommend_list entry ─────────────────────────────────────────────────
+// -- ball_recommend_list entry -------------------------------------------------
 struct BallRecommendEntry
 {
     uint32_t character_hash    = 0;
@@ -463,7 +463,7 @@ struct BallRecommendEntry
     uint32_t unk_4             = 0;
 };
 
-// ── ball_setting_list data (single table, no entries vector) ──────────────────
+// -- ball_setting_list data (single table, no entries vector) ------------------
 struct BallSettingData
 {
     float    value_0  = 0.0f;  // id: 0  | float
@@ -540,7 +540,7 @@ struct BallSettingData
     uint32_t value_71 = 0;     // id: 71 | uint32
 };
 
-// ── battle_common_list entries ────────────────────────────────────────────────
+// -- battle_common_list entries ------------------------------------------------
 struct BattleCommonSingleValueEntry
 {
     uint32_t value = 0;
@@ -572,7 +572,7 @@ struct BattleCommonMiscEntry
     float value_2 = 0.0f;
 };
 
-// ── battle_cpu_list entries ───────────────────────────────────────────────────
+// -- battle_cpu_list entries ---------------------------------------------------
 struct BattleCpuRankEntry
 {
     uint32_t values[47]    = {};
@@ -587,7 +587,7 @@ struct BattleCpuStepEntry
     uint32_t value_3 = 0;
 };
 
-// ── rank_list entries ─────────────────────────────────────────────────────────
+// -- rank_list entries ---------------------------------------------------------
 struct RankItem
 {
     uint32_t hash     = 0;
@@ -602,14 +602,14 @@ struct RankGroup
     std::vector<RankItem> entries;
 };
 
-// ── assist_input_list entry ───────────────────────────────────────────────────
+// -- assist_input_list entry ---------------------------------------------------
 struct AssistInputEntry
 {
     uint32_t character_hash = 0;
     int32_t  values[58]    = {};
 };
 
-// ── A single bin file added to the mod ───────────────────────────────────────
+// -- A single bin file added to the mod ---------------------------------------
 struct ContentsBinData
 {
     BinType     type = BinType::None;
@@ -732,7 +732,7 @@ struct ContentsBinData
     std::vector<AssistInputEntry>            assistInputEntries;
 };
 
-// ── Top-level mod data container ─────────────────────────────────────────────
+// -- Top-level mod data container ---------------------------------------------
 struct ModData
 {
     std::vector<ContentsBinData> contents;

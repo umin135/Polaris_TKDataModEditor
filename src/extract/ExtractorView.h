@@ -1,13 +1,13 @@
-#pragma once
+﻿#pragma once
 #include "MovesetExtractor.h"
 #include <string>
 #include <functional>
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  ExtractorView
 //  Two-button panel: "Extract P1" / "Extract P2"
 //  Each button auto-connects, refreshes slot info, and extracts.
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 class ExtractorView {
 public:
     explicit ExtractorView(const std::string& movesetRootDir);

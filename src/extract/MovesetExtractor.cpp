@@ -1,4 +1,4 @@
-// MovesetExtractor.cpp
+﻿// MovesetExtractor.cpp
 // Extracts moveset from Polaris-Win64-Shipping.exe and saves as .motbin
 // Reference: OldTool2 (TekkenMovesetExtractor) game_addresses.txt + motbinExport.py
 #include "MovesetExtractor.h"
@@ -9,9 +9,9 @@
 #include <cstdio>
 #include <algorithm>
 
-// ─────────────────────────────────────────────────────────────
-//  WriteIni — write moveset.ini alongside the extracted motbin
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
+//  WriteIni -- write moveset.ini alongside the extracted motbin
+// -------------------------------------------------------------
 static void WriteIni(const std::string& folder, const std::string& charaName)
 {
     std::string path = folder + "\\moveset.ini";
@@ -26,7 +26,7 @@ static void WriteIni(const std::string& folder, const std::string& charaName)
     fclose(f);
 }
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  TK8 pointer chain constants (game_addresses.txt + Utils.py)
 //
 //  Player address resolution (getPlayerPointerPath in Utils.py):
@@ -34,18 +34,18 @@ static void WriteIni(const std::string& folder, const std::string& charaName)
 //    readPointerPath(baseAddr, ptr_list):
 //      step 1: currAddr = *(baseAddr)            + (0x30 + playerId*8)
 //      step 2: currAddr = *(currAddr)            + 0
-//    → playerAddr = *(  *(moduleBase+0x9B7A950) + 0x30 + playerId*8  )
-// ─────────────────────────────────────────────────────────────
-static constexpr uintptr_t kP1AddrModuleOffset = 0x9B7A950; // moduleBase + this → first dereference
-static constexpr uintptr_t kP1SlotBase         = 0x30;       // add to first deref → slot ptr array
+//    -> playerAddr = *(  *(moduleBase+0x9B7A950) + 0x30 + playerId*8  )
+// -------------------------------------------------------------
+static constexpr uintptr_t kP1AddrModuleOffset = 0x9B7A950; // moduleBase + this -> first dereference
+static constexpr uintptr_t kP1SlotBase         = 0x30;       // add to first deref -> slot ptr array
 // slot ptr: P1 = +0x00, P2 = +0x08 (playerId * 8)
-static constexpr uintptr_t kMotbinOffset        = 0x38C8;    // playerAddr + this → motbin ptr (8B)
-static constexpr uintptr_t kCharaIdOffset       = 0x168;     // playerAddr + this → uint32 chara id
+static constexpr uintptr_t kMotbinOffset        = 0x38C8;    // playerAddr + this -> motbin ptr (8B)
+static constexpr uintptr_t kCharaIdOffset       = 0x168;     // playerAddr + this -> uint32 chara id
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  motbin header layout (t8_offsetTable, offsets 0x168-0x2B0)
 //  Each entry: pointer_field_offset (8B ptr), count_field_offset (8B count)
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 struct BlockDesc {
     size_t   ptrOff;    // offset in motbin header where block ptr is stored
     size_t   cntOff;    // offset in motbin header where block count is stored
@@ -59,7 +59,7 @@ struct BlockDesc {
 // Format: { ptrOff, cntOff, stride, numPtrs, { ptr_field_offsets... } }
 static const BlockDesc kTK8Blocks[] = {
     // reaction_list: ptr@0x168 cnt@0x178 size=0x70
-    // ReactionList has 8 × 8B pushback pointers starting at offset 0x00
+    // ReactionList has 8 ? 8B pushback pointers starting at offset 0x00
     { 0x168, 0x178, 0x70, 8, { 0x00, 0x08, 0x10, 0x18, 0x20, 0x28, 0x30, 0x38 } },
 
     // requirements: ptr@0x180 cnt@0x188 size=0x14 (no inner pointers)
@@ -144,9 +144,9 @@ static const size_t kHeaderPtrOffsets[] = {
 
 static constexpr size_t kMotbinHeaderSize = 0x318; // BASE constant
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  Helpers
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 template<typename T>
 static T ReadBuf(const uint8_t* buf, size_t offset)
@@ -162,7 +162,7 @@ static void WriteBuf(uint8_t* buf, size_t offset, T val)
     memcpy(buf + offset, &val, sizeof(T));
 }
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 MovesetExtractor::MovesetExtractor() = default;
 
@@ -186,14 +186,14 @@ void MovesetExtractor::Disconnect()
     m_statusMsg = "Disconnected.";
 }
 
-// ─────────────────────────────────────────────────────────────
-//  ReadSlot — follow 2-step pointer chain for P1/P2
+// -------------------------------------------------------------
+//  ReadSlot -- follow 2-step pointer chain for P1/P2
 //
 //  Chain (from OldTool2 Utils.py getPlayerPointerPath):
 //    step1 = *(moduleBase + 0x9B7A950)
 //    slotPtr = step1 + 0x30 + slotIndex*8
 //    playerAddr = *(slotPtr)
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 bool MovesetExtractor::ReadSlot(int slotIndex, PlayerSlotInfo& slot)
 {
@@ -205,7 +205,7 @@ bool MovesetExtractor::ReadSlot(int slotIndex, PlayerSlotInfo& slot)
     if (!ReadGamePointer(m_proc, m_proc.moduleBase + kP1AddrModuleOffset, firstPtr) || firstPtr == 0)
         return false;
 
-    // Step 2: slot pointer = firstPtr + 0x30 + slotIndex*8  →  dereference → playerAddr
+    // Step 2: slot pointer = firstPtr + 0x30 + slotIndex*8  ->  dereference -> playerAddr
     uintptr_t slotPtrAddr = firstPtr + kP1SlotBase + static_cast<uintptr_t>(slotIndex) * 8;
     uintptr_t playerAddr = 0;
     if (!ReadGamePointer(m_proc, slotPtrAddr, playerAddr) || playerAddr == 0)
@@ -213,7 +213,7 @@ bool MovesetExtractor::ReadSlot(int slotIndex, PlayerSlotInfo& slot)
 
     slot.playerAddr = playerAddr;
 
-    // motbin pointer: playerAddr + 0x38C8 → ptr → motbin base
+    // motbin pointer: playerAddr + 0x38C8 -> ptr -> motbin base
     uintptr_t motbinPtrAddr = playerAddr + kMotbinOffset;
     uintptr_t motbinAddr = 0;
     if (!ReadGamePointer(m_proc, motbinPtrAddr, motbinAddr) || motbinAddr == 0)
@@ -239,7 +239,7 @@ bool MovesetExtractor::ReadSlot(int slotIndex, PlayerSlotInfo& slot)
         slot.valid = true;
     }
 
-    // Character name from ID — looked up via characterList.txt
+    // Character name from ID -- looked up via characterList.txt
     const char* charaNamePtr = LabelDB::Get().CharaName(charaId);
     if (charaNamePtr)
         slot.charaName = charaNamePtr;
@@ -259,9 +259,9 @@ void MovesetExtractor::RefreshSlots()
     ReadSlot(1, m_slots[1]);
 }
 
-// ─────────────────────────────────────────────────────────────
-//  ReadAndFixupMotbin — raw memory dump + pointer fixup
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
+//  ReadAndFixupMotbin -- raw memory dump + pointer fixup
+// -------------------------------------------------------------
 
 bool MovesetExtractor::ReadMotbin(uintptr_t motbinAddr,
                                    std::vector<uint8_t>& outBytes,
@@ -321,7 +321,7 @@ bool MovesetExtractor::ReadMotbin(uintptr_t motbinAddr,
     outBytes.resize(totalSize);
     if (!ReadGameMemory(m_proc, motbinAddr, outBytes.data(), totalSize))
     {
-        // Sometimes the blocks aren't fully contiguous — try reading header
+        // Sometimes the blocks aren't fully contiguous -- try reading header
         // separately and each block individually
         outBytes.assign(totalSize, 0);
         ReadGameMemory(m_proc, motbinAddr, outBytes.data(), kMotbinHeaderSize);
@@ -342,14 +342,14 @@ bool MovesetExtractor::ReadMotbin(uintptr_t motbinAddr,
         }
     }
 
-    // State-3 raw dump — pointers remain as absolute addresses.
+    // State-3 raw dump -- pointers remain as absolute addresses.
     // moveset.base sidecar written by SaveMotbin so the editor can fixup.
     return true;
 }
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  SaveMotbin
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 bool MovesetExtractor::SaveMotbin(const std::vector<uint8_t>& bytes,
                                    const std::string& destFolder,
@@ -367,7 +367,7 @@ bool MovesetExtractor::SaveMotbin(const std::vector<uint8_t>& bytes,
 
     CreateDirectoryA(folder.c_str(), nullptr);
 
-    // Convert state-3 (absolute pointers) → index format for loader + editor
+    // Convert state-3 (absolute pointers) -> index format for loader + editor
     std::vector<uint8_t> outBytes = ExportLoaderBin(bytes, motbinBase, names);
     if (outBytes.empty())
     {
@@ -392,15 +392,15 @@ bool MovesetExtractor::SaveMotbin(const std::vector<uint8_t>& bytes,
         return false;
     }
 
-    // Write moveset.ini — character info sidecar (name DB is built into the editor)
+    // Write moveset.ini -- character info sidecar (name DB is built into the editor)
     WriteIni(folder, charaName);
 
     return true;
 }
 
-// ─────────────────────────────────────────────────────────────
-//  ExtractToFile — public API
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
+//  ExtractToFile -- public API
+// -------------------------------------------------------------
 
 bool MovesetExtractor::ExtractToFile(int slotIndex,
                                       const std::string& destFolder,
@@ -423,7 +423,7 @@ bool MovesetExtractor::ExtractToFile(int slotIndex,
     if (!ReadMotbin(slot.motbinAddr, bytes, errorMsg))
         return false;
 
-    // ── Build name data ───────────────────────────────────────────────
+    // -- Build name data -----------------------------------------------
     // Header string fields (char_name_addr at 0x10/0x18/0x20/0x28) are
     // "no longer used" in TK8 and always point to "?" in game memory.
     // We generate deterministic header strings from the character ID and

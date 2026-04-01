@@ -1,4 +1,4 @@
-// Main application rendering logic
+﻿// Main application rendering logic
 #include "App.h"
 #include "Config.h"
 #include "moveset/LabelDB.h"
@@ -18,10 +18,10 @@
 static const char* APP_VERSION   = "v0.1.0";
 static const float SIDEBAR_WIDTH = 200.0f;
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  PNG texture loader from embedded Win32 resource (RCDATA)
-//  Uses WIC memory stream — no external file needed.
-// ─────────────────────────────────────────────────────────────
+//  Uses WIC memory stream -- no external file needed.
+// -------------------------------------------------------------
 
 static ID3D11ShaderResourceView* LoadTexturePNGFromResource(
     ID3D11Device* device, int resourceId, int* outW, int* outH)
@@ -106,13 +106,13 @@ static ID3D11ShaderResourceView* LoadTexturePNGFromResource(
     return srv;
 }
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  Construction / Style
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  Folder picker dialog (IFileDialog, FOS_PICKFOLDERS)
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 static std::string BrowseForFolder()
 {
@@ -255,14 +255,14 @@ void App::ApplyStyle()
     style.ScrollbarSize = 14.0f;
 }
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  Frame entry point
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 void App::Render()
 {
     // Prevent any DockNode host windows (internally created by ImGui's docking
-    // system) from being brought to front on focus — otherwise clicking the
+    // system) from being brought to front on focus -- otherwise clicking the
     // docked content area would cover the floating moveset editor windows.
     {
         ImGuiContext* ctx = ImGui::GetCurrentContext();
@@ -299,12 +299,12 @@ void App::Render()
     ImGui::Begin("##Host", nullptr, hostFlags);
     ImGui::PopStyleVar(3);
 
-    // ── DockSpace ──────────────────────────────────────────────
+    // -- DockSpace ----------------------------------------------
     ImGuiID dockspaceId = ImGui::GetID("##MainDockSpace");
 
     // Lock the built-in layout: no tab bar, no undocking, no resizing, no new splits
     // ImGuiDockNodeFlags_NoTabBar is an internal flag (imgui_internal.h) that removes
-    // the tab bar completely — including the chevron/menu button that AutoHideTabBar leaves.
+    // the tab bar completely -- including the chevron/menu button that AutoHideTabBar leaves.
     const ImGuiDockNodeFlags dockspaceFlags =
         (ImGuiDockNodeFlags)ImGuiDockNodeFlags_NoTabBar |   // completely remove tab bar UI
         ImGuiDockNodeFlags_NoUndocking                  |   // prevent dragging windows out
@@ -312,7 +312,7 @@ void App::Render()
         ImGuiDockNodeFlags_NoDockingSplit;                  // prevent creating new splits
     ImGui::DockSpace(dockspaceId, ImVec2(0.0f, 0.0f), dockspaceFlags);
 
-    // Build the default layout once — only when no .ini state has been loaded
+    // Build the default layout once -- only when no .ini state has been loaded
     static bool layoutReady = false;
     if (!layoutReady)
     {
@@ -352,13 +352,13 @@ void App::Render()
     }
 }
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  Main layout: sidebar | divider | content
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 void App::RenderMainLayout()
 {
-    // ── Sidebar window ─────────────────────────────────────────
+    // -- Sidebar window -----------------------------------------
     ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.07f, 0.07f, 0.10f, 1.00f));
     ImGui::Begin("##Sidebar", nullptr,
         ImGuiWindowFlags_NoTitleBar           |
@@ -372,7 +372,7 @@ void App::RenderMainLayout()
     RenderSidebar(ImGui::GetContentRegionAvail().x);
     ImGui::End();
 
-    // ── Content window ─────────────────────────────────────────
+    // -- Content window -----------------------------------------
     ImGui::Begin("##Content", nullptr,
         ImGuiWindowFlags_NoTitleBar           |
         ImGuiWindowFlags_NoCollapse           |
@@ -394,9 +394,9 @@ void App::RenderMainLayout()
     ImGui::End();
 }
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  Left sidebar
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 void App::RenderSidebar(float sidebarWidth)
 {
@@ -404,7 +404,7 @@ void App::RenderSidebar(float sidebarWidth)
     const float buttonH  = 36.0f;
     const float paddingX = 8.0f;
 
-    // ── App logo / short title ──
+    // -- App logo / short title --
     ImGui::SetCursorPosY(14.0f);
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.82f, 1.00f, 1.00f));
     const char* logoText = "PolarisTK";
@@ -422,7 +422,7 @@ void App::RenderSidebar(float sidebarWidth)
     ImGui::Separator();
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 10.0f);
 
-    // ── Helper: sidebar button with active highlight ──
+    // -- Helper: sidebar button with active highlight --
     auto SidebarBtn = [&](const char* label, ContentView view, bool enabled) -> bool
     {
         bool isActive = (m_currentView == view);
@@ -452,7 +452,7 @@ void App::RenderSidebar(float sidebarWidth)
         return clicked;
     };
 
-    // ── Navigation buttons ──
+    // -- Navigation buttons --
     if (SidebarBtn("Home",    ContentView::Home,    true))
         m_currentView = ContentView::Home;
 
@@ -479,7 +479,7 @@ void App::RenderSidebar(float sidebarWidth)
         m_currentView = ContentView::MotbinDiff;
 #endif
 
-    // ── Settings button — fixed at the bottom of the sidebar ──
+    // -- Settings button -- fixed at the bottom of the sidebar --
     {
         const float settingsH    = buttonH + 4.0f;
         const float versionH     = 22.0f;
@@ -491,7 +491,7 @@ void App::RenderSidebar(float sidebarWidth)
         ImGui::Separator();
         ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 6.0f);
 
-        // Settings acts as a toggle, not a ContentView switch — give it its own highlight
+        // Settings acts as a toggle, not a ContentView switch -- give it its own highlight
         if (m_showSettings)
         {
             ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.22f, 0.40f, 0.72f, 1.00f));
@@ -508,7 +508,7 @@ void App::RenderSidebar(float sidebarWidth)
             ImGui::PopStyleColor(3);
     }
 
-    // ── Version label ──
+    // -- Version label --
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.28f, 0.28f, 0.38f, 1.00f));
     const float verW = ImGui::CalcTextSize(APP_VERSION).x;
     ImGui::SetCursorPosX((sidebarWidth - verW) * 0.5f);
@@ -516,16 +516,16 @@ void App::RenderSidebar(float sidebarWidth)
     ImGui::PopStyleColor();
 }
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  Home view
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 void App::RenderHomeView()
 {
     const float contentW = ImGui::GetContentRegionAvail().x;
     const float contentH = ImGui::GetContentRegionAvail().y;
 
-    // ── Logo / Title block (vertically centered at ~22%) ──
+    // -- Logo / Title block (vertically centered at ~22%) --
     ImGui::SetCursorPosY(contentH * 0.22f);
 
     if (m_logoTex && m_logoSize.x > 0.0f)
@@ -562,12 +562,12 @@ void App::RenderHomeView()
     ImGui::Text("%s", subtitle);
     ImGui::PopStyleColor();
 
-    // ── Separator ──
+    // -- Separator --
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 24.0f);
     ImGui::Separator();
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 20.0f);
 
-    // ── Centered text helper ──
+    // -- Centered text helper --
     auto CenteredText = [&](const char* text, ImVec4 color)
     {
         float w = ImGui::CalcTextSize(text).x;
@@ -577,7 +577,7 @@ void App::RenderHomeView()
         ImGui::PopStyleColor();
     };
 
-    // ── Supported modules ──
+    // -- Supported modules --
     CenteredText("Supported Modules", ImVec4(0.75f, 0.75f, 0.85f, 1.00f));
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 8.0f);
 
@@ -616,7 +616,7 @@ void App::RenderHomeView()
         ImGui::EndTable();
     }
 
-    // ── Credits / Links ──
+    // -- Credits / Links --
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 32.0f);
     ImGui::Separator();
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 16.0f);
@@ -680,9 +680,9 @@ void App::RenderHomeView()
     LinkText("Github",           "https://github.com/umin135/Polaris_TKDataModEditor");
 }
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  FbsData editor view
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 void App::OpenFile(const std::string& path)
 {
@@ -695,9 +695,9 @@ void App::RenderFbsDataView()
     m_fbsDataView.Render();
 }
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  Moveset editor view  (placeholder)
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 #ifdef _DEBUG
 void App::RenderFbsDevView()
@@ -713,11 +713,11 @@ void App::RenderMotbinDiffView()
 
 void App::RenderMovesetView()
 {
-    // ── Extract buttons (top) ────────────────────────────────
+    // -- Extract buttons (top) --------------------------------
     m_extractorView.RenderButtons();
     ImGui::Spacing();
 
-    // ── Moveset folder list (height-capped to leave room for log) ──
+    // -- Moveset folder list (height-capped to leave room for log) --
     const float logH  = ImGui::GetTextLineHeightWithSpacing() * 5.0f;
     const float listH = ImGui::GetContentRegionAvail().y - logH;
     ImGui::BeginChild("##movesetListRegion", ImVec2(0.0f, listH), false);
@@ -730,14 +730,14 @@ void App::RenderMovesetView()
     if (wantOpen)
         m_editorWindows.emplace_back(openPath, openName, m_nextEditorUid++);
 
-    // ── Extraction log (bottom) ──────────────────────────────
+    // -- Extraction log (bottom) ------------------------------
     ImGui::Spacing();
     m_extractorView.RenderLog();
 }
 
-// ─────────────────────────────────────────────────────────────
-//  Settings window (floating — not docked)
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
+//  Settings window (floating -- not docked)
+// -------------------------------------------------------------
 
 void App::ApplyAndSaveSettings()
 {
@@ -781,7 +781,7 @@ void App::RenderSettingsWindow()
 
     const ImGuiStyle& style = ImGui::GetStyle();
 
-    // ── Left: category list ─────────────────────────────────
+    // -- Left: category list ---------------------------------
     const float catW = 110.0f;
     ImGui::BeginChild("##settingsCats", ImVec2(catW, -1.0f), true);
 
@@ -795,7 +795,7 @@ void App::RenderSettingsWindow()
     ImGui::EndChild();
     ImGui::SameLine();
 
-    // ── Right: content + buttons ────────────────────────────
+    // -- Right: content + buttons ----------------------------
     ImGui::BeginChild("##settingsRight", ImVec2(0.0f, 0.0f));
     {
         // Reserve bottom area for separator + buttons
@@ -806,7 +806,7 @@ void App::RenderSettingsWindow()
 
         if (m_settingsCat == 0)
         {
-            // fbsdata settings — placeholder
+            // fbsdata settings -- placeholder
             ImGui::TextDisabled("No fbsdata settings available yet.");
         }
         else if (m_settingsCat == 1)
@@ -833,7 +833,7 @@ void App::RenderSettingsWindow()
 
         ImGui::EndChild();
 
-        // ── Bottom button row ────────────────────────────────
+        // -- Bottom button row --------------------------------
         ImGui::Separator();
         ImGui::Spacing();
 

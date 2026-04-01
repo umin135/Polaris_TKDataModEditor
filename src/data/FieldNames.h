@@ -1,20 +1,20 @@
-#pragma once
+﻿#pragma once
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  FieldNames — editor display name mappings for each schema field
+// -----------------------------------------------------------------------------
+//  FieldNames -- editor display name mappings for each schema field
 //
 //  Each array is indexed by schema field id (id_0, id_1, ...).
 //  Editing these names changes every column header, TSV header, and any
-//  other label that references them — JSON keys (id_0, id_1, ...) are
+//  other label that references them -- JSON keys (id_0, id_1, ...) are
 //  unaffected and remain stable regardless of changes here.
 //
 //  Comment format per entry:
 //    "display name",  // id: N | type | (original schema name if different)
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 namespace FieldNames
 {
-    // ── customize_item_common_list.bin ────────────────────────────────────────
+    // -- customize_item_common_list.bin ----------------------------------------
     //    Entry type : CustomizeItemCommonEntry   (26 fields, id 0..25)
     constexpr const char* CommonItem[26] = {
         "item_id",         // id:  0 | uint32
@@ -46,7 +46,7 @@ namespace FieldNames
     };
     constexpr int CommonItemCount = 26;
 
-    // ── character_list.bin ────────────────────────────────────────────────────
+    // -- character_list.bin ----------------------------------------------------
     //    Entry type : CharacterEntry   (15 fields, id 0..14)
     constexpr const char* Character[15] = {
         "character_code",      // id:  0 | string
@@ -67,7 +67,7 @@ namespace FieldNames
     };
     constexpr int CharacterCount = 15;
 
-    // ── customize_item_exclusive_list.bin — rule entry ────────────────────────
+    // -- customize_item_exclusive_list.bin -- rule entry ------------------------
     //    Entry type : CustomizeExclusiveRuleEntry   (4 fields, id 0..3)
     //    Used by: rule_entries (id_0), group_rule_entries (id_2), set_rule_entries (id_4)
     constexpr const char* ExclusiveRule[4] = {
@@ -78,7 +78,7 @@ namespace FieldNames
     };
     constexpr int ExclusiveRuleCount = 4;
 
-    // ── customize_item_exclusive_list.bin — pair entry ────────────────────────
+    // -- customize_item_exclusive_list.bin -- pair entry ------------------------
     //    Entry type : CustomizeExclusivePairEntry   (3 fields, id 0..2)
     //    Used by: pair_entries (id_1), group_pair_entries (id_3)
     constexpr const char* ExclusivePair[3] = {
@@ -88,7 +88,7 @@ namespace FieldNames
     };
     constexpr int ExclusivePairCount = 3;
 
-    // ── customize_item_exclusive_list.bin — sub-vector names ─────────────────
+    // -- customize_item_exclusive_list.bin -- sub-vector names -----------------
     //    These label the 5 array tabs shown in the exclusive list editor.
     //    (Parent table field ids: id_0..id_4)
     constexpr const char* ExclusiveArrays[5] = {
@@ -99,7 +99,7 @@ namespace FieldNames
         "set_rule_entries",    // id: 4 | [ExclusiveRule]
     };
 
-    // ── area_list.bin ─────────────────────────────────────────────────────────
+    // -- area_list.bin ---------------------------------------------------------
     //    Entry type : AreaEntry   (2 fields, id 0..1)
     constexpr const char* AreaEntry[2] = {
         "area_hash",  // id: 0 | uint32
@@ -107,7 +107,7 @@ namespace FieldNames
     };
     constexpr int AreaEntryCount = 2;
 
-    // ── battle_subtitle_info.bin ──────────────────────────────────────────────
+    // -- battle_subtitle_info.bin ----------------------------------------------
     //    Entry type : BattleSubtitleInfoEntry   (2 fields, id 0..1)
     constexpr const char* BattleSubtitleInfo[2] = {
         "subtitle_hash",  // id: 0 | uint32
@@ -115,7 +115,7 @@ namespace FieldNames
     };
     constexpr int BattleSubtitleInfoCount = 2;
 
-    // ── fate_drama_player_start_list.bin ──────────────────────────────────────
+    // -- fate_drama_player_start_list.bin --------------------------------------
     //    Entry type : FateDramaPlayerStartEntry   (5 fields, id 0..4)
     constexpr const char* FateDramaPlayerStart[5] = {
         "character1_hash",  // id: 0 | uint32
@@ -126,7 +126,7 @@ namespace FieldNames
     };
     constexpr int FateDramaPlayerStartCount = 5;
 
-    // ── jukebox_list.bin ──────────────────────────────────────────────────────
+    // -- jukebox_list.bin ------------------------------------------------------
     //    Entry type : JukeboxEntry   (9 fields, id 0..8)
     constexpr const char* JukeboxEntry[9] = {
         "bgm_hash",         // id: 0 | uint32
@@ -141,7 +141,7 @@ namespace FieldNames
     };
     constexpr int JukeboxEntryCount = 9;
 
-    // ── series_list.bin ───────────────────────────────────────────────────────
+    // -- series_list.bin -------------------------------------------------------
     //    Entry type : SeriesEntry   (5 fields, id 0..4)
     constexpr const char* SeriesEntry[5] = {
         "series_hash",     // id: 0 | uint32
@@ -152,7 +152,7 @@ namespace FieldNames
     };
     constexpr int SeriesEntryCount = 5;
 
-    // ── tam_mission_list.bin ──────────────────────────────────────────────────
+    // -- tam_mission_list.bin --------------------------------------------------
     //    Entry type : TamMissionEntry   (12 fields, id 0..11)
     constexpr const char* TamMissionEntry[12] = {
         "mission_id",  // id:  0 | uint32
@@ -170,7 +170,7 @@ namespace FieldNames
     };
     constexpr int TamMissionEntryCount = 12;
 
-    // ── drama_player_start_list.bin ───────────────────────────────────────────
+    // -- drama_player_start_list.bin -------------------------------------------
     //    Entry type : DramaPlayerStartEntry   (63 fields, id 0..62)
     constexpr const char* DramaPlayerStart[63] = {
         "character_hash",  // id:  0 | uint32
@@ -239,7 +239,7 @@ namespace FieldNames
     };
     constexpr int DramaPlayerStartCount = 63;
 
-    // ── stage_list.bin ────────────────────────────────────────────────────────
+    // -- stage_list.bin --------------------------------------------------------
     //    Entry type : StageEntry   (37 fields, id 0..36)
     constexpr const char* StageEntry[37] = {
         "stage_code",          // id:  0 | string
@@ -282,7 +282,7 @@ namespace FieldNames
     };
     constexpr int StageEntryCount = 37;
 
-    // ── ball_property_list.bin ────────────────────────────────────────────────
+    // -- ball_property_list.bin ------------------------------------------------
     //    Entry type : BallPropertyEntry   (19 fields, id 0..18)
     constexpr const char* BallPropertyEntry[19] = {
         "ball_hash",   // id:  0 | uint32
@@ -307,7 +307,7 @@ namespace FieldNames
     };
     constexpr int BallPropertyEntryCount = 19;
 
-    // ── body_cylinder_data_list.bin ───────────────────────────────────────────
+    // -- body_cylinder_data_list.bin -------------------------------------------
     //    Entry type : BodyCylinderDataEntry   (19 fields, id 0..18)
     constexpr const char* BodyCylinderDataEntry[19] = {
         "character_hash",  // id:  0 | uint32
@@ -332,7 +332,7 @@ namespace FieldNames
     };
     constexpr int BodyCylinderDataEntryCount = 19;
 
-    // ── customize_item_unique_list.bin — unique entry ─────────────────────────
+    // -- customize_item_unique_list.bin -- unique entry -------------------------
     //    Entry type : CustomizeItemUniqueEntry   (22 fields, id 0..21)
     constexpr const char* CustomizeItemUnique[22] = {
         "char_item_id",    // id:  0 | uint32
@@ -360,7 +360,7 @@ namespace FieldNames
     };
     constexpr int CustomizeItemUniqueCount = 22;
 
-    // ── customize_item_unique_list.bin — body entry ───────────────────────────
+    // -- customize_item_unique_list.bin -- body entry ---------------------------
     //    Entry type : CustomizeItemUniqueBodyEntry   (2 fields, id 0..1)
     constexpr const char* CustomizeItemUniqueBody[2] = {
         "asset_name",   // id: 0 | string
@@ -368,14 +368,14 @@ namespace FieldNames
     };
     constexpr int CustomizeItemUniqueBodyCount = 2;
 
-    // ── character_select_list.bin — hash entry ────────────────────────────────
+    // -- character_select_list.bin -- hash entry --------------------------------
     //    Entry type : CharacterSelectHashEntry   (1 field, id 0)
     constexpr const char* CharacterSelectHash[1] = {
         "character_hash",  // id: 0 | uint32
     };
     constexpr int CharacterSelectHashCount = 1;
 
-    // ── character_select_list.bin — param entry ───────────────────────────────
+    // -- character_select_list.bin -- param entry -------------------------------
     //    Entry type : CharacterSelectParamEntry   (2 fields, id 0..1)
     constexpr const char* CharacterSelectParam[2] = {
         "game_version",  // id: 0 | uint32
@@ -383,7 +383,7 @@ namespace FieldNames
     };
     constexpr int CharacterSelectParamCount = 2;
 
-    // ── customize_item_prohibit_drama_list.bin — entry ────────────────────────
+    // -- customize_item_prohibit_drama_list.bin -- entry ------------------------
     //    Entry type : CustomizeItemProhibitDramaEntry   (2 fields, id 0..1)
     constexpr const char* CustomizeItemProhibitDrama[2] = {
         "value_0",  // id: 0 | int32
@@ -391,7 +391,7 @@ namespace FieldNames
     };
     constexpr int CustomizeItemProhibitDramaCount = 2;
 
-    // ── battle_motion_list.bin — entry ────────────────────────────────────────
+    // -- battle_motion_list.bin -- entry ----------------------------------------
     //    Entry type : BattleMotionEntry   (3 fields, id 0..2)
     constexpr const char* BattleMotionEntry[3] = {
         "motion_id",  // id: 0 | ubyte
@@ -400,7 +400,7 @@ namespace FieldNames
     };
     constexpr int BattleMotionEntryCount = 3;
 
-    // ── arcade_cpu_list.bin — settings ───────────────────────────────────────
+    // -- arcade_cpu_list.bin -- settings ---------------------------------------
     //    Entry type : ArcadeCpuSettings   (3 fields, id 0..2)
     constexpr const char* ArcadeCpuSettings[3] = {
         "unk_0",  // id: 0 | uint32
@@ -409,7 +409,7 @@ namespace FieldNames
     };
     constexpr int ArcadeCpuSettingsCount = 3;
 
-    // ── arcade_cpu_list.bin — character entry ─────────────────────────────────
+    // -- arcade_cpu_list.bin -- character entry ---------------------------------
     //    Entry type : ArcadeCpuCharacterEntry   (7 fields, id 0..6)
     constexpr const char* ArcadeCpuCharacter[7] = {
         "character_hash",  // id: 0 | uint32
@@ -422,14 +422,14 @@ namespace FieldNames
     };
     constexpr int ArcadeCpuCharacterCount = 7;
 
-    // ── arcade_cpu_list.bin — hash entry ─────────────────────────────────────
+    // -- arcade_cpu_list.bin -- hash entry -------------------------------------
     //    Entry type : ArcadeCpuHashEntry   (1 field, id 0)
     constexpr const char* ArcadeCpuHash[1] = {
         "value_hash",  // id: 0 | uint32
     };
     constexpr int ArcadeCpuHashCount = 1;
 
-    // ── arcade_cpu_list.bin — rule entry ─────────────────────────────────────
+    // -- arcade_cpu_list.bin -- rule entry -------------------------------------
     //    Entry type : ArcadeCpuRuleEntry   (4 fields, id 0..3)
     constexpr const char* ArcadeCpuRule[4] = {
         "flag_0",   // id: 0 | uint8
@@ -439,7 +439,7 @@ namespace FieldNames
     };
     constexpr int ArcadeCpuRuleCount = 4;
 
-    // ── ball_recommend_list.bin — entry ───────────────────────────────────────
+    // -- ball_recommend_list.bin -- entry ---------------------------------------
     //    Entry type : BallRecommendEntry   (5 fields, id 0..4)
     constexpr const char* BallRecommendEntry[5] = {
         "character_hash",    // id: 0 | uint32
@@ -450,7 +450,7 @@ namespace FieldNames
     };
     constexpr int BallRecommendEntryCount = 5;
 
-    // ── ball_setting_list.bin — data (72 scalar fields, id 0..71) ────────────
+    // -- ball_setting_list.bin -- data (72 scalar fields, id 0..71) ------------
     constexpr const char* BallSettingData[72] = {
         "value_0",   // id:  0 | float
         "value_1",   // id:  1 | float
@@ -527,14 +527,14 @@ namespace FieldNames
     };
     constexpr int BallSettingDataCount = 72;
 
-    // ── battle_common_list.bin — single value entry ───────────────────────────
+    // -- battle_common_list.bin -- single value entry ---------------------------
     //    Entry type : BattleCommonSingleValueEntry   (1 field, id 0)
     constexpr const char* BattleCommonSingleValue[1] = {
         "value",  // id: 0 | uint32
     };
     constexpr int BattleCommonSingleValueCount = 1;
 
-    // ── battle_common_list.bin — character scale entry ────────────────────────
+    // -- battle_common_list.bin -- character scale entry ------------------------
     //    Entry type : BattleCommonCharacterScaleEntry   (8 fields, id 0..7)
     constexpr const char* BattleCommonCharacterScale[8] = {
         "hash_0",   // id: 0 | uint32
@@ -548,7 +548,7 @@ namespace FieldNames
     };
     constexpr int BattleCommonCharacterScaleCount = 8;
 
-    // ── battle_common_list.bin — pair entry ───────────────────────────────────
+    // -- battle_common_list.bin -- pair entry -----------------------------------
     //    Entry type : BattleCommonPairEntry   (3 fields, id 0..2)
     constexpr const char* BattleCommonPair[3] = {
         "value_0",  // id: 0 | uint32
@@ -557,7 +557,7 @@ namespace FieldNames
     };
     constexpr int BattleCommonPairCount = 3;
 
-    // ── battle_common_list.bin — misc entry ───────────────────────────────────
+    // -- battle_common_list.bin -- misc entry -----------------------------------
     //    Entry type : BattleCommonMiscEntry   (3 fields, id 0..2)
     constexpr const char* BattleCommonMisc[3] = {
         "value_0",  // id: 0 | float
@@ -566,7 +566,7 @@ namespace FieldNames
     };
     constexpr int BattleCommonMiscCount = 3;
 
-    // ── battle_cpu_list.bin — rank entry ─────────────────────────────────────
+    // -- battle_cpu_list.bin -- rank entry -------------------------------------
     //    Entry type : BattleCpuRankEntry   (48 fields, id 0..47)
     //    id 0..46: value_N (uint32), id 47: rank_label (string)
     constexpr const char* BattleCpuRank[48] = {
@@ -621,7 +621,7 @@ namespace FieldNames
     };
     constexpr int BattleCpuRankCount = 48;
 
-    // ── battle_cpu_list.bin — step entry ─────────────────────────────────────
+    // -- battle_cpu_list.bin -- step entry -------------------------------------
     //    Entry type : BattleCpuStepEntry   (4 fields, id 0..3)
     constexpr const char* BattleCpuStep[4] = {
         "value_0",  // id: 0 | uint32
@@ -631,7 +631,7 @@ namespace FieldNames
     };
     constexpr int BattleCpuStepCount = 4;
 
-    // ── rank_list.bin — rank item ─────────────────────────────────────────────
+    // -- rank_list.bin -- rank item ---------------------------------------------
     //    Entry type : RankItem   (4 fields, id 0..3)
     constexpr const char* RankItem[4] = {
         "hash",     // id: 0 | uint32
@@ -641,7 +641,7 @@ namespace FieldNames
     };
     constexpr int RankItemCount = 4;
 
-    // ── rank_list.bin — rank group ────────────────────────────────────────────
+    // -- rank_list.bin -- rank group --------------------------------------------
     //    Entry type : RankGroup   (2 fields, id 0..1)
     constexpr const char* RankGroup[2] = {
         "group_id",  // id: 0 | uint32
@@ -649,7 +649,7 @@ namespace FieldNames
     };
     constexpr int RankGroupCount = 2;
 
-    // ── assist_input_list.bin — entry ─────────────────────────────────────────
+    // -- assist_input_list.bin -- entry -----------------------------------------
     //    Entry type : AssistInputEntry   (59 fields, id 0..58)
     //    id 0: character_hash (uint32), id 1..58: value_N (int32)
     constexpr const char* AssistInputEntry[59] = {

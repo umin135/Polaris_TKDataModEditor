@@ -1,9 +1,9 @@
-#pragma once
+﻿#pragma once
 #include <cstdint>
 #include <string>
 #include <unordered_map>
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  LabelDB
 //  Loads InterfaceData txt files (editorRequirements, editorProperties,
 //  editorCommands) and provides ID -> human-readable label lookups.
@@ -14,7 +14,7 @@
 //  Usage:
 //    LabelDB::Get().Load("path/to/interfacedata/");
 //    const char* lbl = LabelDB::Get().Req(43);  // "On Hit"
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 class LabelDB
 {
 public:

@@ -1,13 +1,13 @@
-// LabelDB.cpp
+﻿// LabelDB.cpp
 #include "LabelDB.h"
 #include <windows.h>
 #include <fstream>
 #include <sstream>
 #include <cstdlib>
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  Singleton
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 LabelDB& LabelDB::Get()
 {
@@ -15,9 +15,9 @@ LabelDB& LabelDB::Get()
     return s_instance;
 }
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  ParseFile  ("id,label" per line, id = decimal or 0x hex)
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 void LabelDB::ParseFile(const std::string& path,
                         std::unordered_map<uint64_t, std::string>& out)
@@ -63,9 +63,9 @@ void LabelDB::ParseFile(const std::string& path,
     }
 }
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  Load
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 void LabelDB::Load(const std::string& dir)
 {
@@ -91,9 +91,9 @@ void LabelDB::Load(const std::string& dir)
     m_loaded = (!m_req.empty() || !m_prop.empty() || !m_cmd.empty());
 }
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  Lookup helpers
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 const char* LabelDB::Req(uint32_t id) const
 {
@@ -113,16 +113,16 @@ const char* LabelDB::Cmd(uint64_t cmd) const
     return it != m_cmd.end() ? it->second.c_str() : nullptr;
 }
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  LoadNames / GetMoveName  (name_keys.json)
 //
 //  Format: flat JSON object  { "decimal_key": "move_name", ... }
-//  No full JSON parser needed — just scan for "key": "value" pairs.
-// ─────────────────────────────────────────────────────────────
+//  No full JSON parser needed -- just scan for "key": "value" pairs.
+// -------------------------------------------------------------
 
-// ─────────────────────────────────────────────────────────────
-//  ParseNameJson  — shared parser for flat {decimal_key: name} JSON
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
+//  ParseNameJson  -- shared parser for flat {decimal_key: name} JSON
+// -------------------------------------------------------------
 
 static void ParseNameJson(const std::string& jsonPath,
                           std::unordered_map<uint32_t, std::string>& out,
@@ -178,13 +178,13 @@ const char* LabelDB::GetMoveName(uint32_t key) const
     return it != m_names.end() ? it->second.c_str() : nullptr;
 }
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 //  LoadAnimNames / GetAnimName  (anim_keys.json)
 //
 //  Same flat JSON format as name_keys.json.
 //  Values are real anim name strings (for the 4 keys that overlap
 //  with name_keys.json) or sized placeholders for all others.
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 
 void LabelDB::LoadAnimNames(const std::string& jsonPath)
 {
