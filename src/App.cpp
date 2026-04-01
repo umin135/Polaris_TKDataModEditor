@@ -1,6 +1,7 @@
 ﻿// Main application rendering logic
 #include "App.h"
 #include "Config.h"
+#include "GameStatic.h"
 #include "moveset/LabelDB.h"
 #include "imgui/imgui.h"
 #include "imgui/imgui_internal.h"  // DockBuilder API
@@ -153,6 +154,7 @@ App::App(ID3D11Device* device)
 {
     ApplyStyle();
     Config::Get().Load();
+    GameStatic::Get().Load();
 
     // Initialize extractor with configured root directory
     m_extractorView.SetDestFolder(Config::Get().data.movesetRootDir);

@@ -16,18 +16,20 @@ struct ParsedRequirement {
 
 // -------------------------------------------------------------
 //  Sub-struct: PushbackExtra  (stride=0x02 in file)
+//  tk_pushback_extradata
 // -------------------------------------------------------------
 struct ParsedPushbackExtra {
-    uint16_t value; // +0x00
+    uint16_t value; // +0x00  displacement (int16_t, stored as uint16_t)
 };
 
 // -------------------------------------------------------------
 //  Sub-struct: Pushback  (stride=0x10 in file)
+//  tk_pushback
 // -------------------------------------------------------------
 struct ParsedPushback {
-    uint16_t val1;              // +0x00  duration
-    uint16_t val2;              // +0x02  displacement
-    uint32_t val3;              // +0x04  nonlinear_frames
+    uint16_t val1;              // +0x00  non_linear_displacement
+    uint16_t val2;              // +0x02  non_linear_distance
+    uint32_t val3;              // +0x04  num_of_extra_pushbacks
     uint64_t extra_addr;        // +0x08  -> PushbackExtra block entry
     uint32_t pushback_extra_idx = 0xFFFFFFFF;  // index into global pushbackExtraBlock
 };
@@ -83,11 +85,11 @@ struct ParsedCancel {
     uint64_t command;             // 0x00  direction/input bitmask
     uint64_t requirement_addr;    // 0x08  -> Requirement list
     uint64_t extradata_addr;      // 0x10  -> CancelExtradata block entry
-    uint32_t frame_window_start;  // 0x18  activation window start frame
-    uint32_t frame_window_end;    // 0x1C  activation window end frame
-    uint32_t starting_frame;      // 0x20  target frame in destination move
+    uint32_t frame_window_start;  // 0x18  input_window_start
+    uint32_t frame_window_end;    // 0x1C  input_window_end
+    uint32_t starting_frame;      // 0x20  starting_frame
     uint16_t move_id;             // 0x24  destination move index (0x8000 = end)
-    uint16_t cancel_option;       // 0x26  flags
+    uint16_t cancel_option;       // 0x26  option / flags
 
     // -- Resolved values (populated during parse) -------------
     uint32_t req_list_idx    = 0xFFFFFFFF;  // index into global requirementBlock where req list starts
@@ -110,30 +112,36 @@ struct ParsedHitCondition {
 };
 
 // -------------------------------------------------------------
-//  Sub-struct: ExtraMoveProperty  (TK8 file format, 0x28 bytes)
-//  Used for extra_properties, start_properties, end_properties
+//  Sub-struct: ExtraMoveProperty
+//  tk_extraprops (0x28 bytes):  frame/_0x4/requirements/property/params[5]
+//  tk_fl_extraprops (0x20 bytes): requirements/property/params[5]
+//  Both use this struct; tk_fl_extraprops leaves type/_0x4 zero-initialized.
 // -------------------------------------------------------------
 struct ParsedExtraProp {
-    uint32_t type;               // 0x00  property type
-    uint32_t _0x4;               // 0x04  unknown
-    uint64_t requirement_addr;   // 0x08  -> Requirement list
-    uint32_t id;                 // 0x10  property ID (0 = list end)
-    uint32_t value;              // 0x14
-    uint32_t value2;             // 0x18
-    uint32_t value3;             // 0x1C
-    uint32_t value4;             // 0x20
-    uint32_t value5;             // 0x24
+    uint32_t type;               // 0x00  frame (tk_extraprops only; unused for fl_extraprops)
+    uint32_t _0x4;               // 0x04  unknown (tk_extraprops only)
+    uint64_t requirement_addr;   // 0x08  -> Requirement list (tk_extraprops)
+                                 // 0x00  -> Requirement list (tk_fl_extraprops)
+    uint32_t id;                 // 0x10  property  (tk_extraprops)
+                                 // 0x08  property  (tk_fl_extraprops) -- 1100 = list end
+    uint32_t value;              // params[0]  (tk_param union: uint32/int32/float -- stored as raw bits)
+    uint32_t value2;             // params[1]
+    uint32_t value3;             // params[2]
+    uint32_t value4;             // params[3]
+    uint32_t value5;             // params[4]
 
     uint32_t req_list_idx = 0xFFFFFFFF;  // index into global requirementBlock
 };
 
 // -------------------------------------------------------------
 //  Sub-struct: Voiceclip  (stride=0x0C in file)
+//  tk_voiceclip: { int folder; int val2; int clip; }
+//  Terminator: all three == 0xFFFFFFFF (-1)
 // -------------------------------------------------------------
 struct ParsedVoiceclip {
-    uint32_t val1; // +0x00
-    uint32_t val2; // +0x04
-    uint32_t val3; // +0x08
+    uint32_t val1; // +0x00  folder   (0xFFFFFFFF = list terminator)
+    uint32_t val2; // +0x04  val2     (0xFFFFFFFF = list terminator)
+    uint32_t val3; // +0x08  clip ID  (0xFFFFFFFF = list terminator)
 };
 
 // -------------------------------------------------------------
@@ -234,6 +242,8 @@ struct ParsedMove {
 struct MotbinData {
     bool        loaded   = false;
     std::string errorMsg;
+    std::string          folderPath;         // loaded-from folder, used for save
+    std::vector<uint8_t> rawBytes;           // original index-format file bytes (pre-ExpandIndexes), used for save
 
     uint32_t moveCount = 0;
     std::vector<ParsedMove>   moves;
@@ -257,3 +267,7 @@ struct MotbinData {
 
 // Loads moveset.motbin from the given moveset folder path.
 MotbinData LoadMotbin(const std::string& folderPath);
+
+// Writes edited data back to moveset.motbin in data.folderPath.
+// Patches only scalar (non-pointer) fields; pointer relationships are unchanged.
+bool SaveMotbin(MotbinData& data);

@@ -3,6 +3,7 @@
 // Move struct size = 0x448 bytes (FILE format, NOT in-memory).
 #include "MotbinData.h"
 #include "LabelDB.h"
+#include "../GameStatic.h"
 #include <windows.h>
 #include <cstring>
 #include <string>
@@ -258,7 +259,8 @@ static constexpr size_t kHitCond_Size      = 0x18;
 static constexpr size_t kExtraProp_Size    = 0x28;
 static constexpr size_t kOtherMoveProp_Size = 0x20;  // start/end properties
 
-static constexpr uint32_t kReqListEnd = 1100;  // Requirement list terminator value
+// kReqListEnd is now loaded from GameStatic.ini
+#define kReqListEnd (GameStatic::Get().data.reqListEnd)
 
 // (Sub-struct parsers removed -- all blocks are now parsed globally in LoadMotbin)
 
@@ -281,6 +283,9 @@ MotbinData LoadMotbin(const std::string& folderPath)
         result.errorMsg = "moveset.motbin not found or unreadable.";
         return result;
     }
+
+    result.folderPath = folderPath;
+    result.rawBytes   = bytes;  // save before expansion for later patching
 
     // File is index-format (saved by extractor via ExportLoaderBin).
     // Expand BASE-relative header ptrs and element indexes to file offsets.
@@ -825,4 +830,333 @@ MotbinData LoadMotbin(const std::string& folderPath)
 
     result.loaded = true;
     return result;
+}
+
+// -------------------------------------------------------------
+//  SaveMotbin
+//  Patches scalar (non-pointer) fields back into the original
+//  index-format rawBytes, then writes to moveset.motbin.
+//  Pointer fields (requirement_addr, extradata_addr, etc.) are
+//  intentionally left unchanged -- block relationships are fixed.
+// -------------------------------------------------------------
+
+bool SaveMotbin(MotbinData& data)
+{
+    if (data.rawBytes.empty() || data.folderPath.empty()) return false;
+
+    auto out = data.rawBytes; // work on a copy of original index-format bytes
+    uint8_t*     b  = out.data();
+    const size_t sz = out.size();
+
+    // Scalar fields have the same byte offsets in index-format and expanded-format,
+    // because ExpandIndexes only modifies pointer (uint64) fields.
+
+    auto PatchAt = [&](size_t off, const void* src, size_t n)
+    {
+        if (off + n <= sz) memcpy(b + off, src, n);
+    };
+
+    auto WriteIdx64 = [&](size_t off, uint32_t idx) {
+        uint64_t v = (idx == 0xFFFFFFFF) ? 0xFFFFFFFFFFFFFFFFULL : (uint64_t)idx;
+        PatchAt(off, &v, 8);
+    };
+
+    // Helper: read BASE-relative header ptr and add kMotbinBase to get file offset.
+    auto BlockBase = [&](size_t hdrOff) -> size_t
+    {
+        if (hdrOff + 8 > sz) return 0;
+        uint64_t val; memcpy(&val, b + hdrOff, 8);
+        return (size_t)(val + kMotbinBase); // kMotbinBase = 0x318
+    };
+
+    // -- requirements (hdr 0x180, stride 0x14) --
+    {
+        size_t base = BlockBase(0x180);
+        for (size_t i = 0; i < data.requirementBlock.size(); ++i)
+        {
+            const auto& r = data.requirementBlock[i];
+            size_t o = base + i * 0x14;
+            PatchAt(o + 0x00, &r.req,    4);
+            PatchAt(o + 0x04, &r.param,  4);
+            PatchAt(o + 0x08, &r.param2, 4);
+            PatchAt(o + 0x0C, &r.param3, 4);
+            PatchAt(o + 0x10, &r.param4, 4);
+        }
+    }
+
+    // -- cancelExtra (hdr 0x1F0, stride 4) --
+    {
+        size_t base = BlockBase(0x1F0);
+        for (size_t i = 0; i < data.cancelExtraBlock.size(); ++i)
+        {
+            size_t o = base + i * 4;
+            PatchAt(o, &data.cancelExtraBlock[i], 4);
+        }
+    }
+
+    // -- cancelBlock (hdr 0x1D0, stride 0x28) -- scalar fields only --
+    {
+        size_t base = BlockBase(0x1D0);
+        for (size_t i = 0; i < data.cancelBlock.size(); ++i)
+        {
+            const auto& c = data.cancelBlock[i];
+            size_t o = base + i * 0x28;
+            PatchAt(o + 0x00, &c.command,            8); // uint64 input value
+            WriteIdx64(o + 0x08, c.req_list_idx);
+            WriteIdx64(o + 0x10, c.extradata_idx);
+            PatchAt(o + 0x18, &c.frame_window_start, 4);
+            PatchAt(o + 0x1C, &c.frame_window_end,   4);
+            PatchAt(o + 0x20, &c.starting_frame,     4);
+            PatchAt(o + 0x24, &c.move_id,            2);
+            PatchAt(o + 0x26, &c.cancel_option,      2);
+        }
+    }
+
+    // -- groupCancelBlock (hdr 0x1E0, stride 0x28) --
+    {
+        size_t base = BlockBase(0x1E0);
+        for (size_t i = 0; i < data.groupCancelBlock.size(); ++i)
+        {
+            const auto& c = data.groupCancelBlock[i];
+            size_t o = base + i * 0x28;
+            PatchAt(o + 0x00, &c.command,            8);
+            WriteIdx64(o + 0x08, c.req_list_idx);
+            WriteIdx64(o + 0x10, c.extradata_idx);
+            PatchAt(o + 0x18, &c.frame_window_start, 4);
+            PatchAt(o + 0x1C, &c.frame_window_end,   4);
+            PatchAt(o + 0x20, &c.starting_frame,     4);
+            PatchAt(o + 0x24, &c.move_id,            2);
+            PatchAt(o + 0x26, &c.cancel_option,      2);
+        }
+    }
+
+    // -- hitConditionBlock (hdr 0x190, stride 0x18) -- scalars only --
+    {
+        size_t base = BlockBase(0x190);
+        for (size_t i = 0; i < data.hitConditionBlock.size(); ++i)
+        {
+            const auto& h = data.hitConditionBlock[i];
+            size_t o = base + i * 0x18;
+            WriteIdx64(o + 0x00, h.req_list_idx);
+            PatchAt(o + 0x08, &h.damage, 4);
+            PatchAt(o + 0x0C, &h._0x0C,  4);
+            WriteIdx64(o + 0x10, h.reaction_list_idx);
+        }
+    }
+
+    // -- pushbackExtraBlock (hdr 0x1C0, stride 2) --
+    {
+        size_t base = BlockBase(0x1C0);
+        for (size_t i = 0; i < data.pushbackExtraBlock.size(); ++i)
+        {
+            size_t o = base + i * 2;
+            PatchAt(o, &data.pushbackExtraBlock[i].value, 2);
+        }
+    }
+
+    // -- pushbackBlock (hdr 0x1B0, stride 0x10) --
+    {
+        size_t base = BlockBase(0x1B0);
+        for (size_t i = 0; i < data.pushbackBlock.size(); ++i)
+        {
+            const auto& p = data.pushbackBlock[i];
+            size_t o = base + i * 0x10;
+            PatchAt(o + 0x00, &p.val1, 2);
+            PatchAt(o + 0x02, &p.val2, 2);
+            PatchAt(o + 0x04, &p.val3, 4);
+            WriteIdx64(o + 0x08, p.pushback_extra_idx);
+        }
+    }
+
+    // -- reactionListBlock (hdr 0x168, stride 0x70) -- scalars only --
+    {
+        size_t base = BlockBase(0x168);
+        for (size_t i = 0; i < data.reactionListBlock.size(); ++i)
+        {
+            const auto& rl = data.reactionListBlock[i];
+            size_t o = base + i * 0x70;
+            for (int pp = 0; pp < 7; ++pp)
+                WriteIdx64(o + pp * 8, rl.pushback_idx[pp]);
+            PatchAt(o + 0x38, &rl.front_direction,      2);
+            PatchAt(o + 0x3A, &rl.back_direction,       2);
+            PatchAt(o + 0x3C, &rl.left_side_direction,  2);
+            PatchAt(o + 0x3E, &rl.right_side_direction, 2);
+            PatchAt(o + 0x40, &rl.front_ch_direction,   2);
+            PatchAt(o + 0x42, &rl.downed_direction,     2);
+            PatchAt(o + 0x44, &rl.front_rotation,       2);
+            PatchAt(o + 0x46, &rl.back_rotation,        2);
+            PatchAt(o + 0x48, &rl.left_side_rotation,   2);
+            PatchAt(o + 0x4A, &rl.right_side_rotation,  2);
+            PatchAt(o + 0x4C, &rl.vertical_pushback,    2);
+            PatchAt(o + 0x4E, &rl.downed_rotation,      2);
+            PatchAt(o + 0x50, &rl.standing,             2);
+            PatchAt(o + 0x52, &rl.crouch,               2);
+            PatchAt(o + 0x54, &rl.ch,                   2);
+            PatchAt(o + 0x56, &rl.crouch_ch,            2);
+            PatchAt(o + 0x58, &rl.left_side,            2);
+            PatchAt(o + 0x5A, &rl.left_side_crouch,     2);
+            PatchAt(o + 0x5C, &rl.right_side,           2);
+            PatchAt(o + 0x5E, &rl.right_side_crouch,    2);
+            PatchAt(o + 0x60, &rl.back,                 2);
+            PatchAt(o + 0x62, &rl.back_crouch,          2);
+            PatchAt(o + 0x64, &rl.block,                2);
+            PatchAt(o + 0x66, &rl.crouch_block,         2);
+            PatchAt(o + 0x68, &rl.wallslump,            2);
+            PatchAt(o + 0x6A, &rl.downed,               2);
+        }
+    }
+
+    // -- extraPropBlock (hdr 0x200, stride 0x28) --
+    {
+        size_t base = BlockBase(0x200);
+        for (size_t i = 0; i < data.extraPropBlock.size(); ++i)
+        {
+            const auto& e = data.extraPropBlock[i];
+            size_t o = base + i * 0x28;
+            PatchAt(o + 0x00, &e.type,   4); // starting_frame for extraProp
+            PatchAt(o + 0x04, &e._0x4,   4);
+            WriteIdx64(o + 0x08, e.req_list_idx);
+            PatchAt(o + 0x10, &e.id,     4);
+            PatchAt(o + 0x14, &e.value,  4);
+            PatchAt(o + 0x18, &e.value2, 4);
+            PatchAt(o + 0x1C, &e.value3, 4);
+            PatchAt(o + 0x20, &e.value4, 4);
+            PatchAt(o + 0x24, &e.value5, 4);
+        }
+    }
+
+    // -- startPropBlock (hdr 0x210, stride 0x20) --
+    {
+        size_t base = BlockBase(0x210);
+        for (size_t i = 0; i < data.startPropBlock.size(); ++i)
+        {
+            const auto& e = data.startPropBlock[i];
+            size_t o = base + i * 0x20;
+            WriteIdx64(o + 0x00, e.req_list_idx);
+            PatchAt(o + 0x08, &e.id,     4);
+            PatchAt(o + 0x0C, &e.value,  4);
+            PatchAt(o + 0x10, &e.value2, 4);
+            PatchAt(o + 0x14, &e.value3, 4);
+            PatchAt(o + 0x18, &e.value4, 4);
+            PatchAt(o + 0x1C, &e.value5, 4);
+        }
+    }
+
+    // -- endPropBlock (hdr 0x220, stride 0x20) --
+    {
+        size_t base = BlockBase(0x220);
+        for (size_t i = 0; i < data.endPropBlock.size(); ++i)
+        {
+            const auto& e = data.endPropBlock[i];
+            size_t o = base + i * 0x20;
+            WriteIdx64(o + 0x00, e.req_list_idx);
+            PatchAt(o + 0x08, &e.id,     4);
+            PatchAt(o + 0x0C, &e.value,  4);
+            PatchAt(o + 0x10, &e.value2, 4);
+            PatchAt(o + 0x14, &e.value3, 4);
+            PatchAt(o + 0x18, &e.value4, 4);
+            PatchAt(o + 0x1C, &e.value5, 4);
+        }
+    }
+
+    // -- voiceclipBlock (hdr 0x240, stride 0x0C) --
+    {
+        size_t base = BlockBase(0x240);
+        for (size_t i = 0; i < data.voiceclipBlock.size(); ++i)
+        {
+            const auto& v = data.voiceclipBlock[i];
+            size_t o = base + i * 0x0C;
+            PatchAt(o + 0x00, &v.val1, 4);
+            PatchAt(o + 0x04, &v.val2, 4);
+            PatchAt(o + 0x08, &v.val3, 4);
+        }
+    }
+
+    // -- moves (hdr 0x230, stride 0x448) --
+    {
+        size_t movesBase = BlockBase(0x230);
+        for (size_t i = 0; i < data.moves.size(); ++i)
+        {
+            const ParsedMove& m = data.moves[i];
+            size_t o = movesBase + i * kMove_Size;
+            uint32_t slot = (uint32_t)(i % 8);
+
+            // Encrypted fields: re-XOR with the same key used during decryption.
+            // vuln @ kMove_EncVuln (0x58), hitlevel @ kMove_EncHitlevel (0x78)
+            {
+                uint32_t enc = m.vuln ^ kXorKeys[slot];
+                PatchAt(o + kMove_EncVuln + slot * 4, &enc, 4);
+            }
+            {
+                uint32_t enc = m.hitlevel ^ kXorKeys[slot];
+                PatchAt(o + kMove_EncHitlevel + slot * 4, &enc, 4);
+            }
+            {
+                uint32_t enc = m.ordinal_id2 ^ kXorKeys[slot];
+                PatchAt(o + kMove_EncCharId + slot * 4, &enc, 4);
+            }
+            {
+                uint32_t enc = m.moveId ^ kXorKeys[slot];
+                PatchAt(o + kMove_EncOrdinalId + slot * 4, &enc, 4);
+            }
+
+            // Plain scalar fields
+            PatchAt(o + kMove_U1,            &m.u1,           8);
+            PatchAt(o + kMove_U2,            &m.u2,           8);
+            PatchAt(o + kMove_U3,            &m.u3,           8);
+            PatchAt(o + kMove_U4,            &m.u4,           8);
+            PatchAt(o + kMove_U6,            &m.u6,           4);
+            PatchAt(o + kMove_Transition,    &m.transition,   2);
+            PatchAt(o + kMove_0xCE,          &m._0xCE,        2);
+            PatchAt(o + kMove_0x118,         &m._0x118,       4);
+            PatchAt(o + kMove_0x11C,         &m._0x11C,       4);
+            PatchAt(o + kMove_AnimLen,       &m.anim_len,     4);
+            PatchAt(o + kMove_AirborneStart, &m.airborne_start, 4);
+            PatchAt(o + kMove_AirborneEnd,   &m.airborne_end,   4);
+            PatchAt(o + kMove_GroundFall,    &m.ground_fall,    4);
+            PatchAt(o + kMove_U15,           &m.u15,            4);
+            PatchAt(o + kMove_0x154,         &m._0x154,         4);
+            PatchAt(o + kMove_Startup,       &m.startup,        4);
+            PatchAt(o + kMove_Recovery,      &m.recovery,       4);
+            PatchAt(o + kMove_Collision,     &m.collision,      2);
+            PatchAt(o + kMove_Distance,      &m.distance,       2);
+            PatchAt(o + 0x444,               &m.u18,            4);
+
+            // Hitboxes (8 slots x 0x30 bytes)
+            for (int h = 0; h < 8; ++h)
+            {
+                size_t hb = o + kMove_Hitbox0 + h * kMove_HitboxStride;
+                PatchAt(hb + 0x00, &m.hitbox_active_start[h], 4);
+                PatchAt(hb + 0x04, &m.hitbox_active_last[h],  4);
+                PatchAt(hb + 0x08, &m.hitbox_location[h],     4);
+                for (int f = 0; f < 9; ++f)
+                    PatchAt(hb + 0x0C + f * 4, &m.hitbox_floats[h][f], 4);
+            }
+
+            WriteIdx64(o + kMove_CancelAddr,    m.cancel_idx);
+            WriteIdx64(o + kMove_HitCondAddr,   m.hit_condition_idx);
+            WriteIdx64(o + kMove_VoicelipAddr,  m.voiceclip_idx);
+            WriteIdx64(o + kMove_ExtraPropAddr, m.extra_prop_idx);
+            WriteIdx64(o + kMove_StartPropAddr, m.start_prop_idx);
+            WriteIdx64(o + kMove_EndPropAddr,   m.end_prop_idx);
+        }
+    }
+
+    // Write to moveset.motbin
+    std::string savePath = data.folderPath;
+    if (!savePath.empty() && savePath.back() != '\\' && savePath.back() != '/')
+        savePath += '\\';
+    savePath += "moveset.motbin";
+
+    HANDLE h = CreateFileW(Utf8ToWide(savePath).c_str(), GENERIC_WRITE, 0,
+                           nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return false;
+
+    DWORD written = 0;
+    bool ok = WriteFile(h, out.data(), (DWORD)out.size(), &written, nullptr) != FALSE
+              && written == (DWORD)out.size();
+    CloseHandle(h);
+
+    if (ok) data.rawBytes = std::move(out); // update baseline so future saves are correct
+    return ok;
 }

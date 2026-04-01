@@ -3,6 +3,7 @@
 #include <tlhelp32.h>
 #include <psapi.h>
 #include <cstring>
+#include <vector>
 #pragma comment(lib, "psapi.lib")
 
 static constexpr wchar_t kProcessName[] = L"Polaris-Win64-Shipping.exe";
@@ -38,7 +39,7 @@ bool FindGameProcess(GameProcessInfo& out)
     if (foundPid == 0) return false;
 
     HANDLE hProc = OpenProcess(
-        PROCESS_VM_READ | PROCESS_QUERY_INFORMATION,
+        PROCESS_VM_READ | PROCESS_VM_WRITE | PROCESS_VM_OPERATION | PROCESS_QUERY_INFORMATION,
         FALSE, foundPid);
     if (hProc == nullptr || hProc == INVALID_HANDLE_VALUE) return false;
 
@@ -117,6 +118,17 @@ bool ReadGamePointer(const GameProcessInfo& info, uintptr_t ptrAddr, uintptr_t& 
     return true;
 }
 
+bool WriteGameMemory(const GameProcessInfo& info, uintptr_t addr, const void* buf, size_t size)
+{
+    if (!info.valid || size == 0) return false;
+    SIZE_T bytesWritten = 0;
+    if (!WriteProcessMemory(info.handle,
+                            reinterpret_cast<LPVOID>(addr),
+                            buf, size, &bytesWritten))
+        return false;
+    return bytesWritten == size;
+}
+
 bool ReadPointerChain(const GameProcessInfo& info,
                       uintptr_t base,
                       const size_t* offsets,
@@ -131,4 +143,69 @@ bool ReadPointerChain(const GameProcessInfo& info,
     }
     out = cur;
     return true;
+}
+
+uintptr_t AobScan(const GameProcessInfo& info,
+                  const char* pattern,
+                  uintptr_t startAddr,
+                  uintptr_t endAddr)
+{
+    if (!info.valid || !pattern || startAddr >= endAddr) return 0;
+
+    // Parse "XX XX ?? XX ..." into byte / wildcard list
+    std::vector<int> pat; // -1 = wildcard, 0-255 = exact byte
+    for (const char* p = pattern; *p; )
+    {
+        while (*p == ' ') ++p;
+        if (!*p) break;
+        if (p[0] == '?' && p[1] == '?')
+        {
+            pat.push_back(-1);
+            p += 2;
+        }
+        else
+        {
+            char buf[3] = { p[0], p[1], '\0' };
+            pat.push_back((int)strtol(buf, nullptr, 16));
+            p += 2;
+        }
+    }
+    if (pat.empty()) return 0;
+
+    const size_t patLen   = pat.size();
+    const size_t kChunk   = 0x10000; // 64 KB
+    std::vector<uint8_t> chunk(kChunk + patLen);
+
+    uintptr_t cur = startAddr;
+    while (cur < endAddr)
+    {
+        // Overlap by (patLen-1) to catch matches that span chunk boundaries
+        if (cur != startAddr) cur -= (patLen - 1);
+
+        const size_t readSize = (size_t)min((uintptr_t)kChunk, endAddr - cur);
+        SIZE_T got = 0;
+        if (!ReadProcessMemory(info.handle,
+                               reinterpret_cast<LPCVOID>(cur),
+                               chunk.data(), readSize, &got) || got == 0)
+        {
+            cur += readSize + (patLen - 1);
+            continue;
+        }
+
+        for (size_t i = 0; i + patLen <= got; ++i)
+        {
+            bool match = true;
+            for (size_t j = 0; j < patLen; ++j)
+            {
+                if (pat[j] != -1 && chunk[i + j] != (uint8_t)pat[j])
+                {
+                    match = false;
+                    break;
+                }
+            }
+            if (match) return cur + i;
+        }
+        cur += readSize;
+    }
+    return 0;
 }

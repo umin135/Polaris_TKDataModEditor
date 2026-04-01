@@ -1,6 +1,7 @@
 ﻿#pragma once
 #include "MotbinData.h"
 #include <string>
+#include <unordered_map>
 
 class MovesetEditorWindow {
 public:
@@ -62,20 +63,26 @@ public:
 
     // Called by RenderCancelSection (free static) -- must be public for that access
     void RenderCancelInnerDetail(
-        const ParsedCancel& c, int localIdx, uint32_t blockIdx,
+        ParsedCancel& c, int localIdx, uint32_t blockIdx,
         const std::vector<std::pair<uint32_t,uint32_t>>& gcGroups);
 
 private:
     void RenderMoveList();
     void RenderMoveProperties(int idx);
-    void RenderSection_Overview(const ParsedMove& m);
-    void RenderSection_Unknown(const ParsedMove& m);
+    void RenderSection_Overview(ParsedMove& m, bool& dirty);
+    void RenderSection_Unknown(ParsedMove& m, bool& dirty);
 
 private:
     void RenderReqViewWindow();
     void RenderExtradataViewWindow();
 
-    void RenderViewMenu();
+    void RenderMenuBar();
+    void LoadEditorDatas();
+    void SaveEditorDatas();
+    void SaveToFile();
+    void RequestClose();
+    void RenderCloseConfirmModal();
+    void RenderSavePopups();
     void RenderSubWin_Requirements();
     void RenderSubWin_Cancels();
     void RenderSubWin_HitConditions();
@@ -85,10 +92,20 @@ private:
     void RenderSubWin_Properties();
 
     MotbinData  m_data;
+    std::unordered_map<int, std::string> m_customNames;
     std::string m_windowTitle;
     bool        m_open              = true;
     int         m_selectedIdx       = -1;
     bool        m_moveListScrollPending = false; // request scroll-to-selected on next render
+    bool        m_dirty            = false; // unsaved changes exist
+    bool        m_pendingClose     = false; // close requested while dirty
+
+    enum class SaveState { Idle, Saving, Done };
+    SaveState   m_saveState        = SaveState::Idle;
+    bool        m_openSavingPopup  = false;
+    bool        m_openDonePopup    = false;
+    bool        m_doSaveThisFrame  = false; // two-frame delay: show popup first, save next
+    bool        m_donePoppedFirst  = false; // skip first-frame click on Done popup
     char        m_searchBuf[128] = {};
 
     ReqViewState       m_reqView;
