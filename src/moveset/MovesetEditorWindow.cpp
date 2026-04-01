@@ -208,11 +208,18 @@ void MovesetEditorWindow::RenderMoveList()
             for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i)
             {
                 const ParsedMove& mv = m_data.moves[i];
+                const uint32_t gid = (i < (int)m_data.moveToGenericId.size()) ? m_data.moveToGenericId[i] : 0u;
                 char label[192];
                 if (!mv.displayName.empty())
-                    snprintf(label, sizeof(label), "#%04d  %s", i, mv.displayName.c_str());
+                {
+                    if (gid) snprintf(label, sizeof(label), "#%04d  %s (%u)", i, mv.displayName.c_str(), gid);
+                    else     snprintf(label, sizeof(label), "#%04d  %s", i, mv.displayName.c_str());
+                }
                 else
-                    snprintf(label, sizeof(label), "#%04d", i);
+                {
+                    if (gid) snprintf(label, sizeof(label), "#%04d (%u)", i, gid);
+                    else     snprintf(label, sizeof(label), "#%04d", i);
+                }
 
                 bool sel = (m_selectedIdx == i);
                 if (ImGui::Selectable(label, sel, ImGuiSelectableFlags_SpanAllColumns))
@@ -252,11 +259,18 @@ void MovesetEditorWindow::RenderMoveList()
                 match = containsLower(mv.displayName.c_str());
             if (!match) continue;
 
+            const uint32_t gid = (i < (int)m_data.moveToGenericId.size()) ? m_data.moveToGenericId[i] : 0u;
             char label[192];
             if (!mv.displayName.empty())
-                snprintf(label, sizeof(label), "#%04d  %s", i, mv.displayName.c_str());
+            {
+                if (gid) snprintf(label, sizeof(label), "#%04d  %s (%u)", i, mv.displayName.c_str(), gid);
+                else     snprintf(label, sizeof(label), "#%04d  %s", i, mv.displayName.c_str());
+            }
             else
-                snprintf(label, sizeof(label), "#%04d", i);
+            {
+                if (gid) snprintf(label, sizeof(label), "#%04d (%u)", i, gid);
+                else     snprintf(label, sizeof(label), "#%04d", i);
+            }
 
             bool sel = (m_selectedIdx == i);
             if (ImGui::Selectable(label, sel, ImGuiSelectableFlags_SpanAllColumns))
@@ -471,6 +485,38 @@ static bool RowMoveLink(const char* lbl, uint16_t moveId, bool valid)
     }
 }
 
+// Generic move ID (>=0x8000) link — shows "0x%04X" with tooltip "(→ move #N)" when valid.
+static bool RowGenericMoveLink(const char* lbl, uint16_t genericId, int resolvedIdx, bool valid)
+{
+    static constexpr ImVec4 kGreen = {0.55f, 0.85f, 0.55f, 1.0f};
+    static constexpr ImVec4 kPink  = {1.00f, 0.50f, 0.65f, 1.0f};
+    ImGui::TableNextRow();
+    ImGui::TableSetColumnIndex(0);
+    if (valid)
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, kGreen);
+        char selId[64];
+        snprintf(selId, sizeof(selId), "%s##gml", lbl);
+        bool clicked = ImGui::Selectable(selId, false, ImGuiSelectableFlags_SpanAllColumns);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Click to navigate  (-> move #%d)", resolvedIdx);
+        ImGui::PopStyleColor();
+        ImGui::TableSetColumnIndex(1);
+        ImGui::Text("%u", (unsigned)genericId);
+        return clicked;
+    }
+    else
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, kPink);
+        ImGui::TextUnformatted(lbl);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Navigate target not found.");
+        ImGui::PopStyleColor();
+        ImGui::TableSetColumnIndex(1);
+        ImGui::Text("%u", (unsigned)genericId);
+        return false;
+    }
+}
+
 // Finds the outer group whose absolute start index equals absIdx. Returns -1 if not found.
 static int FindGroupOuter(const std::vector<std::pair<uint32_t,uint32_t>>& groups,
                           uint32_t absIdx)
@@ -493,11 +539,6 @@ void MovesetEditorWindow::RenderMoveProperties(int idx)
     else
         ImGui::Text("Move  #%04d", idx);
     ImGui::PopStyleColor();
-
-    // Key stats inline under the title
-    ImGui::TextDisabled(
-        "first_active %u  |  last_active %u  |  anim_len %d  |  transition %d  |  vuln %d  |  hitlevel %d",
-        m.startup, m.recovery, m.anim_len, static_cast<int>(static_cast<int16_t>(m.transition)), m.vuln, m.hitlevel);
 
     ImGui::Separator();
 
@@ -592,9 +633,27 @@ void MovesetEditorWindow::RenderSection_Overview(const ParsedMove& m)
     const auto npGroups = ComputeOtherPropGroups(m_data.endPropBlock,   m_data.requirementBlock);
 
     // ── Validity flags ────────────────────────────────────────────────────────
-    const int16_t  transI16      = static_cast<int16_t>(m.transition);
+    const uint16_t transU16        = m.transition;
+    const bool     transIsGeneric  = (transU16 >= 0x8000);
+    // Resolve transition: generic IDs use original_aliases; direct IDs check move count
+    int transResolvedIdx = -1;
+    if (transIsGeneric)
+    {
+        const uint32_t aliasIdx = transU16 - 0x8000u;
+        if (aliasIdx < m_data.originalAliases.size())
+        {
+            const uint16_t resolved = m_data.originalAliases[aliasIdx];
+            if (resolved < static_cast<uint16_t>(m_data.moves.size()))
+                transResolvedIdx = static_cast<int>(resolved);
+        }
+    }
+    else
+    {
+        if (transU16 < static_cast<uint16_t>(m_data.moves.size()))
+            transResolvedIdx = static_cast<int>(transU16);
+    }
+    const bool transValid = (transResolvedIdx >= 0);
     const bool cancelValid    = (m.cancel_idx        != 0xFFFFFFFF) && (FindGroupOuter(cancelGroups,   m.cancel_idx)        >= 0);
-    const bool transValid     = (transI16 >= 0) && (static_cast<uint32_t>(transI16) < m_data.moves.size());
     const bool hitCondValid   = (m.hit_condition_idx != 0xFFFFFFFF) && (FindGroupOuter(hitCondGroups,  m.hit_condition_idx) >= 0);
     const bool voiceclipValid = (m.voiceclip_idx     != 0xFFFFFFFF) && (m.voiceclip_idx < m_data.voiceclipBlock.size());
     const bool epValid        = (m.extra_prop_idx    != 0xFFFFFFFF) && (FindGroupOuter(epGroups,       m.extra_prop_idx)    >= 0);
@@ -623,7 +682,10 @@ void MovesetEditorWindow::RenderSection_Overview(const ParsedMove& m)
         RowU32  (Vuln,         m.vuln);
         RowU32  (Hitlevel,     m.hitlevel);
         clickCancel    = RowIdxLink      (CancelIdx,    m.cancel_idx,        cancelValid);
-        clickTrans     = RowTransitionLink(Transition,   transI16,            transValid);
+        if (transIsGeneric)
+            clickTrans = RowGenericMoveLink(Transition, transU16, transResolvedIdx, transValid);
+        else
+            clickTrans = RowTransitionLink(Transition, static_cast<int16_t>(transU16), transValid);
         RowI32  (AnimLen,      m.anim_len);
         clickHitCond   = RowIdxLink      (HitCondIdx,   m.hit_condition_idx, hitCondValid);
         clickVoiceclip = RowIdxLink      (VoiceclipIdx, m.voiceclip_idx,     voiceclipValid);
@@ -689,7 +751,7 @@ void MovesetEditorWindow::RenderSection_Overview(const ParsedMove& m)
     }
     if (clickTrans)
     {
-        m_selectedIdx = static_cast<int>(static_cast<uint16_t>(transI16));
+        m_selectedIdx = transResolvedIdx; // already resolved (direct or via original_aliases)
         m_moveListScrollPending = true;
     }
     if (clickHitCond)
@@ -993,10 +1055,28 @@ void MovesetEditorWindow::RenderCancelInnerDetail(
     }
     else
     {
-        const bool isTerm  = (c.command == 0x8000 || c.command == 0x8013);
-        const bool valid   = !isTerm && (c.move_id < (uint16_t)m_data.moves.size());
-        const bool clicked = RowMoveLink("move", c.move_id, valid);
-        if (clicked) { m_selectedIdx = (int)c.move_id; m_moveListScrollPending = true; }
+        // Terminator: command is the list-end sentinel AND move_id is also 0x8000
+        const bool isTerm = ((c.command == 0x8000 || c.command == 0x8013) && c.move_id == 0x8000);
+        if (!isTerm && c.move_id >= 0x8000)
+        {
+            // Generic move ID — resolve via original_aliases
+            const uint32_t aliasIdx = c.move_id - 0x8000u;
+            int resolvedIdx = -1;
+            if (aliasIdx < m_data.originalAliases.size())
+            {
+                const uint16_t resolved = m_data.originalAliases[aliasIdx];
+                if ((size_t)resolved < m_data.moves.size())
+                    resolvedIdx = static_cast<int>(resolved);
+            }
+            const bool clicked = RowGenericMoveLink("move", c.move_id, resolvedIdx, resolvedIdx >= 0);
+            if (clicked) { m_selectedIdx = resolvedIdx; m_moveListScrollPending = true; }
+        }
+        else
+        {
+            const bool valid   = !isTerm && (c.move_id < (uint16_t)m_data.moves.size());
+            const bool clicked = RowMoveLink("move", c.move_id, valid);
+            if (clicked) { m_selectedIdx = (int)c.move_id; m_moveListScrollPending = true; }
+        }
     }
 
     ImGui::TableNextRow();

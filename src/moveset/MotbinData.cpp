@@ -314,6 +314,21 @@ MotbinData LoadMotbin(const std::string& folderPath)
     result.moveCount = static_cast<uint32_t>(movesCount);
     result.moves.reserve(static_cast<size_t>(movesCount));
 
+    // ── original_aliases (header 0x30..0xA7, 60 × uint16) ──────────────────
+    // genericId - 0x8000 = index → real move id
+    result.originalAliases.resize(60);
+    for (size_t ai = 0; ai < 60; ++ai)
+        result.originalAliases[ai] = ReadAt<uint16_t>(buf, cap, 0x30 + ai * 2);
+
+    // ── reverse map: move index → first generic ID that references it ────────
+    result.moveToGenericId.assign(result.moveCount, 0u);
+    for (size_t ai = 0; ai < result.originalAliases.size(); ++ai)
+    {
+        const uint32_t mid = result.originalAliases[ai];
+        if (mid < result.moveCount && result.moveToGenericId[mid] == 0)
+            result.moveToGenericId[mid] = static_cast<uint32_t>(0x8000u + ai);
+    }
+
     // ── Build global requirement block ───────────────────────
     const uint64_t reqBase  = ReadAt<uint64_t>(buf, cap, 0x180);
     const uint64_t reqCount = ReadAt<uint64_t>(buf, cap, 0x188);

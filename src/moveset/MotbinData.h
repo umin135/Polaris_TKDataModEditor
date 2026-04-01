@@ -236,7 +236,9 @@ struct MotbinData {
     std::string errorMsg;
 
     uint32_t moveCount = 0;
-    std::vector<ParsedMove> moves;
+    std::vector<ParsedMove>   moves;
+    std::vector<uint16_t>     originalAliases;  // header[0x30..0xA7], 60 entries: genericId-0x8000 → real move index
+    std::vector<uint32_t>     moveToGenericId;  // per-move: 0 = not a generic target, else = the generic ID (0x8000+n)
 
     // Global flat arrays parsed from each file block
     std::vector<ParsedRequirement>   requirementBlock;
