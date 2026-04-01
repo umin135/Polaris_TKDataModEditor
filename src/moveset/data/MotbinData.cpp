@@ -1,9 +1,9 @@
 ﻿// MotbinData.cpp -- binary parser for moveset.motbin
 // Field offsets based on OldTool2 (TekkenMovesetExtractor TK8) t8_offsetTable.
 // Move struct size = 0x448 bytes (FILE format, NOT in-memory).
-#include "MotbinData.h"
-#include "LabelDB.h"
-#include "../GameStatic.h"
+#include "moveset/data/MotbinData.h"
+#include "moveset/labels/LabelDB.h"
+#include "GameStatic.h"
 #include <windows.h>
 #include <cstring>
 #include <string>

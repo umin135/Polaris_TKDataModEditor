@@ -63,6 +63,7 @@ private:
                     std::string& errorMsg);
     bool SaveMotbin(const std::vector<uint8_t>& bytes,
                     const std::string& destFolder,
+                    uint32_t charaId,
                     const std::string& charaName,
                     uintptr_t motbinBase,
                     const MotbinNameData* names,

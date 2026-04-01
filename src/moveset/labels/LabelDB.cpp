@@ -1,5 +1,5 @@
 ﻿// LabelDB.cpp
-#include "LabelDB.h"
+#include "moveset/labels/LabelDB.h"
 #include <windows.h>
 #include <fstream>
 #include <sstream>
@@ -81,12 +81,49 @@ void LabelDB::Load(const std::string& dir)
     ParseFile(base + "editorProperties.txt",   m_prop);
     ParseFile(base + "editorCommands.txt",     m_cmd);
 
-    // characterList.txt: same id,name format
-    std::unordered_map<uint64_t, std::string> charasTmp;
-    ParseFile(base + "characterList.txt", charasTmp);
-    m_charas.clear();
-    for (auto& kv : charasTmp)
-        m_charas[static_cast<uint32_t>(kv.first)] = std::move(kv.second);
+    // characterList.txt: id,name,code  (code column is optional for back-compat)
+    {
+        m_charas.clear();
+        m_charasCodes.clear();
+        std::ifstream cf(base + "characterList.txt");
+        std::string line;
+        while (std::getline(cf, line))
+        {
+            if (line.empty() || line[0] == '#') continue;
+
+            // col0 = id, col1 = name, col2 = code (optional)
+            size_t c1 = line.find(',');
+            if (c1 == std::string::npos) continue;
+            size_t c2 = line.find(',', c1 + 1);
+
+            std::string idStr  = line.substr(0, c1);
+            std::string name   = (c2 != std::string::npos)
+                                 ? line.substr(c1 + 1, c2 - c1 - 1)
+                                 : line.substr(c1 + 1);
+            std::string code   = (c2 != std::string::npos)
+                                 ? line.substr(c2 + 1)
+                                 : std::string{};
+
+            // Trim trailing whitespace / CR
+            auto trim = [](std::string& s) {
+                while (!s.empty() && (s.back() == '\r' || s.back() == '\n' || s.back() == ' '))
+                    s.pop_back();
+            };
+            trim(idStr); trim(name); trim(code);
+            if (idStr.empty()) continue;
+
+            uint32_t id = 0;
+            try {
+                if (idStr.size() > 2 && idStr[0] == '0' && (idStr[1] == 'x' || idStr[1] == 'X'))
+                    id = static_cast<uint32_t>(std::stoull(idStr, nullptr, 16));
+                else
+                    id = static_cast<uint32_t>(std::stoull(idStr, nullptr, 10));
+            } catch (...) { continue; }
+
+            if (!name.empty()) m_charas[id]      = std::move(name);
+            if (!code.empty()) m_charasCodes[id] = std::move(code);
+        }
+    }
 
     m_loaded = (!m_req.empty() || !m_prop.empty() || !m_cmd.empty());
 }
@@ -201,4 +238,10 @@ const char* LabelDB::CharaName(uint32_t id) const
 {
     auto it = m_charas.find(id);
     return it != m_charas.end() ? it->second.c_str() : nullptr;
+}
+
+const char* LabelDB::CharaCode(uint32_t id) const
+{
+    auto it = m_charasCodes.find(id);
+    return it != m_charasCodes.end() ? it->second.c_str() : nullptr;
 }

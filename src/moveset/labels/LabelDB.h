@@ -48,9 +48,11 @@ public:
     const char* GetAnimName(uint32_t key) const;
 
     // Character ID -> name string, e.g. 6 -> "JIN"
-    // Loaded from characterList.txt (same id,name format).
+    // Character ID -> code string, e.g. 6 -> "ant"
+    // Loaded from characterList.txt (id,name,code format).
     // Returns nullptr if ID not found.
     const char* CharaName(uint32_t id) const;
+    const char* CharaCode(uint32_t id) const;
 
     bool IsLoaded() const { return m_loaded; }
 
@@ -66,5 +68,6 @@ private:
     std::unordered_map<uint32_t, std::string> m_names;
     std::unordered_map<uint32_t, std::string> m_animNames;
     std::unordered_map<uint32_t, std::string> m_charas;
+    std::unordered_map<uint32_t, std::string> m_charasCodes;
     bool m_loaded = false;
 };

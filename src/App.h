@@ -1,8 +1,8 @@
 ﻿#pragma once
 #include "imgui/imgui.h"
-#include "editors/FbsDataView.h"
-#include "moveset/MovesetView.h"
-#include "moveset/MovesetEditorWindow.h"
+#include "fbsdata/editor/FbsDataView.h"
+#include "moveset/editor/MovesetView.h"
+#include "moveset/editor/MovesetEditorWindow.h"
 #include "extract/ExtractorView.h"
 #include <string>
 #include <vector>

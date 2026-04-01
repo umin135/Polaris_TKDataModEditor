@@ -4,7 +4,7 @@
 
 #include "devmode/FbsDevView.h"
 #include "devmode/FbsBinaryIO.h"
-#include "data/FieldNames.h"
+#include "fbsdata/data/FieldNames.h"
 #include "imgui/imgui.h"
 #include <cstring>
 #include <string>

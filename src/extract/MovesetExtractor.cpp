@@ -2,8 +2,8 @@
 // Extracts moveset from Polaris-Win64-Shipping.exe and saves as .motbin
 // Reference: OldTool2 (TekkenMovesetExtractor) game_addresses.txt + motbinExport.py
 #include "MovesetExtractor.h"
-#include "../moveset/LabelDB.h"
-#include "../moveset/MotbinSerialize.h"
+#include "moveset/labels/LabelDB.h"
+#include "moveset/serialize/MotbinSerialize.h"
 #include <windows.h>
 #include <cstring>
 #include <cstdio>
@@ -12,17 +12,21 @@
 // -------------------------------------------------------------
 //  WriteIni -- write moveset.ini alongside the extracted motbin
 // -------------------------------------------------------------
-static void WriteIni(const std::string& folder, const std::string& charaName)
+static void WriteIni(const std::string& folder, uint32_t charaId, const std::string& charaName)
 {
+    // Resolve character code from characterList.txt (id,name,code); fall back to raw name.
+    const char* mapped    = LabelDB::Get().CharaCode(charaId);
+    const char* charaCode = mapped ? mapped : charaName.c_str();
+
     std::string path = folder + "\\moveset.ini";
     FILE* f = nullptr;
     fopen_s(&f, path.c_str(), "w");
     if (!f) return;
 
     fprintf(f, "[Info]\n");
-    fprintf(f, "OriginalCharacter=%s\n", charaName.c_str());
+    fprintf(f, "OriginalCharacter=%s\n", charaCode);
     fprintf(f, "Version=Unknown\n");
-    fprintf(f, "DefaultTarget=%s\n",     charaName.c_str());
+    fprintf(f, "DefaultTarget=%s\n",     charaCode);
     fclose(f);
 }
 
@@ -353,6 +357,7 @@ bool MovesetExtractor::ReadMotbin(uintptr_t motbinAddr,
 
 bool MovesetExtractor::SaveMotbin(const std::vector<uint8_t>& bytes,
                                    const std::string& destFolder,
+                                   uint32_t charaId,
                                    const std::string& charaName,
                                    uintptr_t motbinBase,
                                    const MotbinNameData* names,
@@ -393,7 +398,7 @@ bool MovesetExtractor::SaveMotbin(const std::vector<uint8_t>& bytes,
     }
 
     // Write moveset.ini -- character info sidecar (name DB is built into the editor)
-    WriteIni(folder, charaName);
+    WriteIni(folder, charaId, charaName);
 
     return true;
 }
@@ -473,7 +478,7 @@ bool MovesetExtractor::ExtractToFile(int slotIndex,
         }
     }
 
-    if (!SaveMotbin(bytes, destFolder, slot.charaName, slot.motbinAddr, &names, errorMsg))
+    if (!SaveMotbin(bytes, destFolder, slot.charaId, slot.charaName, slot.motbinAddr, &names, errorMsg))
         return false;
 
     m_statusMsg = "Extracted -> TK8_" + slot.charaName + "  (" +

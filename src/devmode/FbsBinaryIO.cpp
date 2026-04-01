@@ -12,7 +12,7 @@
 //   - Vectors: uint32 count, then elements
 
 #include "devmode/FbsBinaryIO.h"
-#include "data/FieldNames.h"
+#include "fbsdata/data/FieldNames.h"
 #include <windows.h>
 #include <shobjidl.h>
 #include <commdlg.h>

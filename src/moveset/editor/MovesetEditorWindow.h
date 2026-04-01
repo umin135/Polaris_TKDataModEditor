@@ -1,5 +1,5 @@
 ﻿#pragma once
-#include "MotbinData.h"
+#include "moveset/data/MotbinData.h"
 #include <string>
 #include <unordered_map>
 

@@ -192,8 +192,7 @@ struct ParsedThrow {
 
 // -------------------------------------------------------------
 //  Sub-struct: ParryableMove  (stride=0x04 in file)
-//  tk_parryable_move: single uint32 move index per entry.
-//  Terminator: value == 0
+//  tk_parryable_move — single uint32 value per entry; value == 0 marks list terminator
 // -------------------------------------------------------------
 struct ParsedParryableMove {
     uint32_t value;  // +0x00  (0 = list terminator)

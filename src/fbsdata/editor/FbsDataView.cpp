@@ -1,7 +1,8 @@
 ﻿// FbsData editor view implementation
-#include "editors/FbsDataView.h"
-#include "data/FieldNames.h"
-#include "io/TkmodIO.h"
+#include "fbsdata/editor/FbsDataView.h"
+#include "fbsdata/data/FieldNames.h"
+#include "fbsdata/io/TkmodIO.h"
+#include "fbsdata/editor/BinVisibility.h"
 #include "imgui/imgui.h"
 #include <cstring>
 #include <cctype>
@@ -833,6 +834,10 @@ void FbsDataView::RenderAddPopup()
         for (int i = 0; i < k_AllBinsCount; ++i)
         {
             const auto& info = k_AllBins[i];
+
+            // Skip bins that are not visible in the current build configuration
+            if (!BinVisibility::IsVisible(info.filename))
+                continue;
 
             // Skip bins already added to the mod
             if (m_data.HasBinByName(info.filename)) continue;

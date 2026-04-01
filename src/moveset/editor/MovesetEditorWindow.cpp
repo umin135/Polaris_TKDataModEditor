@@ -2,11 +2,11 @@
 // UI layout mirrors OldTool (TKMovesets2):
 //   Left panel  -- searchable move list
 //   Right panel -- collapsible property sections per move
-#include "MovesetEditorWindow.h"
-#include "../GameStatic.h"
-#include "LabelDB.h"
-#include "EditorFieldLabel.h"
-#include "GameLiveEdit.h"
+#include "moveset/editor/MovesetEditorWindow.h"
+#include "GameStatic.h"
+#include "moveset/labels/LabelDB.h"
+#include "moveset/data/EditorFieldLabel.h"
+#include "moveset/live/GameLiveEdit.h"
 #include "imgui/imgui.h"
 #include "imgui/imgui_internal.h"
 #include <cstdio>

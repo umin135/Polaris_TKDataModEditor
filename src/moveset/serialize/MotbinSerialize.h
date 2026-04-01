@@ -36,13 +36,13 @@ struct MotbinNameData {
 //  ExportLoaderBin
 //
 //  Converts a raw state-3 motbin dump (absolute pointers from game
-//  memory) to state-1 binary format compatible with TK8 loaders.
-//  Mirrors OldTool2 jsonToBin.py output.
+//  memory) to state-1 loader format (index-relative offsets) compatible
+//  with TK8 loaders.  Mirrors OldTool2 jsonToBin.py output.
 //
-//  State-1 differences from state-3:
-//    - Header block ptrs: file_offset - 0x318 (BASE-relative)
-//    - Struct pointer fields: element index into target block array
-//    - Move encrypted fields: XOR_KEYS scheme (8-key XOR)
+//  State-3 (game memory): pointer fields hold absolute 64-bit addresses.
+//  State-1 (loader file): pointer fields hold element-index offsets into
+//    the target block array; header block ptrs are file_offset - 0x318.
+//    Move encrypted fields use XOR_KEYS scheme (8-key XOR).
 //
 //  rawBytes  : raw state-3 bytes (absolute pointers, no fixup applied)
 //  motbinBase: original game memory base address of the motbin

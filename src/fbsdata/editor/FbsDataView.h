@@ -1,9 +1,9 @@
 ﻿#pragma once
-#include "data/ModData.h"
+#include "fbsdata/data/ModData.h"
 #include <string>
 
-// FbsData editor view
-// Layout: [Toolbar] | [Editor area] | [Contents List]
+// FbsData editor view -- loads/saves .tkmod files and renders per-bin editors.
+// Layout: [Toolbar (Save/Load)] | [Editor area] | [Contents List]
 class FbsDataView
 {
 public:

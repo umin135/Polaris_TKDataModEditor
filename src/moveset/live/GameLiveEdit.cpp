@@ -2,8 +2,8 @@
 // Live memory interaction with Tekken 8 (Polaris-Win64-Shipping.exe).
 // Player base address and motbin offset are resolved via AoB scan at runtime
 // and cached for the lifetime of the process so subsequent calls are instant.
-#include "GameLiveEdit.h"
-#include "../extract/GameProcess.h"
+#include "moveset/live/GameLiveEdit.h"
+#include "extract/GameProcess.h"
 #include <cstdint>
 
 namespace {

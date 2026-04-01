@@ -1,5 +1,5 @@
 ﻿#pragma once
-#include "data/ModData.h"
+#include "fbsdata/data/ModData.h"
 
 namespace TkmodIO
 {

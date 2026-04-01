@@ -1,7 +1,7 @@
 ﻿#pragma once
 #ifdef _DEBUG
 
-#include "data/ModData.h"
+#include "fbsdata/data/ModData.h"
 #include <string>
 
 // -----------------------------------------------------------------------------

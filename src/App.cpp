@@ -2,7 +2,7 @@
 #include "App.h"
 #include "Config.h"
 #include "GameStatic.h"
-#include "moveset/LabelDB.h"
+#include "moveset/labels/LabelDB.h"
 #include "imgui/imgui.h"
 #include "imgui/imgui_internal.h"  // DockBuilder API
 #include <functional>

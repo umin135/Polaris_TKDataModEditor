@@ -1,6 +1,6 @@
 ﻿// MovesetView.cpp
 // Scans a root directory for moveset folders and renders a list table.
-#include "MovesetView.h"
+#include "moveset/editor/MovesetView.h"
 #include "Config.h"
 #include "imgui/imgui.h"
 #include <windows.h>

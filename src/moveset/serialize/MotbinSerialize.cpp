@@ -1,7 +1,7 @@
 ﻿// MotbinSerialize.cpp
 // Converts state-3 raw motbin dump -> state-1 loader-compatible binary.
 // Reference: OldTool2 jsonToBin.py
-#include "MotbinSerialize.h"
+#include "moveset/serialize/MotbinSerialize.h"
 #include <cstring>
 #include <algorithm>
 

@@ -3,7 +3,7 @@
 //   mod_info.json
 //   fbsdata_mod/<bin_name>.json   (one per added bin)
 
-#include "TkmodIO.h"
+#include "fbsdata/io/TkmodIO.h"
 #include <windows.h>
 #include <commdlg.h>
 #include <cstdio>
