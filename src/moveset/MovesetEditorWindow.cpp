@@ -120,6 +120,10 @@ bool MovesetEditorWindow::Render()
     RenderSubWin_Pushbacks();
     RenderSubWin_Voiceclips();
     RenderSubWin_Properties();
+    RenderSubWin_Throws();
+    RenderSubWin_Projectiles();
+    RenderSubWin_InputSequences();
+    RenderSubWin_ParryableMoves();
 
     RenderCloseConfirmModal();
 
@@ -1320,6 +1324,10 @@ void MovesetEditorWindow::RenderMenuBar()
             if (ImGui::MenuItem("Pushbacks",       nullptr, m_pushbackWin.open))  m_pushbackWin.open  = !m_pushbackWin.open;
             if (ImGui::MenuItem("Voiceclips",      nullptr, m_voiceclipWinOpen))  m_voiceclipWinOpen  = !m_voiceclipWinOpen;
             if (ImGui::MenuItem("Properties",      nullptr, m_propertiesWin.open))m_propertiesWin.open= !m_propertiesWin.open;
+            if (ImGui::MenuItem("Throws",          nullptr, m_throwsWin.open))      m_throwsWin.open      = !m_throwsWin.open;
+            if (ImGui::MenuItem("Projectiles",      nullptr, m_projectileWin.open)) m_projectileWin.open  = !m_projectileWin.open;
+            if (ImGui::MenuItem("Input Sequences",  nullptr, m_inputSeqWin.open))  m_inputSeqWin.open    = !m_inputSeqWin.open;
+            if (ImGui::MenuItem("Parryable Moves",  nullptr, m_parryWinOpen))      m_parryWinOpen        = !m_parryWinOpen;
             ImGui::EndMenu();
         }
         ImGui::EndMenu();
@@ -2418,5 +2426,455 @@ void MovesetEditorWindow::RenderSubWin_Properties()
     }
 
     ImGui::EndTabBar();
+    ImGui::End();
+}
+
+// -------------------------------------------------------------
+//  Throws subwindow
+//  Left panel  : throw list + detail  (side, throwextra link)
+//  Right panel : throw_extra list + detail  (5 fields)
+// -------------------------------------------------------------
+
+void MovesetEditorWindow::RenderSubWin_Throws()
+{
+    if (!m_throwsWin.open) return;
+    ImGui::SetNextWindowSize(ImVec2(760.0f, 420.0f), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Throws##blkwin", &m_throwsWin.open, ImGuiWindowFlags_NoCollapse))
+    { ImGui::End(); return; }
+
+    const auto& th  = m_data.throwBlock;
+    const auto& te  = m_data.throwExtraBlock;
+
+    auto isTeEnd = +[](const ParsedThrowExtra& t) -> bool {
+        return t.pick_probability == 0 && t.camera_type == 0 &&
+               t.left_side_camera_data == 0 && t.right_side_camera_data == 0 &&
+               t.additional_rotation == 0;
+    };
+    auto teGroups = ComputeGroups(te, isTeEnd);
+
+    const float spacing = ImGui::GetStyle().ItemSpacing.x;
+    const float totalW  = ImGui::GetContentRegionAvail().x;
+    const float leftW   = totalW * 0.25f;
+    const float rightW  = totalW - leftW - spacing;
+    const float listH   = 160.0f;
+
+    // ---- Left: throw list + detail ----
+    ImGui::BeginChild("##th_left", ImVec2(leftW, 0.0f), false);
+    {
+        ImGui::BeginChild("##thlist", ImVec2(0.0f, listH), true);
+        ImGui::TextDisabled("throws (%d)", (int)th.size()); ImGui::Separator();
+        for (int i = 0; i < (int)th.size(); ++i)
+        {
+            char lbl[48]; snprintf(lbl, sizeof(lbl), "#%d  0x%llX", i, (unsigned long long)th[i].side);
+            bool sel = (m_throwsWin.throwSel == i);
+            if (ImGui::Selectable(lbl, sel)) m_throwsWin.throwSel = i;
+            if (sel && m_throwsWin.throwScrollPending)
+            {
+                ImGui::SetScrollHereY(0.5f);
+                m_throwsWin.throwScrollPending = false;
+            }
+        }
+        ImGui::EndChild();
+
+        if (m_throwsWin.throwSel >= 0 && m_throwsWin.throwSel < (int)th.size())
+        {
+            ParsedThrow& t = m_data.throwBlock[m_throwsWin.throwSel];
+            ImGui::TextDisabled("throw #%d", m_throwsWin.throwSel); ImGui::Separator();
+            if (BeginPropTable("##thdt"))
+            {
+                if (RowHex64Edit("##th_side", ThrowLabel::Side, t.side)) m_dirty = true;
+                {
+                    bool valid = (t.throwextra_idx != 0xFFFFFFFF) &&
+                                 (t.throwextra_idx < (uint32_t)te.size());
+                    auto r = RowIdxEditLink("##th_extra_idx", ThrowLabel::ThrowExtra, t.throwextra_idx, valid);
+                    if (r.changed) m_dirty = true;
+                    if (r.navigate)
+                    {
+                        // navigate to the group that contains throwextra_idx
+                        for (int gi = 0; gi < (int)teGroups.size(); ++gi)
+                        {
+                            uint32_t gs = teGroups[gi].first;
+                            uint32_t gc = teGroups[gi].second;
+                            if (t.throwextra_idx >= gs && t.throwextra_idx < gs + gc)
+                            {
+                                m_throwsWin.extraSel.outer       = gi;
+                                m_throwsWin.extraSel.inner       = (int)(t.throwextra_idx - gs);
+                                m_throwsWin.extraSel.scrollOuter = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                ImGui::EndTable();
+            }
+        }
+    }
+    ImGui::EndChild();
+
+    ImGui::SameLine();
+
+    // ---- Right: throw_extra 3-panel (outer groups | inner items | detail) ----
+    ImGui::BeginChild("##te_right", ImVec2(rightW, 0.0f), false);
+    {
+        float colW = ImGui::GetContentRegionAvail().x / 3.0f - spacing;
+
+        // Outer groups
+        ImGui::BeginChild("##te_outer", ImVec2(colW, 0.0f), true);
+        Render2LevelOuterList(teGroups, m_throwsWin.extraSel, "throw_extra lists");
+        ImGui::EndChild();
+
+        ImGui::SameLine();
+
+        // Inner items
+        ImGui::BeginChild("##te_inner", ImVec2(colW, 0.0f), true);
+        ImGui::TextDisabled("items"); ImGui::Separator();
+        if (m_throwsWin.extraSel.outer < (int)teGroups.size())
+        {
+            uint32_t start = teGroups[m_throwsWin.extraSel.outer].first;
+            uint32_t count = teGroups[m_throwsWin.extraSel.outer].second;
+            for (uint32_t k = 0; k < count; ++k)
+            {
+                uint32_t idx = start + k;
+                if (idx >= (uint32_t)te.size()) break;
+                const bool isEnd = isTeEnd(te[idx]);
+                char lbl[32];
+                if (isEnd) snprintf(lbl, sizeof(lbl), "#%u  [END]##tei%u", k, idx);
+                else        snprintf(lbl, sizeof(lbl), "#%u##tei%u", k, idx);
+                bool sel = (m_throwsWin.extraSel.inner == (int)k);
+                if (isEnd) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
+                if (ImGui::Selectable(lbl, sel)) m_throwsWin.extraSel.inner = (int)k;
+                if (isEnd) ImGui::PopStyleColor();
+            }
+        }
+        ImGui::EndChild();
+
+        ImGui::SameLine();
+
+        // Detail
+        ImGui::BeginChild("##te_detail", ImVec2(0.0f, 0.0f), false);
+        if (m_throwsWin.extraSel.outer < (int)teGroups.size())
+        {
+            uint32_t start = teGroups[m_throwsWin.extraSel.outer].first;
+            uint32_t idx   = start + (uint32_t)m_throwsWin.extraSel.inner;
+            if (idx < (uint32_t)te.size())
+            {
+                ParsedThrowExtra& tex = m_data.throwExtraBlock[idx];
+                const bool isEnd = isTeEnd(tex);
+                ImGui::TextDisabled("throw_extra #%u  (block[%u])%s",
+                    m_throwsWin.extraSel.inner, idx, isEnd ? "  [END]" : "");
+                ImGui::Separator();
+                if (BeginPropTable("##tedt"))
+                {
+                    if (RowU32Edit("##te_prob", ThrowExtraLabel::PickProbability,     tex.pick_probability))       m_dirty = true;
+                    if (RowU16Edit("##te_cam",  ThrowExtraLabel::CameraType,          tex.camera_type))            m_dirty = true;
+                    if (RowU16Edit("##te_lsc",  ThrowExtraLabel::LeftSideCameraData,  tex.left_side_camera_data))  m_dirty = true;
+                    if (RowU16Edit("##te_rsc",  ThrowExtraLabel::RightSideCameraData, tex.right_side_camera_data)) m_dirty = true;
+                    if (RowU16Edit("##te_rot",  ThrowExtraLabel::AdditionalRotation,  tex.additional_rotation))    m_dirty = true;
+                    ImGui::EndTable();
+                }
+            }
+        }
+        ImGui::EndChild();
+    }
+    ImGui::EndChild();
+
+    ImGui::End();
+}
+
+// -------------------------------------------------------------
+//  Projectiles subwindow
+//  Left panel  : projectile list
+//  Right panel : detail (hit_condition link, cancel link, u1[35], u2[16])
+// -------------------------------------------------------------
+
+void MovesetEditorWindow::RenderSubWin_Projectiles()
+{
+    if (!m_projectileWin.open) return;
+    ImGui::SetNextWindowSize(ImVec2(540.0f, 480.0f), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Projectiles##blkwin", &m_projectileWin.open, ImGuiWindowFlags_NoCollapse))
+    { ImGui::End(); return; }
+
+    const auto& block = m_data.projectileBlock;
+    const float leftW = 110.0f;
+
+    ImGui::BeginChild("##pjlist", ImVec2(leftW, 0.0f), true);
+    ImGui::TextDisabled("projectiles (%d)", (int)block.size()); ImGui::Separator();
+    for (int i = 0; i < (int)block.size(); ++i)
+    {
+        char lbl[20]; snprintf(lbl, sizeof(lbl), "#%d", i);
+        bool sel = (m_projectileWin.selectedIdx == i);
+        if (ImGui::Selectable(lbl, sel)) m_projectileWin.selectedIdx = i;
+        if (sel && m_projectileWin.scrollPending)
+        {
+            ImGui::SetScrollHereY(0.5f);
+            m_projectileWin.scrollPending = false;
+        }
+    }
+    ImGui::EndChild();
+
+    ImGui::SameLine();
+
+    ImGui::BeginChild("##pjdetail", ImVec2(0.0f, 0.0f), false);
+    if (m_projectileWin.selectedIdx >= 0 && m_projectileWin.selectedIdx < (int)block.size())
+    {
+        ParsedProjectile& p = m_data.projectileBlock[m_projectileWin.selectedIdx];
+        ImGui::TextDisabled("projectile #%d", m_projectileWin.selectedIdx); ImGui::Separator();
+
+        if (BeginPropTable("##pjdt"))
+        {
+            // hit_condition link
+            {
+                bool valid = (p.hit_condition_idx != 0xFFFFFFFF) &&
+                             (p.hit_condition_idx < (uint32_t)m_data.hitConditionBlock.size());
+                auto r = RowIdxEditLink("##pj_hc_idx", ProjectileLabel::HitCondition, p.hit_condition_idx, valid);
+                if (r.changed) m_dirty = true;
+                if (r.navigate)
+                {
+                    auto grps = ComputeGroups(m_data.hitConditionBlock,
+                        +[](const ParsedHitCondition& h)->bool{ return h.requirement_addr == 0; });
+                    int gi = FindGroupOuter(grps, p.hit_condition_idx);
+                    if (gi >= 0) { m_hitCondWinSel.outer = gi; m_hitCondWinSel.inner = 0; m_hitCondWinSel.scrollOuter = true; }
+                    m_hitCondWinOpen  = true;
+                    m_hitCondWinFocus = true;
+                }
+            }
+            // cancel link
+            {
+                bool valid = (p.cancel_idx != 0xFFFFFFFF) &&
+                             (p.cancel_idx < (uint32_t)m_data.cancelBlock.size());
+                auto r = RowIdxEditLink("##pj_c_idx", ProjectileLabel::Cancel, p.cancel_idx, valid);
+                if (r.changed) m_dirty = true;
+                if (r.navigate)
+                {
+                    auto grps = ComputeGroups(m_data.cancelBlock,
+                        +[](const ParsedCancel& c)->bool{ return c.command == 0x8000; });
+                    int gi = FindGroupOuter(grps, p.cancel_idx);
+                    if (gi >= 0) { m_cancelsWin.cancelSel.outer = gi; m_cancelsWin.cancelSel.inner = 0; m_cancelsWin.cancelSel.scrollOuter = true; }
+                    m_cancelsWin.open         = true;
+                    m_cancelsWin.pendingFocus = true;
+                }
+            }
+            // u1[0]-u1[34]
+            for (int n = 0; n < 35; ++n)
+            {
+                char id[20], lbl[24];
+                snprintf(id,  sizeof(id),  "##pj_u1_%d", n);
+                snprintf(lbl, sizeof(lbl), ProjectileLabel::U1Fmt, n, n * 4);
+                if (RowHex32Edit(id, lbl, p.u1[n])) m_dirty = true;
+            }
+            // u2[0]-u2[15]
+            for (int n = 0; n < 16; ++n)
+            {
+                char id[20], lbl[24];
+                snprintf(id,  sizeof(id),  "##pj_u2_%d", n);
+                snprintf(lbl, sizeof(lbl), ProjectileLabel::U2Fmt, n, 0xA0 + n * 4);
+                if (RowHex32Edit(id, lbl, p.u2[n])) m_dirty = true;
+            }
+            ImGui::EndTable();
+        }
+    }
+    ImGui::EndChild();
+
+    ImGui::End();
+}
+
+// -------------------------------------------------------------
+//  Input Sequences subwindow
+//  Left  : sequence list + sequence detail (input_window_frames, input_amount, _0x4)
+//  Right : inputs table for selected sequence (command hex64, inline editable)
+// -------------------------------------------------------------
+
+void MovesetEditorWindow::RenderSubWin_InputSequences()
+{
+    if (!m_inputSeqWin.open) return;
+    ImGui::SetNextWindowSize(ImVec2(580.0f, 400.0f), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Input Sequences##blkwin", &m_inputSeqWin.open, ImGuiWindowFlags_NoCollapse))
+    { ImGui::End(); return; }
+
+    const auto& seqs = m_data.inputSequenceBlock;
+    const auto& inps = m_data.inputBlock;
+
+    const float spacing = ImGui::GetStyle().ItemSpacing.x;
+    const float totalW  = ImGui::GetContentRegionAvail().x;
+    const float leftW   = totalW * 0.40f;
+    const float rightW  = totalW - leftW - spacing;
+    const float listH   = 150.0f;
+
+    // ---- Left: sequence list + detail ----
+    ImGui::BeginChild("##iseq_left", ImVec2(leftW, 0.0f), false);
+    {
+        ImGui::BeginChild("##iseqlist", ImVec2(0.0f, listH), true);
+        ImGui::TextDisabled("input_sequences (%d)", (int)seqs.size()); ImGui::Separator();
+        for (int i = 0; i < (int)seqs.size(); ++i)
+        {
+            char lbl[40];
+            snprintf(lbl, sizeof(lbl), "#%d  (amount=%u)", i, seqs[i].input_amount);
+            bool sel = (m_inputSeqWin.sel.outer == i);
+            if (ImGui::Selectable(lbl, sel)) { m_inputSeqWin.sel.outer = i; m_inputSeqWin.sel.inner = 0; }
+            if (sel && m_inputSeqWin.sel.scrollOuter)
+            {
+                ImGui::SetScrollHereY(0.5f);
+                m_inputSeqWin.sel.scrollOuter = false;
+            }
+        }
+        ImGui::EndChild();
+
+        if (m_inputSeqWin.sel.outer >= 0 && m_inputSeqWin.sel.outer < (int)seqs.size())
+        {
+            ParsedInputSequence& s = m_data.inputSequenceBlock[m_inputSeqWin.sel.outer];
+            ImGui::TextDisabled("input_sequence #%d", m_inputSeqWin.sel.outer); ImGui::Separator();
+            if (BeginPropTable("##iseqdt"))
+            {
+                if (RowU16Edit("##is_wf",  InputSeqLabel::InputWindowFrames, s.input_window_frames)) m_dirty = true;
+                if (RowU16Edit("##is_amt", InputSeqLabel::InputAmount,       s.input_amount))        m_dirty = true;
+                if (RowU32Edit("##is_0x4", InputSeqLabel::F0x4,              s._0x4))                m_dirty = true;
+                ImGui::EndTable();
+            }
+        }
+    }
+    ImGui::EndChild();
+
+    ImGui::SameLine();
+
+    // ---- Right: inputs table for selected sequence ----
+    ImGui::BeginChild("##iseq_right", ImVec2(rightW, 0.0f), true);
+    if (m_inputSeqWin.sel.outer >= 0 && m_inputSeqWin.sel.outer < (int)seqs.size())
+    {
+        const ParsedInputSequence& s = seqs[m_inputSeqWin.sel.outer];
+        ImGui::TextDisabled("inputs  (seq #%d,  amount=%u)", m_inputSeqWin.sel.outer, s.input_amount);
+        ImGui::Separator();
+
+        constexpr ImGuiTableFlags kTf =
+            ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit;
+        if (ImGui::BeginTable("##inptbl", 2, kTf))
+        {
+            ImGui::TableSetupColumn("Index",              ImGuiTableColumnFlags_WidthFixed,   45.0f);
+            ImGui::TableSetupColumn(InputLabel::Command,  ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableHeadersRow();
+
+            if (s.input_start_idx != 0xFFFFFFFF)
+            {
+                const uint32_t end = s.input_start_idx + s.input_amount;
+                for (uint32_t k = s.input_start_idx; k < end && k < (uint32_t)inps.size(); ++k)
+                {
+                    const int localIdx = (int)(k - s.input_start_idx);
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    bool sel = (m_inputSeqWin.sel.inner == localIdx);
+                    char selLbl[16]; snprintf(selLbl, sizeof(selLbl), "%d##inp%u", localIdx, k);
+                    if (ImGui::Selectable(selLbl, sel, ImGuiSelectableFlags_SpanAllColumns))
+                        m_inputSeqWin.sel.inner = localIdx;
+
+                    ImGui::TableSetColumnIndex(1);
+                    ImGui::SetNextItemWidth(-1.0f);
+                    char inputId[24]; snprintf(inputId, sizeof(inputId), "##inp_cmd%u", k);
+                    // hex64 inline edit
+                    char hexBuf[20];
+                    snprintf(hexBuf, sizeof(hexBuf), "0x%016llX",
+                             (unsigned long long)m_data.inputBlock[k].command);
+                    if (ImGui::InputText(inputId, hexBuf, sizeof(hexBuf),
+                                         ImGuiInputTextFlags_CharsHexadecimal))
+                    {
+                        // parse on deactivate
+                    }
+                    if (ImGui::IsItemDeactivatedAfterEdit())
+                    {
+                        const char* p = hexBuf;
+                        if (p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) p += 2;
+                        uint64_t val = 0;
+                        for (; *p; ++p)
+                        {
+                            val <<= 4;
+                            if (*p >= '0' && *p <= '9') val |= (uint64_t)(*p - '0');
+                            else if (*p >= 'a' && *p <= 'f') val |= (uint64_t)(*p - 'a' + 10);
+                            else if (*p >= 'A' && *p <= 'F') val |= (uint64_t)(*p - 'A' + 10);
+                        }
+                        m_data.inputBlock[k].command = val;
+                        m_dirty = true;
+                    }
+                }
+            }
+            ImGui::EndTable();
+        }
+    }
+    ImGui::EndChild();
+
+    ImGui::End();
+}
+
+// -------------------------------------------------------------
+//  Parryable Moves subwindow
+//  3-panel: outer groups | inner items | detail
+//  Terminator: move_id == 0
+// -------------------------------------------------------------
+
+void MovesetEditorWindow::RenderSubWin_ParryableMoves()
+{
+    if (!m_parryWinOpen) return;
+    ImGui::SetNextWindowSize(ImVec2(500.0f, 380.0f), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Parryable Moves##blkwin", &m_parryWinOpen, ImGuiWindowFlags_NoCollapse))
+    { ImGui::End(); return; }
+
+    const auto& block = m_data.parryableMoveBlock;
+    auto groups = ComputeGroups(block,
+        +[](const ParsedParryableMove& pm) -> bool { return pm.value == 0; });
+
+    float colW = ImGui::GetContentRegionAvail().x / 3.0f - ImGui::GetStyle().ItemSpacing.x;
+
+    // Outer list
+    ImGui::BeginChild("##pm_outer", ImVec2(colW, 0.0f), true);
+    Render2LevelOuterList(groups, m_parryWinSel, "parryable-move lists");
+    ImGui::EndChild();
+
+    ImGui::SameLine();
+
+    // Inner list
+    ImGui::BeginChild("##pm_inner", ImVec2(colW, 0.0f), true);
+    ImGui::TextDisabled("items"); ImGui::Separator();
+    if (m_parryWinSel.outer < (int)groups.size())
+    {
+        uint32_t start = groups[m_parryWinSel.outer].first;
+        uint32_t count = groups[m_parryWinSel.outer].second;
+        for (uint32_t k = 0; k < count; ++k)
+        {
+            uint32_t idx = start + k;
+            if (idx >= (uint32_t)block.size()) break;
+            const ParsedParryableMove& pm = block[idx];
+            const bool isEnd = (pm.value == 0);
+            char lbl[48];
+            if (isEnd) snprintf(lbl, sizeof(lbl), "#%u  [END]##pmi%u", k, idx);
+            else        snprintf(lbl, sizeof(lbl), "#%u  0x%X##pmi%u", k, pm.value, idx);
+            bool sel = (m_parryWinSel.inner == (int)k);
+            if (isEnd) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
+            if (ImGui::Selectable(lbl, sel)) m_parryWinSel.inner = (int)k;
+            if (isEnd) ImGui::PopStyleColor();
+        }
+    }
+    ImGui::EndChild();
+
+    ImGui::SameLine();
+
+    // Detail
+    ImGui::BeginChild("##pm_detail", ImVec2(0.0f, 0.0f), false);
+    if (m_parryWinSel.outer < (int)groups.size())
+    {
+        uint32_t start = groups[m_parryWinSel.outer].first;
+        uint32_t idx   = start + (uint32_t)m_parryWinSel.inner;
+        if (idx < (uint32_t)block.size())
+        {
+            ParsedParryableMove& pm = m_data.parryableMoveBlock[idx];
+            const bool isEnd = (pm.value == 0);
+            ImGui::TextDisabled("parryable_move #%u  (block[%u])%s",
+                m_parryWinSel.inner, idx, isEnd ? "  [END]" : "");
+            ImGui::Separator();
+            if (BeginPropTable("##pmdt"))
+            {
+                if (RowU32Edit("##pm_val", ParryableMoveLabel::Value, pm.value)) m_dirty = true;
+                ImGui::EndTable();
+            }
+        }
+    }
+    ImGui::EndChild();
+
     ImGui::End();
 }

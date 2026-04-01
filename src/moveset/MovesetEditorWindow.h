@@ -46,6 +46,24 @@ public:
         bool pbScrollPending      = false;
     };
 
+    struct InputSeqWinState {
+        bool        open         = false;
+        TwoLevelSel sel;
+    };
+
+    struct ProjectileWinState {
+        bool open          = false;
+        int  selectedIdx   = 0;
+        bool scrollPending = false;
+    };
+
+    struct ThrowsWinState {
+        bool        open               = false;
+        int         throwSel           = 0;
+        bool        throwScrollPending = false;
+        TwoLevelSel extraSel;
+    };
+
     struct PropertiesWinState {
         bool        open         = false;
         bool        pendingFocus = false;
@@ -90,6 +108,10 @@ private:
     void RenderSubWin_Pushbacks();
     void RenderSubWin_Voiceclips();
     void RenderSubWin_Properties();
+    void RenderSubWin_Throws();
+    void RenderSubWin_Projectiles();
+    void RenderSubWin_InputSequences();
+    void RenderSubWin_ParryableMoves();
 
     MotbinData  m_data;
     std::unordered_map<int, std::string> m_customNames;
@@ -125,4 +147,9 @@ private:
     bool                 m_voiceclipWinScroll = false;
     int                  m_voiceclipWinSel    = 0;
     PropertiesWinState   m_propertiesWin;
+    InputSeqWinState     m_inputSeqWin;
+    ProjectileWinState   m_projectileWin;
+    ThrowsWinState       m_throwsWin;
+    bool                 m_parryWinOpen   = false;
+    TwoLevelSel          m_parryWinSel;
 };

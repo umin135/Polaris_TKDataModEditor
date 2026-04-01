@@ -656,6 +656,145 @@ MotbinData LoadMotbin(const std::string& folderPath)
         }
     }
 
+    // -- inputBlock (hdr 0x260, stride 0x08) ----------------------
+    {
+        uint64_t base = ReadAt<uint64_t>(buf, cap, 0x260);
+        uint64_t cnt  = ReadAt<uint64_t>(buf, cap, 0x268);
+        if (base && cnt && cnt <= 0x100000)
+        {
+            result.inputBlock.reserve((size_t)cnt);
+            for (uint64_t k = 0; k < cnt; ++k)
+            {
+                size_t o = (size_t)base + (size_t)k * 0x08;
+                if (o + 0x08 > cap) break;
+                ParsedInput inp;
+                inp.command = ReadAt<uint64_t>(buf, cap, o);
+                result.inputBlock.push_back(inp);
+            }
+        }
+    }
+
+    // -- inputSequenceBlock (hdr 0x250, stride 0x10) --------------
+    {
+        uint64_t base    = ReadAt<uint64_t>(buf, cap, 0x250);
+        uint64_t cnt     = ReadAt<uint64_t>(buf, cap, 0x258);
+        uint64_t inpBase = ReadAt<uint64_t>(buf, cap, 0x260);
+        if (base && cnt && cnt <= 0x100000)
+        {
+            result.inputSequenceBlock.reserve((size_t)cnt);
+            for (uint64_t k = 0; k < cnt; ++k)
+            {
+                size_t o = (size_t)base + (size_t)k * 0x10;
+                if (o + 0x10 > cap) break;
+                ParsedInputSequence is;
+                is.input_window_frames = ReadAt<uint16_t>(buf, cap, o + 0x00);
+                is.input_amount        = ReadAt<uint16_t>(buf, cap, o + 0x02);
+                is._0x4                = ReadAt<uint32_t>(buf, cap, o + 0x04);
+                is.inputs_addr         = ReadAt<uint64_t>(buf, cap, o + 0x08);
+                is.input_start_idx     = 0xFFFFFFFF;
+                if (is.inputs_addr && is.inputs_addr < cap &&
+                    inpBase && is.inputs_addr >= inpBase)
+                    is.input_start_idx = (uint32_t)((is.inputs_addr - inpBase) / 0x08);
+                result.inputSequenceBlock.push_back(is);
+            }
+        }
+    }
+
+    // -- projectileBlock (hdr 0x1A0, stride 0xE0) -----------------
+    {
+        uint64_t base   = ReadAt<uint64_t>(buf, cap, 0x1A0);
+        uint64_t cnt    = ReadAt<uint64_t>(buf, cap, 0x1A8);
+        uint64_t hcBase = ReadAt<uint64_t>(buf, cap, 0x190);
+        uint64_t cBase  = ReadAt<uint64_t>(buf, cap, 0x1D0);
+        if (base && cnt && cnt <= 0x10000)
+        {
+            result.projectileBlock.reserve((size_t)cnt);
+            for (uint64_t k = 0; k < cnt; ++k)
+            {
+                size_t o = (size_t)base + (size_t)k * 0xE0;
+                if (o + 0xE0 > cap) break;
+                ParsedProjectile p;
+                for (int n = 0; n < 35; ++n)
+                    p.u1[n] = ReadAt<uint32_t>(buf, cap, o + n * 4);
+                p.hit_condition_addr = ReadAt<uint64_t>(buf, cap, o + 0x90);
+                p.cancel_addr        = ReadAt<uint64_t>(buf, cap, o + 0x98);
+                for (int n = 0; n < 16; ++n)
+                    p.u2[n] = ReadAt<uint32_t>(buf, cap, o + 0xA0 + n * 4);
+                p.hit_condition_idx = 0xFFFFFFFF;
+                p.cancel_idx        = 0xFFFFFFFF;
+                if (p.hit_condition_addr && p.hit_condition_addr < cap && hcBase && p.hit_condition_addr >= hcBase)
+                    p.hit_condition_idx = (uint32_t)((p.hit_condition_addr - hcBase) / 0x18);
+                if (p.cancel_addr && p.cancel_addr < cap && cBase && p.cancel_addr >= cBase)
+                    p.cancel_idx = (uint32_t)((p.cancel_addr - cBase) / 0x28);
+                result.projectileBlock.push_back(p);
+            }
+        }
+    }
+
+    // -- parryableMoveBlock (hdr 0x270, stride 0x04) --------------
+    {
+        uint64_t base = ReadAt<uint64_t>(buf, cap, 0x270);
+        uint64_t cnt  = ReadAt<uint64_t>(buf, cap, 0x278);
+        if (base && cnt && cnt <= 0x100000)
+        {
+            result.parryableMoveBlock.reserve((size_t)cnt);
+            for (uint64_t k = 0; k < cnt; ++k)
+            {
+                size_t o = (size_t)base + (size_t)k * 0x04;
+                if (o + 0x04 > cap) break;
+                ParsedParryableMove pm;
+                pm.value = ReadAt<uint32_t>(buf, cap, o);
+                result.parryableMoveBlock.push_back(pm);
+            }
+        }
+    }
+
+    // -- throwExtraBlock (hdr 0x280, stride 0x0C) -----------------
+    {
+        uint64_t base = ReadAt<uint64_t>(buf, cap, 0x280);
+        uint64_t cnt  = ReadAt<uint64_t>(buf, cap, 0x288);
+        if (base && cnt && cnt <= 0x100000)
+        {
+            result.throwExtraBlock.reserve((size_t)cnt);
+            for (uint64_t k = 0; k < cnt; ++k)
+            {
+                size_t o = (size_t)base + (size_t)k * 0x0C;
+                if (o + 0x0C > cap) break;
+                ParsedThrowExtra te;
+                te.pick_probability       = ReadAt<uint32_t>(buf, cap, o + 0x00);
+                te.camera_type            = ReadAt<uint16_t>(buf, cap, o + 0x04);
+                te.left_side_camera_data  = ReadAt<uint16_t>(buf, cap, o + 0x06);
+                te.right_side_camera_data = ReadAt<uint16_t>(buf, cap, o + 0x08);
+                te.additional_rotation    = ReadAt<uint16_t>(buf, cap, o + 0x0A);
+                result.throwExtraBlock.push_back(te);
+            }
+        }
+    }
+
+    // -- throwBlock (hdr 0x290, stride 0x10) ----------------------
+    {
+        uint64_t base   = ReadAt<uint64_t>(buf, cap, 0x290);
+        uint64_t cnt    = ReadAt<uint64_t>(buf, cap, 0x298);
+        uint64_t teBase = ReadAt<uint64_t>(buf, cap, 0x280);
+        if (base && cnt && cnt <= 0x100000)
+        {
+            result.throwBlock.reserve((size_t)cnt);
+            for (uint64_t k = 0; k < cnt; ++k)
+            {
+                size_t o = (size_t)base + (size_t)k * 0x10;
+                if (o + 0x10 > cap) break;
+                ParsedThrow t;
+                t.side           = ReadAt<uint64_t>(buf, cap, o + 0x00);
+                t.throwextra_addr = ReadAt<uint64_t>(buf, cap, o + 0x08);
+                t.throwextra_idx = 0xFFFFFFFF;
+                if (t.throwextra_addr != 0 && t.throwextra_addr < cap &&
+                    teBase != 0 && t.throwextra_addr >= teBase)
+                    t.throwextra_idx = (uint32_t)((t.throwextra_addr - teBase) / 0x0C);
+                result.throwBlock.push_back(t);
+            }
+        }
+    }
+
     // -- voiceclipBlock -------------------------------------------
     {
         uint64_t base = ReadAt<uint64_t>(buf, cap, 0x240);
@@ -1056,6 +1195,83 @@ bool SaveMotbin(MotbinData& data)
             PatchAt(o + 0x14, &e.value3, 4);
             PatchAt(o + 0x18, &e.value4, 4);
             PatchAt(o + 0x1C, &e.value5, 4);
+        }
+    }
+
+    // -- inputBlock (hdr 0x260, stride 0x08) --
+    {
+        size_t base = BlockBase(0x260);
+        for (size_t i = 0; i < data.inputBlock.size(); ++i)
+        {
+            size_t o = base + i * 0x08;
+            PatchAt(o, &data.inputBlock[i].command, 8);
+        }
+    }
+
+    // -- inputSequenceBlock (hdr 0x250, stride 0x10) --
+    {
+        size_t base = BlockBase(0x250);
+        for (size_t i = 0; i < data.inputSequenceBlock.size(); ++i)
+        {
+            const auto& is = data.inputSequenceBlock[i];
+            size_t o = base + i * 0x10;
+            PatchAt(o + 0x00, &is.input_window_frames, 2);
+            PatchAt(o + 0x02, &is.input_amount,        2);
+            PatchAt(o + 0x04, &is._0x4,                4);
+            WriteIdx64(o + 0x08, is.input_start_idx);
+        }
+    }
+
+    // -- projectileBlock (hdr 0x1A0, stride 0xE0) --
+    {
+        size_t base = BlockBase(0x1A0);
+        for (size_t i = 0; i < data.projectileBlock.size(); ++i)
+        {
+            const auto& p = data.projectileBlock[i];
+            size_t o = base + i * 0xE0;
+            for (int n = 0; n < 35; ++n)
+                PatchAt(o + n * 4, &p.u1[n], 4);
+            WriteIdx64(o + 0x90, p.hit_condition_idx);
+            WriteIdx64(o + 0x98, p.cancel_idx);
+            for (int n = 0; n < 16; ++n)
+                PatchAt(o + 0xA0 + n * 4, &p.u2[n], 4);
+        }
+    }
+
+    // -- parryableMoveBlock (hdr 0x270, stride 0x04) --
+    {
+        size_t base = BlockBase(0x270);
+        for (size_t i = 0; i < data.parryableMoveBlock.size(); ++i)
+        {
+            size_t o = base + i * 0x04;
+            PatchAt(o, &data.parryableMoveBlock[i].value, 4);
+        }
+    }
+
+    // -- throwExtraBlock (hdr 0x280, stride 0x0C) --
+    {
+        size_t base = BlockBase(0x280);
+        for (size_t i = 0; i < data.throwExtraBlock.size(); ++i)
+        {
+            const auto& te = data.throwExtraBlock[i];
+            size_t o = base + i * 0x0C;
+            PatchAt(o + 0x00, &te.pick_probability,       4);
+            PatchAt(o + 0x04, &te.camera_type,            2);
+            PatchAt(o + 0x06, &te.left_side_camera_data,  2);
+            PatchAt(o + 0x08, &te.right_side_camera_data, 2);
+            PatchAt(o + 0x0A, &te.additional_rotation,    2);
+        }
+    }
+
+    // -- throwBlock (hdr 0x290, stride 0x10) --
+    {
+        size_t base = BlockBase(0x290);
+        for (size_t i = 0; i < data.throwBlock.size(); ++i)
+        {
+            const auto& t = data.throwBlock[i];
+            size_t o = base + i * 0x10;
+            PatchAt(o + 0x00, &t.side, 8);
+            WriteIdx64(o + 0x08, t.throwextra_idx);
         }
     }
 

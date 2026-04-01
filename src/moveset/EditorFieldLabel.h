@@ -184,6 +184,58 @@ namespace VoiceclipLabel {
 } // namespace VoiceclipLabel
 
 // -----------------------------------------------------------------------
+//  Input fields  (tk_input)
+// -----------------------------------------------------------------------
+namespace InputLabel {
+    static constexpr const char* Command = "command";
+} // namespace InputLabel
+
+// -----------------------------------------------------------------------
+//  InputSequence fields  (tk_input_sequence)
+// -----------------------------------------------------------------------
+namespace InputSeqLabel {
+    static constexpr const char* InputWindowFrames = "input_window_frames";
+    static constexpr const char* InputAmount       = "input_amount";
+    static constexpr const char* F0x4              = "_0x4";
+} // namespace InputSeqLabel
+
+// -----------------------------------------------------------------------
+//  Projectile fields  (tk_projectile)
+// -----------------------------------------------------------------------
+namespace ProjectileLabel {
+    static constexpr const char* HitCondition = "hit_condition";
+    static constexpr const char* Cancel       = "cancel";
+    static constexpr const char* U1Fmt        = "u1[%d]  [+0x%02X]";  // snprintf format — use with (n, n*4)
+    static constexpr const char* U2Fmt        = "u2[%d]  [+0x%02X]";  // snprintf format — use with (n, 0xA0+n*4)
+} // namespace ProjectileLabel
+
+// -----------------------------------------------------------------------
+//  Throw fields  (tk_throw)
+// -----------------------------------------------------------------------
+namespace ThrowLabel {
+    static constexpr const char* Side       = "side";
+    static constexpr const char* ThrowExtra = "throwextra";
+} // namespace ThrowLabel
+
+// -----------------------------------------------------------------------
+//  ParryableMove fields  (tk_parryable_move)
+// -----------------------------------------------------------------------
+namespace ParryableMoveLabel {
+    static constexpr const char* Value = "value";
+} // namespace ParryableMoveLabel
+
+// -----------------------------------------------------------------------
+//  ThrowExtra fields  (tk_throw_extra)
+// -----------------------------------------------------------------------
+namespace ThrowExtraLabel {
+    static constexpr const char* PickProbability     = "pick_probability";
+    static constexpr const char* CameraType          = "camera_type";
+    static constexpr const char* LeftSideCameraData  = "left_side_camera_data";
+    static constexpr const char* RightSideCameraData = "right_side_camera_data";
+    static constexpr const char* AdditionalRotation  = "additional_rotation";
+} // namespace ThrowExtraLabel
+
+// -----------------------------------------------------------------------
 //  ExtraProp / StartProp / EndProp fields
 //  (tk_extraprops / tk_fl_extraprops — both use ParsedExtraProp)
 // -----------------------------------------------------------------------

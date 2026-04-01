@@ -134,6 +134,72 @@ struct ParsedExtraProp {
 };
 
 // -------------------------------------------------------------
+//  Sub-struct: Input  (stride=0x08 in file)
+//  tk_input — union of command(uint64) / direction(uint32)+button(uint32)
+// -------------------------------------------------------------
+struct ParsedInput {
+    uint64_t command;  // +0x00  direction(lo32) | button(hi32)
+};
+
+// -------------------------------------------------------------
+//  Sub-struct: InputSequence  (stride=0x10 in file)
+//  tk_input_sequence
+// -------------------------------------------------------------
+struct ParsedInputSequence {
+    uint16_t input_window_frames;          // +0x00
+    uint16_t input_amount;                 // +0x02
+    uint32_t _0x4;                         // +0x04
+    uint64_t inputs_addr;                  // +0x08  -> first ParsedInput entry
+
+    uint32_t input_start_idx = 0xFFFFFFFF; // index into global inputBlock
+};
+
+// -------------------------------------------------------------
+//  Sub-struct: Projectile  (stride=0xE0 in file)
+//  tk_projectile
+// -------------------------------------------------------------
+struct ParsedProjectile {
+    uint32_t u1[35];                     // +0x00  (35 × uint32, ends at +0x8B; 4-byte pad before ptr)
+    uint64_t hit_condition_addr;         // +0x90
+    uint64_t cancel_addr;                // +0x98
+    uint32_t u2[16];                     // +0xA0
+
+    uint32_t hit_condition_idx = 0xFFFFFFFF;  // index into hitConditionBlock
+    uint32_t cancel_idx        = 0xFFFFFFFF;  // index into cancelBlock
+};
+
+// -------------------------------------------------------------
+//  Sub-struct: ThrowExtra  (stride=0x0C in file)
+//  tk_throw_extra
+// -------------------------------------------------------------
+struct ParsedThrowExtra {
+    uint32_t pick_probability;        // +0x00
+    uint16_t camera_type;             // +0x04
+    uint16_t left_side_camera_data;   // +0x06
+    uint16_t right_side_camera_data;  // +0x08
+    uint16_t additional_rotation;     // +0x0A
+};
+
+// -------------------------------------------------------------
+//  Sub-struct: Throw  (stride=0x10 in file)
+//  tk_throw
+// -------------------------------------------------------------
+struct ParsedThrow {
+    uint64_t side;                              // +0x00  side bitmask
+    uint64_t throwextra_addr;                   // +0x08  -> ThrowExtra entry (expanded)
+    uint32_t throwextra_idx = 0xFFFFFFFF;       // index into global throwExtraBlock
+};
+
+// -------------------------------------------------------------
+//  Sub-struct: ParryableMove  (stride=0x04 in file)
+//  tk_parryable_move: single uint32 move index per entry.
+//  Terminator: value == 0
+// -------------------------------------------------------------
+struct ParsedParryableMove {
+    uint32_t value;  // +0x00  (0 = list terminator)
+};
+
+// -------------------------------------------------------------
 //  Sub-struct: Voiceclip  (stride=0x0C in file)
 //  tk_voiceclip: { int folder; int val2; int clip; }
 //  Terminator: all three == 0xFFFFFFFF (-1)
@@ -263,6 +329,12 @@ struct MotbinData {
     std::vector<ParsedExtraProp>     startPropBlock;
     std::vector<ParsedExtraProp>     endPropBlock;
     std::vector<ParsedVoiceclip>     voiceclipBlock;
+    std::vector<ParsedInput>         inputBlock;
+    std::vector<ParsedInputSequence> inputSequenceBlock;
+    std::vector<ParsedProjectile>    projectileBlock;
+    std::vector<ParsedThrowExtra>    throwExtraBlock;
+    std::vector<ParsedThrow>         throwBlock;
+    std::vector<ParsedParryableMove> parryableMoveBlock;
 };
 
 // Loads moveset.motbin from the given moveset folder path.
