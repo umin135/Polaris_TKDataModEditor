@@ -428,8 +428,8 @@ std::vector<uint8_t> ExportLoaderBin(const std::vector<uint8_t>& rawBytes,
             W64(dst, di + 0x08, ToIdx(RAt<uint64_t>(src, srcSize, si + 0x08), bl_req));
             W64(dst, di + 0x10, ToIdx(RAt<uint64_t>(src, srcSize, si + 0x10), bl_canex));
             // cancel_option [0x26]: runtime bits set by the game engine at load time.
-            // The original file-format motbin always stores 0x0000 here.
-            W16(dst, di + 0x26, 0);
+            // The original file-format motbin always stores 0x0000 here, but we preserve it
+            // W16(dst, di + 0x26, 0);
         }
     };
     WriteCancels(o_can,  bl_can);
