@@ -1,0 +1,10 @@
+# 상위 제외
+/_references
+/.vs
+/.claude
+/x64
+
+build.bat
+CLAUD.md
+imgui.ini
+PolarisTKDataEditor.vcxproj.user
