@@ -6,7 +6,6 @@
 #include <objbase.h>
 #include <shlobj.h>
 #include <string>
-
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "ole32.lib")
@@ -112,6 +111,79 @@ static void    CleanupRenderTarget();
 static LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
+// -------------------------------------------------------------
+//  Win+Arrow snap support via WH_KEYBOARD_LL
+//
+//  DWM handles Win+Arrow for WS_OVERLAPPEDWINDOW (main window) natively.
+//  Secondary ImGui viewports (WS_POPUP) are skipped by DWM snap, so
+//  we install a low-level keyboard hook that fires before DWM and handles
+//  Win+Arrow for any window belonging to this process.
+//
+//  For the main window we pass through so DWM still owns it.
+// -------------------------------------------------------------
+
+static HWND  g_mainHwnd = nullptr;
+static HHOOK g_kbHook   = nullptr;
+
+static void SnapWindowToHalf(HWND hwnd, bool left)
+{
+    HMONITOR hmon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi = { sizeof(mi) };
+    if (!GetMonitorInfo(hmon, &mi)) return;
+    int x = mi.rcWork.left + (left ? 0 : (mi.rcWork.right - mi.rcWork.left) / 2);
+    int y = mi.rcWork.top;
+    int w = (mi.rcWork.right - mi.rcWork.left) / 2;
+    int h = mi.rcWork.bottom - mi.rcWork.top;
+    if (IsZoomed(hwnd)) ShowWindow(hwnd, SW_RESTORE);
+    SetWindowPos(hwnd, nullptr, x, y, w, h, SWP_NOZORDER | SWP_SHOWWINDOW);
+}
+
+static LRESULT CALLBACK LowLevelKbProc(int nCode, WPARAM wParam, LPARAM lParam)
+{
+    if (nCode == HC_ACTION && (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN))
+    {
+        auto* kb = reinterpret_cast<KBDLLHOOKSTRUCT*>(lParam);
+        bool winHeld = (GetAsyncKeyState(VK_LWIN) & 0x8000) ||
+                       (GetAsyncKeyState(VK_RWIN) & 0x8000);
+
+        if (winHeld && (kb->vkCode == VK_LEFT  || kb->vkCode == VK_RIGHT ||
+                        kb->vkCode == VK_UP    || kb->vkCode == VK_DOWN))
+        {
+            HWND fg = GetForegroundWindow();
+            if (fg)
+            {
+                DWORD pid = 0;
+                GetWindowThreadProcessId(fg, &pid);
+                if (pid == GetCurrentProcessId())
+                {
+                    if (fg == g_mainHwnd)
+                    {
+                        // Main window: suppress Win+Arrow (no snap)
+                        return 1;
+                    }
+                    // Secondary viewport: snap manually
+                    switch (kb->vkCode)
+                    {
+                    case VK_UP:
+                        ShowWindow(fg, SW_MAXIMIZE);
+                        return 1;
+                    case VK_DOWN:
+                        ShowWindow(fg, IsZoomed(fg) ? SW_RESTORE : SW_MINIMIZE);
+                        return 1;
+                    case VK_LEFT:
+                        SnapWindowToHalf(fg, true);
+                        return 1;
+                    case VK_RIGHT:
+                        SnapWindowToHalf(fg, false);
+                        return 1;
+                    }
+                }
+            }
+        }
+    }
+    return CallNextHookEx(g_kbHook, nCode, wParam, lParam);
+}
+
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
 {
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
@@ -140,6 +212,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
         ::UnregisterClassW(wc.lpszClassName, wc.hInstance);
         return 1;
     }
+
+    // Install LL keyboard hook for Win+Arrow snap on secondary viewports
+    g_mainHwnd = hwnd;
+    g_kbHook   = SetWindowsHookExW(WH_KEYBOARD_LL, LowLevelKbProc,
+                                    GetModuleHandleW(nullptr), 0);
 
     ::ShowWindow(hwnd, SW_SHOWMAXIMIZED);
     ::UpdateWindow(hwnd);
@@ -257,6 +334,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
     }
 
     // Cleanup
+    if (g_kbHook) { UnhookWindowsHookEx(g_kbHook); g_kbHook = nullptr; }
     ImGui_ImplDX11_Shutdown();
     ImGui_ImplWin32_Shutdown();
     ImGui::DestroyContext();

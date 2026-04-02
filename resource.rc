@@ -6,3 +6,12 @@ IDI_TKMOD_FILE    ICON   "res\\tkmod_256.ico"
 IDR_HOME_LOGO_PNG RCDATA "res\\Home_Logo.png"
 IDR_FONT_REGULAR  RCDATA "res\\fonts\\en\\NotoSans-Regular.ttf"
 IDR_FONT_BOLD     RCDATA "res\\fonts\\en\\NotoSans-Bold.ttf"
+
+// Interface data files (disk files take priority at runtime; these are fallback)
+IDR_DATA_CHARLIST RCDATA "data\\interfacedata\\characterList.txt"
+IDR_DATA_REQTXT   RCDATA "data\\interfacedata\\editorRequirements.txt"
+IDR_DATA_PROPTXT  RCDATA "data\\interfacedata\\editorProperties.txt"
+IDR_DATA_CMDTXT   RCDATA "data\\interfacedata\\editorCommands.txt"
+IDR_DATA_NAMEKEYS RCDATA "data\\interfacedata\\name_keys.json"
+IDR_DATA_SUPPKEYS RCDATA "data\\interfacedata\\supplement_name_keys.json"
+IDR_DATA_ANIMKEYS RCDATA "data\\interfacedata\\anim_keys.json"

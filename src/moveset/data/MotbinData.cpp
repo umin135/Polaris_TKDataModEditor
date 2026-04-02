@@ -7,6 +7,7 @@
 #include <windows.h>
 #include <cstring>
 #include <string>
+#include <functional>
 
 // -------------------------------------------------------------
 //  Helpers
@@ -795,6 +796,34 @@ MotbinData LoadMotbin(const std::string& folderPath)
         }
     }
 
+    // -- dialogueBlock (hdr 0x2A0, stride 0x18) -------------------
+    {
+        uint64_t base    = ReadAt<uint64_t>(buf, cap, 0x2A0);
+        uint64_t cnt     = ReadAt<uint64_t>(buf, cap, 0x2A8);
+        uint64_t reqBase = ReadAt<uint64_t>(buf, cap, 0x180);
+        if (base && cnt && cnt <= 0x100000)
+        {
+            result.dialogueBlock.reserve((size_t)cnt);
+            for (uint64_t k = 0; k < cnt; ++k)
+            {
+                size_t o = (size_t)base + (size_t)k * 0x18;
+                if (o + 0x18 > cap) break;
+                ParsedDialogue d;
+                d.type             = ReadAt<uint16_t>(buf, cap, o + 0x00);
+                d.id               = ReadAt<uint16_t>(buf, cap, o + 0x02);
+                d._0x4             = ReadAt<uint32_t>(buf, cap, o + 0x04);
+                d.requirement_addr = ReadAt<uint64_t>(buf, cap, o + 0x08);
+                d.voiceclip_key    = ReadAt<uint32_t>(buf, cap, o + 0x10);
+                d.facial_anim_idx  = ReadAt<uint32_t>(buf, cap, o + 0x14);
+                d.req_list_idx     = 0xFFFFFFFF;
+                if (d.requirement_addr && d.requirement_addr < cap &&
+                    reqBase && d.requirement_addr >= reqBase)
+                    d.req_list_idx = (uint32_t)((d.requirement_addr - reqBase) / 0x14);
+                result.dialogueBlock.push_back(d);
+            }
+        }
+    }
+
     // -- voiceclipBlock -------------------------------------------
     {
         uint64_t base = ReadAt<uint64_t>(buf, cap, 0x240);
@@ -921,6 +950,8 @@ MotbinData LoadMotbin(const std::string& folderPath)
 
         if (m.cancel_addr && m.cancel_addr < cap && cancelBase && m.cancel_addr >= cancelBase)
             m.cancel_idx = (uint32_t)((m.cancel_addr - cancelBase) / 0x28);
+        if (m.cancel2_addr && m.cancel2_addr < cap && cancelBase && m.cancel2_addr >= cancelBase)
+            m.cancel2_idx = (uint32_t)((m.cancel2_addr - cancelBase) / 0x28);
         if (m.hit_condition_addr && m.hit_condition_addr < cap && hitCondBase && m.hit_condition_addr >= hitCondBase)
             m.hit_condition_idx = (uint32_t)((m.hit_condition_addr - hitCondBase) / 0x18);
         if (m.voicelip_addr && m.voicelip_addr < cap && voiceBase && m.voicelip_addr >= voiceBase)
@@ -972,391 +1003,331 @@ MotbinData LoadMotbin(const std::string& folderPath)
 }
 
 // -------------------------------------------------------------
+//  RebuildMotbinBytes
+//  Fully rebuilds the index-format motbin binary from parsed data.
+//  This approach supports added/removed items in any block.
+// -------------------------------------------------------------
+
+static std::vector<uint8_t> RebuildMotbinBytes(MotbinData& data)
+{
+    const auto& raw = data.rawBytes;
+    if (raw.size() < kMotbinBase) return {};
+
+    // WriteIdx64 helper: writes index (or 0xFFFFFFFFFFFFFFFF if null) at elem+off
+    auto WriteIdx64 = [](uint8_t* elem, size_t off, uint32_t idx) {
+        uint64_t v = (idx == 0xFFFFFFFF) ? 0xFFFFFFFFFFFFFFFFULL : (uint64_t)idx;
+        memcpy(elem + off, &v, 8);
+    };
+
+    // Helper: read BASE-relative ptr from rawBytes header -> file offset in rawBytes
+    auto RawBlockBase = [&](size_t hdrOff) -> size_t {
+        if (hdrOff + 8 > raw.size()) return 0;
+        uint64_t val; memcpy(&val, raw.data() + hdrOff, 8);
+        return (size_t)(val + kMotbinBase);
+    };
+
+    // Start output: copy header (0x318 bytes)
+    std::vector<uint8_t> out(raw.begin(), raw.begin() + kMotbinBase);
+
+    // Helper: update header entry in out
+    auto UpdateHeader = [&](size_t ptrOff, size_t cntOff, size_t blockStart, size_t cnt) {
+        uint64_t relOff = (uint64_t)(blockStart - kMotbinBase);
+        memcpy(out.data() + ptrOff, &relOff, 8);
+        uint64_t c64 = (uint64_t)cnt;
+        memcpy(out.data() + cntOff, &c64, 8);
+    };
+
+    // EmitBlock: appends block bytes to out, then updates header.
+    // For existing elements (i < origCnt): copies stride bytes from rawBytes, then patches.
+    // For new elements (i >= origCnt): zero-fills stride bytes, then patches.
+    auto EmitBlock = [&](size_t ptrOff, size_t cntOff, size_t stride,
+                         size_t parsedCount,
+                         std::function<void(uint8_t*, size_t)> patchFn) -> size_t
+    {
+        size_t blockStart = out.size();
+        size_t origBase   = RawBlockBase(ptrOff);
+        size_t origCnt    = 0;
+        if (cntOff + 8 <= raw.size()) {
+            uint64_t c; memcpy(&c, raw.data() + cntOff, 8);
+            origCnt = (size_t)c;
+        }
+
+        for (size_t i = 0; i < parsedCount; ++i)
+        {
+            size_t elemStart = out.size();
+            if (i < origCnt && origBase != 0 && origBase + i * stride + stride <= raw.size()) {
+                const uint8_t* src = raw.data() + origBase + i * stride;
+                out.insert(out.end(), src, src + stride);
+            } else {
+                out.insert(out.end(), stride, 0u);
+            }
+            patchFn(out.data() + elemStart, i);
+        }
+
+        UpdateHeader(ptrOff, cntOff, blockStart, parsedCount);
+        return blockStart;
+    };
+
+    // -- reactionListBlock (0x168/0x178, stride 0x70) --
+    EmitBlock(0x168, 0x178, 0x70, data.reactionListBlock.size(),
+        [&](uint8_t* e, size_t i) {
+            const auto& r = data.reactionListBlock[i];
+            for (int p = 0; p < 7; ++p) WriteIdx64(e, p * 8, r.pushback_idx[p]);
+            auto W16 = [](uint8_t* b, size_t o, uint16_t v){ memcpy(b+o,&v,2); };
+            W16(e,0x38,r.front_direction);      W16(e,0x3A,r.back_direction);
+            W16(e,0x3C,r.left_side_direction);  W16(e,0x3E,r.right_side_direction);
+            W16(e,0x40,r.front_ch_direction);   W16(e,0x42,r.downed_direction);
+            W16(e,0x44,r.front_rotation);       W16(e,0x46,r.back_rotation);
+            W16(e,0x48,r.left_side_rotation);   W16(e,0x4A,r.right_side_rotation);
+            W16(e,0x4C,r.vertical_pushback);    W16(e,0x4E,r.downed_rotation);
+            W16(e,0x50,r.standing);             W16(e,0x52,r.crouch);
+            W16(e,0x54,r.ch);                   W16(e,0x56,r.crouch_ch);
+            W16(e,0x58,r.left_side);            W16(e,0x5A,r.left_side_crouch);
+            W16(e,0x5C,r.right_side);           W16(e,0x5E,r.right_side_crouch);
+            W16(e,0x60,r.back);                 W16(e,0x62,r.back_crouch);
+            W16(e,0x64,r.block);                W16(e,0x66,r.crouch_block);
+            W16(e,0x68,r.wallslump);            W16(e,0x6A,r.downed);
+        });
+
+    // -- requirementBlock (0x180/0x188, stride 0x14) --
+    EmitBlock(0x180, 0x188, 0x14, data.requirementBlock.size(),
+        [&](uint8_t* e, size_t i) {
+            const auto& r = data.requirementBlock[i];
+            memcpy(e+0x00,&r.req,    4); memcpy(e+0x04,&r.param,  4);
+            memcpy(e+0x08,&r.param2, 4); memcpy(e+0x0C,&r.param3, 4);
+            memcpy(e+0x10,&r.param4, 4);
+        });
+
+    // -- hitConditionBlock (0x190/0x198, stride 0x18) --
+    EmitBlock(0x190, 0x198, 0x18, data.hitConditionBlock.size(),
+        [&](uint8_t* e, size_t i) {
+            const auto& h = data.hitConditionBlock[i];
+            WriteIdx64(e, 0x00, h.req_list_idx);
+            memcpy(e+0x08,&h.damage,4); memcpy(e+0x0C,&h._0x0C,4);
+            WriteIdx64(e, 0x10, h.reaction_list_idx);
+        });
+
+    // -- projectileBlock (0x1A0/0x1A8, stride 0xE0) --
+    EmitBlock(0x1A0, 0x1A8, 0xE0, data.projectileBlock.size(),
+        [&](uint8_t* e, size_t i) {
+            const auto& p = data.projectileBlock[i];
+            for (int n = 0; n < 35; ++n) memcpy(e + n*4, &p.u1[n], 4);
+            WriteIdx64(e, 0x90, p.hit_condition_idx);
+            WriteIdx64(e, 0x98, p.cancel_idx);
+            for (int n = 0; n < 16; ++n) memcpy(e + 0xA0 + n*4, &p.u2[n], 4);
+        });
+
+    // -- pushbackBlock (0x1B0/0x1B8, stride 0x10) --
+    EmitBlock(0x1B0, 0x1B8, 0x10, data.pushbackBlock.size(),
+        [&](uint8_t* e, size_t i) {
+            const auto& p = data.pushbackBlock[i];
+            memcpy(e+0x00,&p.val1,2); memcpy(e+0x02,&p.val2,2);
+            memcpy(e+0x04,&p.val3,4);
+            WriteIdx64(e, 0x08, p.pushback_extra_idx);
+        });
+
+    // -- pushbackExtraBlock (0x1C0/0x1C8, stride 0x02) --
+    EmitBlock(0x1C0, 0x1C8, 0x02, data.pushbackExtraBlock.size(),
+        [&](uint8_t* e, size_t i) {
+            memcpy(e, &data.pushbackExtraBlock[i].value, 2);
+        });
+
+    // -- cancelBlock (0x1D0/0x1D8, stride 0x28) --
+    EmitBlock(0x1D0, 0x1D8, 0x28, data.cancelBlock.size(),
+        [&](uint8_t* e, size_t i) {
+            const auto& c = data.cancelBlock[i];
+            memcpy(e+0x00,&c.command,8);
+            WriteIdx64(e, 0x08, c.req_list_idx);
+            WriteIdx64(e, 0x10, c.extradata_idx);
+            memcpy(e+0x18,&c.frame_window_start,4); memcpy(e+0x1C,&c.frame_window_end,4);
+            memcpy(e+0x20,&c.starting_frame,4);
+            memcpy(e+0x24,&c.move_id,2);            memcpy(e+0x26,&c.cancel_option,2);
+        });
+
+    // -- groupCancelBlock (0x1E0/0x1E8, stride 0x28) --
+    EmitBlock(0x1E0, 0x1E8, 0x28, data.groupCancelBlock.size(),
+        [&](uint8_t* e, size_t i) {
+            const auto& c = data.groupCancelBlock[i];
+            memcpy(e+0x00,&c.command,8);
+            WriteIdx64(e, 0x08, c.req_list_idx);
+            WriteIdx64(e, 0x10, c.extradata_idx);
+            memcpy(e+0x18,&c.frame_window_start,4); memcpy(e+0x1C,&c.frame_window_end,4);
+            memcpy(e+0x20,&c.starting_frame,4);
+            memcpy(e+0x24,&c.move_id,2);            memcpy(e+0x26,&c.cancel_option,2);
+        });
+
+    // -- cancelExtraBlock (0x1F0/0x1F8, stride 0x04) --
+    EmitBlock(0x1F0, 0x1F8, 0x04, data.cancelExtraBlock.size(),
+        [&](uint8_t* e, size_t i) {
+            memcpy(e, &data.cancelExtraBlock[i], 4);
+        });
+
+    // -- extraPropBlock (0x200/0x208, stride 0x28) --
+    EmitBlock(0x200, 0x208, 0x28, data.extraPropBlock.size(),
+        [&](uint8_t* e, size_t i) {
+            const auto& ep = data.extraPropBlock[i];
+            memcpy(e+0x00,&ep.type,4);  memcpy(e+0x04,&ep._0x4,4);
+            WriteIdx64(e, 0x08, ep.req_list_idx);
+            memcpy(e+0x10,&ep.id,4);    memcpy(e+0x14,&ep.value,4);
+            memcpy(e+0x18,&ep.value2,4); memcpy(e+0x1C,&ep.value3,4);
+            memcpy(e+0x20,&ep.value4,4); memcpy(e+0x24,&ep.value5,4);
+        });
+
+    // -- startPropBlock (0x210/0x218, stride 0x20) --
+    EmitBlock(0x210, 0x218, 0x20, data.startPropBlock.size(),
+        [&](uint8_t* e, size_t i) {
+            const auto& ep = data.startPropBlock[i];
+            WriteIdx64(e, 0x00, ep.req_list_idx);
+            memcpy(e+0x08,&ep.id,4);     memcpy(e+0x0C,&ep.value,4);
+            memcpy(e+0x10,&ep.value2,4); memcpy(e+0x14,&ep.value3,4);
+            memcpy(e+0x18,&ep.value4,4); memcpy(e+0x1C,&ep.value5,4);
+        });
+
+    // -- endPropBlock (0x220/0x228, stride 0x20) --
+    EmitBlock(0x220, 0x228, 0x20, data.endPropBlock.size(),
+        [&](uint8_t* e, size_t i) {
+            const auto& ep = data.endPropBlock[i];
+            WriteIdx64(e, 0x00, ep.req_list_idx);
+            memcpy(e+0x08,&ep.id,4);     memcpy(e+0x0C,&ep.value,4);
+            memcpy(e+0x10,&ep.value2,4); memcpy(e+0x14,&ep.value3,4);
+            memcpy(e+0x18,&ep.value4,4); memcpy(e+0x1C,&ep.value5,4);
+        });
+
+    // -- moves (0x230/0x238, stride 0x448) --
+    // For moves: copy full 0x448 bytes from rawBytes for existing entries
+    // (preserves encrypted fields, hitboxes, etc.), then patch pointer+scalar fields.
+    EmitBlock(0x230, 0x238, kMove_Size, data.moves.size(),
+        [&](uint8_t* e, size_t i) {
+            const ParsedMove& m = data.moves[i];
+            uint32_t slot = (uint32_t)(i % 8);
+
+            // Encrypted fields: re-XOR with the same key
+            { uint32_t enc = m.vuln        ^ kXorKeys[slot]; memcpy(e + kMove_EncVuln      + slot*4, &enc, 4); }
+            { uint32_t enc = m.hitlevel    ^ kXorKeys[slot]; memcpy(e + kMove_EncHitlevel  + slot*4, &enc, 4); }
+            { uint32_t enc = m.ordinal_id2 ^ kXorKeys[slot]; memcpy(e + kMove_EncCharId    + slot*4, &enc, 4); }
+            { uint32_t enc = m.moveId      ^ kXorKeys[slot]; memcpy(e + kMove_EncOrdinalId + slot*4, &enc, 4); }
+
+            // anmbin fields
+            memcpy(e + kMove_AnimAddrEnc1, &m.anmbin_body_idx,     4);
+            memcpy(e + kMove_AnimAddrEnc2, &m.anmbin_body_sub_idx, 4);
+
+            // Plain scalar fields
+            memcpy(e + kMove_U1,            &m.u1,             8);
+            memcpy(e + kMove_U2,            &m.u2,             8);
+            memcpy(e + kMove_U3,            &m.u3,             8);
+            memcpy(e + kMove_U4,            &m.u4,             8);
+            memcpy(e + kMove_U6,            &m.u6,             4);
+            memcpy(e + kMove_Transition,    &m.transition,     2);
+            memcpy(e + kMove_0xCE,          &m._0xCE,          2);
+            memcpy(e + kMove_0x118,         &m._0x118,         4);
+            memcpy(e + kMove_0x11C,         &m._0x11C,         4);
+            memcpy(e + kMove_AnimLen,       &m.anim_len,       4);
+            memcpy(e + kMove_AirborneStart, &m.airborne_start, 4);
+            memcpy(e + kMove_AirborneEnd,   &m.airborne_end,   4);
+            memcpy(e + kMove_GroundFall,    &m.ground_fall,    4);
+            memcpy(e + kMove_U15,           &m.u15,            4);
+            memcpy(e + kMove_0x154,         &m._0x154,         4);
+            memcpy(e + kMove_Startup,       &m.startup,        4);
+            memcpy(e + kMove_Recovery,      &m.recovery,       4);
+            memcpy(e + kMove_Collision,     &m.collision,      2);
+            memcpy(e + kMove_Distance,      &m.distance,       2);
+            memcpy(e + 0x444,               &m.u18,            4);
+
+            // Hitboxes (8 slots x 0x30 bytes)
+            for (int h = 0; h < 8; ++h) {
+                size_t hb = kMove_Hitbox0 + h * kMove_HitboxStride;
+                memcpy(e + hb + 0x00, &m.hitbox_active_start[h], 4);
+                memcpy(e + hb + 0x04, &m.hitbox_active_last[h],  4);
+                memcpy(e + hb + 0x08, &m.hitbox_location[h],     4);
+                for (int f = 0; f < 9; ++f)
+                    memcpy(e + hb + 0x0C + f*4, &m.hitbox_floats[h][f], 4);
+            }
+
+            // Pointer fields (stored as indexes in index-format)
+            WriteIdx64(e, kMove_CancelAddr,    m.cancel_idx);
+            WriteIdx64(e, kMove_Cancel2Addr,   m.cancel2_idx);
+            WriteIdx64(e, kMove_HitCondAddr,   m.hit_condition_idx);
+            WriteIdx64(e, kMove_VoicelipAddr,  m.voiceclip_idx);
+            WriteIdx64(e, kMove_ExtraPropAddr, m.extra_prop_idx);
+            WriteIdx64(e, kMove_StartPropAddr, m.start_prop_idx);
+            WriteIdx64(e, kMove_EndPropAddr,   m.end_prop_idx);
+        });
+
+    // -- voiceclipBlock (0x240/0x248, stride 0x0C) --
+    EmitBlock(0x240, 0x248, 0x0C, data.voiceclipBlock.size(),
+        [&](uint8_t* e, size_t i) {
+            const auto& v = data.voiceclipBlock[i];
+            memcpy(e+0x00,&v.val1,4); memcpy(e+0x04,&v.val2,4); memcpy(e+0x08,&v.val3,4);
+        });
+
+    // -- inputSequenceBlock (0x250/0x258, stride 0x10) --
+    EmitBlock(0x250, 0x258, 0x10, data.inputSequenceBlock.size(),
+        [&](uint8_t* e, size_t i) {
+            const auto& s = data.inputSequenceBlock[i];
+            memcpy(e+0x00,&s.input_window_frames,2); memcpy(e+0x02,&s.input_amount,2);
+            memcpy(e+0x04,&s._0x4,4);
+            WriteIdx64(e, 0x08, s.input_start_idx);
+        });
+
+    // -- inputBlock (0x260/0x268, stride 0x08) --
+    EmitBlock(0x260, 0x268, 0x08, data.inputBlock.size(),
+        [&](uint8_t* e, size_t i) {
+            memcpy(e, &data.inputBlock[i].command, 8);
+        });
+
+    // -- parryableMoveBlock (0x270/0x278, stride 0x04) --
+    EmitBlock(0x270, 0x278, 0x04, data.parryableMoveBlock.size(),
+        [&](uint8_t* e, size_t i) {
+            memcpy(e, &data.parryableMoveBlock[i].value, 4);
+        });
+
+    // -- throwExtraBlock (0x280/0x288, stride 0x0C) --
+    EmitBlock(0x280, 0x288, 0x0C, data.throwExtraBlock.size(),
+        [&](uint8_t* e, size_t i) {
+            const auto& te = data.throwExtraBlock[i];
+            memcpy(e+0x00,&te.pick_probability,4);
+            memcpy(e+0x04,&te.camera_type,2);
+            memcpy(e+0x06,&te.left_side_camera_data,2);
+            memcpy(e+0x08,&te.right_side_camera_data,2);
+            memcpy(e+0x0A,&te.additional_rotation,2);
+        });
+
+    // -- throwBlock (0x290/0x298, stride 0x10) --
+    EmitBlock(0x290, 0x298, 0x10, data.throwBlock.size(),
+        [&](uint8_t* e, size_t i) {
+            const auto& t = data.throwBlock[i];
+            memcpy(e+0x00,&t.side,8);
+            WriteIdx64(e, 0x08, t.throwextra_idx);
+        });
+
+    // -- dialogueBlock (0x2A0/0x2A8, stride 0x18) --
+    EmitBlock(0x2A0, 0x2A8, 0x18, data.dialogueBlock.size(),
+        [&](uint8_t* e, size_t i) {
+            const auto& d = data.dialogueBlock[i];
+            auto W16 = [](uint8_t* b, size_t o, uint16_t v){ memcpy(b+o,&v,2); };
+            auto W32 = [](uint8_t* b, size_t o, uint32_t v){ memcpy(b+o,&v,4); };
+            W16(e, 0x00, d.type);
+            W16(e, 0x02, d.id);
+            W32(e, 0x04, d._0x4);
+            WriteIdx64(e, 0x08, d.req_list_idx);
+            W32(e, 0x10, d.voiceclip_key);
+            W32(e, 0x14, d.facial_anim_idx);
+        });
+
+    return out;
+}
+
+// -------------------------------------------------------------
 //  SaveMotbin
-//  Patches scalar (non-pointer) fields back into the original
-//  index-format rawBytes, then writes to moveset.motbin.
-//  Pointer fields (requirement_addr, extradata_addr, etc.) are
-//  intentionally left unchanged -- block relationships are fixed.
+//  Fully rebuilds the index-format motbin binary, then writes it.
 // -------------------------------------------------------------
 
 bool SaveMotbin(MotbinData& data)
 {
     if (data.rawBytes.empty() || data.folderPath.empty()) return false;
 
-    auto out = data.rawBytes; // work on a copy of original index-format bytes
-    uint8_t*     b  = out.data();
-    const size_t sz = out.size();
-
-    // Scalar fields have the same byte offsets in index-format and expanded-format,
-    // because ExpandIndexes only modifies pointer (uint64) fields.
-
-    auto PatchAt = [&](size_t off, const void* src, size_t n)
-    {
-        if (off + n <= sz) memcpy(b + off, src, n);
-    };
-
-    auto WriteIdx64 = [&](size_t off, uint32_t idx) {
-        uint64_t v = (idx == 0xFFFFFFFF) ? 0xFFFFFFFFFFFFFFFFULL : (uint64_t)idx;
-        PatchAt(off, &v, 8);
-    };
-
-    // Helper: read BASE-relative header ptr and add kMotbinBase to get file offset.
-    auto BlockBase = [&](size_t hdrOff) -> size_t
-    {
-        if (hdrOff + 8 > sz) return 0;
-        uint64_t val; memcpy(&val, b + hdrOff, 8);
-        return (size_t)(val + kMotbinBase); // kMotbinBase = 0x318
-    };
-
-    // -- requirements (hdr 0x180, stride 0x14) --
-    {
-        size_t base = BlockBase(0x180);
-        for (size_t i = 0; i < data.requirementBlock.size(); ++i)
-        {
-            const auto& r = data.requirementBlock[i];
-            size_t o = base + i * 0x14;
-            PatchAt(o + 0x00, &r.req,    4);
-            PatchAt(o + 0x04, &r.param,  4);
-            PatchAt(o + 0x08, &r.param2, 4);
-            PatchAt(o + 0x0C, &r.param3, 4);
-            PatchAt(o + 0x10, &r.param4, 4);
-        }
-    }
-
-    // -- cancelExtra (hdr 0x1F0, stride 4) --
-    {
-        size_t base = BlockBase(0x1F0);
-        for (size_t i = 0; i < data.cancelExtraBlock.size(); ++i)
-        {
-            size_t o = base + i * 4;
-            PatchAt(o, &data.cancelExtraBlock[i], 4);
-        }
-    }
-
-    // -- cancelBlock (hdr 0x1D0, stride 0x28) -- scalar fields only --
-    {
-        size_t base = BlockBase(0x1D0);
-        for (size_t i = 0; i < data.cancelBlock.size(); ++i)
-        {
-            const auto& c = data.cancelBlock[i];
-            size_t o = base + i * 0x28;
-            PatchAt(o + 0x00, &c.command,            8); // uint64 input value
-            WriteIdx64(o + 0x08, c.req_list_idx);
-            WriteIdx64(o + 0x10, c.extradata_idx);
-            PatchAt(o + 0x18, &c.frame_window_start, 4);
-            PatchAt(o + 0x1C, &c.frame_window_end,   4);
-            PatchAt(o + 0x20, &c.starting_frame,     4);
-            PatchAt(o + 0x24, &c.move_id,            2);
-            PatchAt(o + 0x26, &c.cancel_option,      2);
-        }
-    }
-
-    // -- groupCancelBlock (hdr 0x1E0, stride 0x28) --
-    {
-        size_t base = BlockBase(0x1E0);
-        for (size_t i = 0; i < data.groupCancelBlock.size(); ++i)
-        {
-            const auto& c = data.groupCancelBlock[i];
-            size_t o = base + i * 0x28;
-            PatchAt(o + 0x00, &c.command,            8);
-            WriteIdx64(o + 0x08, c.req_list_idx);
-            WriteIdx64(o + 0x10, c.extradata_idx);
-            PatchAt(o + 0x18, &c.frame_window_start, 4);
-            PatchAt(o + 0x1C, &c.frame_window_end,   4);
-            PatchAt(o + 0x20, &c.starting_frame,     4);
-            PatchAt(o + 0x24, &c.move_id,            2);
-            PatchAt(o + 0x26, &c.cancel_option,      2);
-        }
-    }
-
-    // -- hitConditionBlock (hdr 0x190, stride 0x18) -- scalars only --
-    {
-        size_t base = BlockBase(0x190);
-        for (size_t i = 0; i < data.hitConditionBlock.size(); ++i)
-        {
-            const auto& h = data.hitConditionBlock[i];
-            size_t o = base + i * 0x18;
-            WriteIdx64(o + 0x00, h.req_list_idx);
-            PatchAt(o + 0x08, &h.damage, 4);
-            PatchAt(o + 0x0C, &h._0x0C,  4);
-            WriteIdx64(o + 0x10, h.reaction_list_idx);
-        }
-    }
-
-    // -- pushbackExtraBlock (hdr 0x1C0, stride 2) --
-    {
-        size_t base = BlockBase(0x1C0);
-        for (size_t i = 0; i < data.pushbackExtraBlock.size(); ++i)
-        {
-            size_t o = base + i * 2;
-            PatchAt(o, &data.pushbackExtraBlock[i].value, 2);
-        }
-    }
-
-    // -- pushbackBlock (hdr 0x1B0, stride 0x10) --
-    {
-        size_t base = BlockBase(0x1B0);
-        for (size_t i = 0; i < data.pushbackBlock.size(); ++i)
-        {
-            const auto& p = data.pushbackBlock[i];
-            size_t o = base + i * 0x10;
-            PatchAt(o + 0x00, &p.val1, 2);
-            PatchAt(o + 0x02, &p.val2, 2);
-            PatchAt(o + 0x04, &p.val3, 4);
-            WriteIdx64(o + 0x08, p.pushback_extra_idx);
-        }
-    }
-
-    // -- reactionListBlock (hdr 0x168, stride 0x70) -- scalars only --
-    {
-        size_t base = BlockBase(0x168);
-        for (size_t i = 0; i < data.reactionListBlock.size(); ++i)
-        {
-            const auto& rl = data.reactionListBlock[i];
-            size_t o = base + i * 0x70;
-            for (int pp = 0; pp < 7; ++pp)
-                WriteIdx64(o + pp * 8, rl.pushback_idx[pp]);
-            PatchAt(o + 0x38, &rl.front_direction,      2);
-            PatchAt(o + 0x3A, &rl.back_direction,       2);
-            PatchAt(o + 0x3C, &rl.left_side_direction,  2);
-            PatchAt(o + 0x3E, &rl.right_side_direction, 2);
-            PatchAt(o + 0x40, &rl.front_ch_direction,   2);
-            PatchAt(o + 0x42, &rl.downed_direction,     2);
-            PatchAt(o + 0x44, &rl.front_rotation,       2);
-            PatchAt(o + 0x46, &rl.back_rotation,        2);
-            PatchAt(o + 0x48, &rl.left_side_rotation,   2);
-            PatchAt(o + 0x4A, &rl.right_side_rotation,  2);
-            PatchAt(o + 0x4C, &rl.vertical_pushback,    2);
-            PatchAt(o + 0x4E, &rl.downed_rotation,      2);
-            PatchAt(o + 0x50, &rl.standing,             2);
-            PatchAt(o + 0x52, &rl.crouch,               2);
-            PatchAt(o + 0x54, &rl.ch,                   2);
-            PatchAt(o + 0x56, &rl.crouch_ch,            2);
-            PatchAt(o + 0x58, &rl.left_side,            2);
-            PatchAt(o + 0x5A, &rl.left_side_crouch,     2);
-            PatchAt(o + 0x5C, &rl.right_side,           2);
-            PatchAt(o + 0x5E, &rl.right_side_crouch,    2);
-            PatchAt(o + 0x60, &rl.back,                 2);
-            PatchAt(o + 0x62, &rl.back_crouch,          2);
-            PatchAt(o + 0x64, &rl.block,                2);
-            PatchAt(o + 0x66, &rl.crouch_block,         2);
-            PatchAt(o + 0x68, &rl.wallslump,            2);
-            PatchAt(o + 0x6A, &rl.downed,               2);
-        }
-    }
-
-    // -- extraPropBlock (hdr 0x200, stride 0x28) --
-    {
-        size_t base = BlockBase(0x200);
-        for (size_t i = 0; i < data.extraPropBlock.size(); ++i)
-        {
-            const auto& e = data.extraPropBlock[i];
-            size_t o = base + i * 0x28;
-            PatchAt(o + 0x00, &e.type,   4); // starting_frame for extraProp
-            PatchAt(o + 0x04, &e._0x4,   4);
-            WriteIdx64(o + 0x08, e.req_list_idx);
-            PatchAt(o + 0x10, &e.id,     4);
-            PatchAt(o + 0x14, &e.value,  4);
-            PatchAt(o + 0x18, &e.value2, 4);
-            PatchAt(o + 0x1C, &e.value3, 4);
-            PatchAt(o + 0x20, &e.value4, 4);
-            PatchAt(o + 0x24, &e.value5, 4);
-        }
-    }
-
-    // -- startPropBlock (hdr 0x210, stride 0x20) --
-    {
-        size_t base = BlockBase(0x210);
-        for (size_t i = 0; i < data.startPropBlock.size(); ++i)
-        {
-            const auto& e = data.startPropBlock[i];
-            size_t o = base + i * 0x20;
-            WriteIdx64(o + 0x00, e.req_list_idx);
-            PatchAt(o + 0x08, &e.id,     4);
-            PatchAt(o + 0x0C, &e.value,  4);
-            PatchAt(o + 0x10, &e.value2, 4);
-            PatchAt(o + 0x14, &e.value3, 4);
-            PatchAt(o + 0x18, &e.value4, 4);
-            PatchAt(o + 0x1C, &e.value5, 4);
-        }
-    }
-
-    // -- endPropBlock (hdr 0x220, stride 0x20) --
-    {
-        size_t base = BlockBase(0x220);
-        for (size_t i = 0; i < data.endPropBlock.size(); ++i)
-        {
-            const auto& e = data.endPropBlock[i];
-            size_t o = base + i * 0x20;
-            WriteIdx64(o + 0x00, e.req_list_idx);
-            PatchAt(o + 0x08, &e.id,     4);
-            PatchAt(o + 0x0C, &e.value,  4);
-            PatchAt(o + 0x10, &e.value2, 4);
-            PatchAt(o + 0x14, &e.value3, 4);
-            PatchAt(o + 0x18, &e.value4, 4);
-            PatchAt(o + 0x1C, &e.value5, 4);
-        }
-    }
-
-    // -- inputBlock (hdr 0x260, stride 0x08) --
-    {
-        size_t base = BlockBase(0x260);
-        for (size_t i = 0; i < data.inputBlock.size(); ++i)
-        {
-            size_t o = base + i * 0x08;
-            PatchAt(o, &data.inputBlock[i].command, 8);
-        }
-    }
-
-    // -- inputSequenceBlock (hdr 0x250, stride 0x10) --
-    {
-        size_t base = BlockBase(0x250);
-        for (size_t i = 0; i < data.inputSequenceBlock.size(); ++i)
-        {
-            const auto& is = data.inputSequenceBlock[i];
-            size_t o = base + i * 0x10;
-            PatchAt(o + 0x00, &is.input_window_frames, 2);
-            PatchAt(o + 0x02, &is.input_amount,        2);
-            PatchAt(o + 0x04, &is._0x4,                4);
-            WriteIdx64(o + 0x08, is.input_start_idx);
-        }
-    }
-
-    // -- projectileBlock (hdr 0x1A0, stride 0xE0) --
-    {
-        size_t base = BlockBase(0x1A0);
-        for (size_t i = 0; i < data.projectileBlock.size(); ++i)
-        {
-            const auto& p = data.projectileBlock[i];
-            size_t o = base + i * 0xE0;
-            for (int n = 0; n < 35; ++n)
-                PatchAt(o + n * 4, &p.u1[n], 4);
-            WriteIdx64(o + 0x90, p.hit_condition_idx);
-            WriteIdx64(o + 0x98, p.cancel_idx);
-            for (int n = 0; n < 16; ++n)
-                PatchAt(o + 0xA0 + n * 4, &p.u2[n], 4);
-        }
-    }
-
-    // -- parryableMoveBlock (hdr 0x270, stride 0x04) --
-    {
-        size_t base = BlockBase(0x270);
-        for (size_t i = 0; i < data.parryableMoveBlock.size(); ++i)
-        {
-            size_t o = base + i * 0x04;
-            PatchAt(o, &data.parryableMoveBlock[i].value, 4);
-        }
-    }
-
-    // -- throwExtraBlock (hdr 0x280, stride 0x0C) --
-    {
-        size_t base = BlockBase(0x280);
-        for (size_t i = 0; i < data.throwExtraBlock.size(); ++i)
-        {
-            const auto& te = data.throwExtraBlock[i];
-            size_t o = base + i * 0x0C;
-            PatchAt(o + 0x00, &te.pick_probability,       4);
-            PatchAt(o + 0x04, &te.camera_type,            2);
-            PatchAt(o + 0x06, &te.left_side_camera_data,  2);
-            PatchAt(o + 0x08, &te.right_side_camera_data, 2);
-            PatchAt(o + 0x0A, &te.additional_rotation,    2);
-        }
-    }
-
-    // -- throwBlock (hdr 0x290, stride 0x10) --
-    {
-        size_t base = BlockBase(0x290);
-        for (size_t i = 0; i < data.throwBlock.size(); ++i)
-        {
-            const auto& t = data.throwBlock[i];
-            size_t o = base + i * 0x10;
-            PatchAt(o + 0x00, &t.side, 8);
-            WriteIdx64(o + 0x08, t.throwextra_idx);
-        }
-    }
-
-    // -- voiceclipBlock (hdr 0x240, stride 0x0C) --
-    {
-        size_t base = BlockBase(0x240);
-        for (size_t i = 0; i < data.voiceclipBlock.size(); ++i)
-        {
-            const auto& v = data.voiceclipBlock[i];
-            size_t o = base + i * 0x0C;
-            PatchAt(o + 0x00, &v.val1, 4);
-            PatchAt(o + 0x04, &v.val2, 4);
-            PatchAt(o + 0x08, &v.val3, 4);
-        }
-    }
-
-    // -- moves (hdr 0x230, stride 0x448) --
-    {
-        size_t movesBase = BlockBase(0x230);
-        for (size_t i = 0; i < data.moves.size(); ++i)
-        {
-            const ParsedMove& m = data.moves[i];
-            size_t o = movesBase + i * kMove_Size;
-            uint32_t slot = (uint32_t)(i % 8);
-
-            // Encrypted fields: re-XOR with the same key used during decryption.
-            // vuln @ kMove_EncVuln (0x58), hitlevel @ kMove_EncHitlevel (0x78)
-            {
-                uint32_t enc = m.vuln ^ kXorKeys[slot];
-                PatchAt(o + kMove_EncVuln + slot * 4, &enc, 4);
-            }
-            {
-                uint32_t enc = m.hitlevel ^ kXorKeys[slot];
-                PatchAt(o + kMove_EncHitlevel + slot * 4, &enc, 4);
-            }
-            {
-                uint32_t enc = m.ordinal_id2 ^ kXorKeys[slot];
-                PatchAt(o + kMove_EncCharId + slot * 4, &enc, 4);
-            }
-            {
-                uint32_t enc = m.moveId ^ kXorKeys[slot];
-                PatchAt(o + kMove_EncOrdinalId + slot * 4, &enc, 4);
-            }
-
-            // Plain scalar fields
-            PatchAt(o + kMove_U1,            &m.u1,           8);
-            PatchAt(o + kMove_U2,            &m.u2,           8);
-            PatchAt(o + kMove_U3,            &m.u3,           8);
-            PatchAt(o + kMove_U4,            &m.u4,           8);
-            PatchAt(o + kMove_U6,            &m.u6,           4);
-            PatchAt(o + kMove_Transition,    &m.transition,   2);
-            PatchAt(o + kMove_0xCE,          &m._0xCE,        2);
-            PatchAt(o + kMove_0x118,         &m._0x118,       4);
-            PatchAt(o + kMove_0x11C,         &m._0x11C,       4);
-            PatchAt(o + kMove_AnimLen,       &m.anim_len,     4);
-            PatchAt(o + kMove_AirborneStart, &m.airborne_start, 4);
-            PatchAt(o + kMove_AirborneEnd,   &m.airborne_end,   4);
-            PatchAt(o + kMove_GroundFall,    &m.ground_fall,    4);
-            PatchAt(o + kMove_U15,           &m.u15,            4);
-            PatchAt(o + kMove_0x154,         &m._0x154,         4);
-            PatchAt(o + kMove_Startup,       &m.startup,        4);
-            PatchAt(o + kMove_Recovery,      &m.recovery,       4);
-            PatchAt(o + kMove_Collision,     &m.collision,      2);
-            PatchAt(o + kMove_Distance,      &m.distance,       2);
-            PatchAt(o + 0x444,               &m.u18,            4);
-
-            // Hitboxes (8 slots x 0x30 bytes)
-            for (int h = 0; h < 8; ++h)
-            {
-                size_t hb = o + kMove_Hitbox0 + h * kMove_HitboxStride;
-                PatchAt(hb + 0x00, &m.hitbox_active_start[h], 4);
-                PatchAt(hb + 0x04, &m.hitbox_active_last[h],  4);
-                PatchAt(hb + 0x08, &m.hitbox_location[h],     4);
-                for (int f = 0; f < 9; ++f)
-                    PatchAt(hb + 0x0C + f * 4, &m.hitbox_floats[h][f], 4);
-            }
-
-            WriteIdx64(o + kMove_CancelAddr,    m.cancel_idx);
-            WriteIdx64(o + kMove_HitCondAddr,   m.hit_condition_idx);
-            WriteIdx64(o + kMove_VoicelipAddr,  m.voiceclip_idx);
-            WriteIdx64(o + kMove_ExtraPropAddr, m.extra_prop_idx);
-            WriteIdx64(o + kMove_StartPropAddr, m.start_prop_idx);
-            WriteIdx64(o + kMove_EndPropAddr,   m.end_prop_idx);
-        }
-    }
+    auto out = RebuildMotbinBytes(data);
+    if (out.empty()) return false;
 
     // Write to moveset.motbin
     std::string savePath = data.folderPath;
@@ -1375,4 +1346,177 @@ bool SaveMotbin(MotbinData& data)
 
     if (ok) data.rawBytes = std::move(out); // update baseline so future saves are correct
     return ok;
+}
+
+// -------------------------------------------------------------
+//  FixupCancelInsert / FixupGroupCancelInsert
+//  Shift indexes in all moves/cancels after an insert into a block.
+// -------------------------------------------------------------
+
+void FixupCancelInsert(MotbinData& data, uint32_t insertPos, uint32_t delta)
+{
+    for (auto& m : data.moves) {
+        if (m.cancel_idx  != 0xFFFFFFFF && m.cancel_idx  >= insertPos) m.cancel_idx  += delta;
+        if (m.cancel2_idx != 0xFFFFFFFF && m.cancel2_idx >= insertPos) m.cancel2_idx += delta;
+    }
+    // Also shift projectile cancel indexes
+    for (auto& p : data.projectileBlock) {
+        if (p.cancel_idx != 0xFFFFFFFF && p.cancel_idx >= insertPos) p.cancel_idx += delta;
+    }
+}
+
+void FixupGroupCancelInsert(MotbinData& data, uint32_t insertPos, uint32_t delta)
+{
+    for (auto& c : data.cancelBlock) {
+        if (c.group_cancel_list_idx != 0xFFFFFFFF && c.group_cancel_list_idx >= insertPos)
+            c.group_cancel_list_idx += delta;
+    }
+    for (auto& c : data.groupCancelBlock) {
+        if (c.group_cancel_list_idx != 0xFFFFFFFF && c.group_cancel_list_idx >= insertPos)
+            c.group_cancel_list_idx += delta;
+    }
+}
+
+// -------------------------------------------------------------
+//  FixupRef_*  (unified single-element insert/remove fixup)
+// -------------------------------------------------------------
+
+void FixupRef_Requirement(MotbinData& d, uint32_t pos, bool ins) {
+    for (auto& c  : d.cancelBlock)       AdjRef(c.req_list_idx,  pos, ins);
+    for (auto& c  : d.groupCancelBlock)  AdjRef(c.req_list_idx,  pos, ins);
+    for (auto& h  : d.hitConditionBlock) AdjRef(h.req_list_idx,  pos, ins);
+    for (auto& e  : d.extraPropBlock)    AdjRef(e.req_list_idx,  pos, ins);
+    for (auto& e  : d.startPropBlock)    AdjRef(e.req_list_idx,  pos, ins);
+    for (auto& e  : d.endPropBlock)      AdjRef(e.req_list_idx,  pos, ins);
+    for (auto& dl : d.dialogueBlock)     AdjRef(dl.req_list_idx, pos, ins);
+}
+void FixupRef_Cancel(MotbinData& d, uint32_t pos, bool ins) {
+    for (auto& m : d.moves) { AdjRef(m.cancel_idx, pos, ins); AdjRef(m.cancel2_idx, pos, ins); }
+    for (auto& p : d.projectileBlock) AdjRef(p.cancel_idx, pos, ins);
+}
+void FixupRef_GroupCancel(MotbinData& d, uint32_t pos, bool ins) {
+    for (auto& c : d.cancelBlock)      AdjRef(c.group_cancel_list_idx, pos, ins);
+    for (auto& c : d.groupCancelBlock) AdjRef(c.group_cancel_list_idx, pos, ins);
+}
+void FixupRef_CancelExtra(MotbinData& d, uint32_t pos, bool ins) {
+    for (auto& c : d.cancelBlock)      AdjRef(c.extradata_idx, pos, ins);
+    for (auto& c : d.groupCancelBlock) AdjRef(c.extradata_idx, pos, ins);
+}
+void FixupRef_HitCond(MotbinData& d, uint32_t pos, bool ins) {
+    for (auto& m : d.moves)           AdjRef(m.hit_condition_idx, pos, ins);
+    for (auto& p : d.projectileBlock) AdjRef(p.hit_condition_idx, pos, ins);
+}
+void FixupRef_ReactionList(MotbinData& d, uint32_t pos, bool ins) {
+    for (auto& h : d.hitConditionBlock) AdjRef(h.reaction_list_idx, pos, ins);
+}
+void FixupRef_Pushback(MotbinData& d, uint32_t pos, bool ins) {
+    for (auto& r : d.reactionListBlock)
+        for (int i = 0; i < 7; ++i) AdjRef(r.pushback_idx[i], pos, ins);
+}
+void FixupRef_PushbackExtra(MotbinData& d, uint32_t pos, bool ins) {
+    for (auto& p : d.pushbackBlock) AdjRef(p.pushback_extra_idx, pos, ins);
+}
+void FixupRef_ExtraProp(MotbinData& d, uint32_t pos, bool ins) {
+    for (auto& m : d.moves) AdjRef(m.extra_prop_idx, pos, ins);
+}
+void FixupRef_StartProp(MotbinData& d, uint32_t pos, bool ins) {
+    for (auto& m : d.moves) AdjRef(m.start_prop_idx, pos, ins);
+}
+void FixupRef_EndProp(MotbinData& d, uint32_t pos, bool ins) {
+    for (auto& m : d.moves) AdjRef(m.end_prop_idx, pos, ins);
+}
+void FixupRef_Voiceclip(MotbinData& d, uint32_t pos, bool ins) {
+    for (auto& m : d.moves) AdjRef(m.voiceclip_idx, pos, ins);
+}
+void FixupRef_ThrowExtra(MotbinData& d, uint32_t pos, bool ins) {
+    for (auto& t : d.throwBlock) AdjRef(t.throwextra_idx, pos, ins);
+}
+void FixupRef_Input(MotbinData& d, uint32_t pos, bool ins) {
+    for (auto& s : d.inputSequenceBlock) AdjRef(s.input_start_idx, pos, ins);
+}
+
+// -------------------------------------------------------------
+//  CountRefs_*
+// -------------------------------------------------------------
+
+uint32_t CountRefs_Requirement(const MotbinData& d, uint32_t pos) {
+    uint32_t n = 0;
+    for (auto& c  : d.cancelBlock)       if (c.req_list_idx  == pos) ++n;
+    for (auto& c  : d.groupCancelBlock)  if (c.req_list_idx  == pos) ++n;
+    for (auto& h  : d.hitConditionBlock) if (h.req_list_idx  == pos) ++n;
+    for (auto& e  : d.extraPropBlock)    if (e.req_list_idx  == pos) ++n;
+    for (auto& e  : d.startPropBlock)    if (e.req_list_idx  == pos) ++n;
+    for (auto& e  : d.endPropBlock)      if (e.req_list_idx  == pos) ++n;
+    for (auto& dl : d.dialogueBlock)     if (dl.req_list_idx == pos) ++n;
+    return n;
+}
+uint32_t CountRefs_Cancel(const MotbinData& d, uint32_t pos) {
+    uint32_t n = 0;
+    for (auto& m : d.moves) { if (m.cancel_idx == pos) ++n; if (m.cancel2_idx == pos) ++n; }
+    for (auto& p : d.projectileBlock) if (p.cancel_idx == pos) ++n;
+    return n;
+}
+uint32_t CountRefs_GroupCancel(const MotbinData& d, uint32_t pos) {
+    uint32_t n = 0;
+    for (auto& c : d.cancelBlock)      if (c.group_cancel_list_idx == pos) ++n;
+    for (auto& c : d.groupCancelBlock) if (c.group_cancel_list_idx == pos) ++n;
+    return n;
+}
+uint32_t CountRefs_CancelExtra(const MotbinData& d, uint32_t pos) {
+    uint32_t n = 0;
+    for (auto& c : d.cancelBlock)      if (c.extradata_idx == pos) ++n;
+    for (auto& c : d.groupCancelBlock) if (c.extradata_idx == pos) ++n;
+    return n;
+}
+uint32_t CountRefs_HitCond(const MotbinData& d, uint32_t pos) {
+    uint32_t n = 0;
+    for (auto& m : d.moves)           if (m.hit_condition_idx == pos) ++n;
+    for (auto& p : d.projectileBlock) if (p.hit_condition_idx == pos) ++n;
+    return n;
+}
+uint32_t CountRefs_ReactionList(const MotbinData& d, uint32_t pos) {
+    uint32_t n = 0;
+    for (auto& h : d.hitConditionBlock) if (h.reaction_list_idx == pos) ++n;
+    return n;
+}
+uint32_t CountRefs_Pushback(const MotbinData& d, uint32_t pos) {
+    uint32_t n = 0;
+    for (auto& r : d.reactionListBlock)
+        for (int i = 0; i < 7; ++i) if (r.pushback_idx[i] == pos) ++n;
+    return n;
+}
+uint32_t CountRefs_PushbackExtra(const MotbinData& d, uint32_t pos) {
+    uint32_t n = 0;
+    for (auto& p : d.pushbackBlock) if (p.pushback_extra_idx == pos) ++n;
+    return n;
+}
+uint32_t CountRefs_ExtraProp(const MotbinData& d, uint32_t pos) {
+    uint32_t n = 0;
+    for (auto& m : d.moves) if (m.extra_prop_idx == pos) ++n;
+    return n;
+}
+uint32_t CountRefs_StartProp(const MotbinData& d, uint32_t pos) {
+    uint32_t n = 0;
+    for (auto& m : d.moves) if (m.start_prop_idx == pos) ++n;
+    return n;
+}
+uint32_t CountRefs_EndProp(const MotbinData& d, uint32_t pos) {
+    uint32_t n = 0;
+    for (auto& m : d.moves) if (m.end_prop_idx == pos) ++n;
+    return n;
+}
+uint32_t CountRefs_Voiceclip(const MotbinData& d, uint32_t pos) {
+    uint32_t n = 0;
+    for (auto& m : d.moves) if (m.voiceclip_idx == pos) ++n;
+    return n;
+}
+uint32_t CountRefs_ThrowExtra(const MotbinData& d, uint32_t pos) {
+    uint32_t n = 0;
+    for (auto& t : d.throwBlock) if (t.throwextra_idx == pos) ++n;
+    return n;
+}
+uint32_t CountRefs_Input(const MotbinData& d, uint32_t pos) {
+    uint32_t n = 0;
+    for (auto& s : d.inputSequenceBlock) if (s.input_start_idx == pos) ++n;
+    return n;
 }

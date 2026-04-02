@@ -1,5 +1,6 @@
 ﻿// LabelDB.cpp
 #include "moveset/labels/LabelDB.h"
+#include "resource.h"
 #include <windows.h>
 #include <fstream>
 #include <sstream>
@@ -244,4 +245,197 @@ const char* LabelDB::CharaCode(uint32_t id) const
 {
     auto it = m_charasCodes.find(id);
     return it != m_charasCodes.end() ? it->second.c_str() : nullptr;
+}
+
+// -------------------------------------------------------------
+//  ParseBuffer  (memory-based counterpart to ParseFile)
+//  "id,label" per line, same rules as ParseFile.
+// -------------------------------------------------------------
+
+void LabelDB::ParseBuffer(const char* buf, size_t sz,
+                          std::unordered_map<uint64_t, std::string>& out)
+{
+    const char* end = buf + sz;
+    while (buf < end)
+    {
+        // Find end of line
+        const char* lineEnd = buf;
+        while (lineEnd < end && *lineEnd != '\n') ++lineEnd;
+
+        std::string line(buf, lineEnd);
+        buf = (lineEnd < end) ? lineEnd + 1 : end;
+
+        // Strip trailing \r
+        while (!line.empty() && (line.back() == '\r' || line.back() == '\n'))
+            line.pop_back();
+
+        if (line.empty() || line[0] == '#') continue;
+
+        size_t comma = line.find(',');
+        if (comma == std::string::npos) continue;
+
+        std::string idStr = line.substr(0, comma);
+        std::string label = line.substr(comma + 1);
+
+        // Trim idStr
+        while (!idStr.empty() && (idStr.front() == ' ' || idStr.front() == '\t'))
+            idStr.erase(idStr.begin());
+        while (!idStr.empty() && (idStr.back() == ' ' || idStr.back() == '\r'))
+            idStr.pop_back();
+
+        if (idStr.empty()) continue;
+
+        uint64_t id = 0;
+        try
+        {
+            if (idStr.size() > 2 && idStr[0] == '0' && (idStr[1] == 'x' || idStr[1] == 'X'))
+                id = std::stoull(idStr, nullptr, 16);
+            else
+                id = std::stoull(idStr, nullptr, 10);
+        }
+        catch (...) { continue; }
+
+        out[id] = std::move(label);
+    }
+}
+
+// -------------------------------------------------------------
+//  ParseNameJsonBuffer  (memory-based counterpart to ParseNameJson)
+// -------------------------------------------------------------
+
+void LabelDB::ParseNameJsonBuffer(const char* buf, size_t sz,
+                                  std::unordered_map<uint32_t, std::string>& out,
+                                  bool clearFirst)
+{
+    if (clearFirst) out.clear();
+    const char* end = buf + sz;
+    while (buf < end)
+    {
+        const char* lineEnd = buf;
+        while (lineEnd < end && *lineEnd != '\n') ++lineEnd;
+
+        std::string line(buf, lineEnd);
+        buf = (lineEnd < end) ? lineEnd + 1 : end;
+
+        size_t q1 = line.find('"');
+        if (q1 == std::string::npos) continue;
+        size_t q2 = line.find('"', q1 + 1);
+        if (q2 == std::string::npos) continue;
+        size_t q3 = line.find('"', q2 + 1);
+        if (q3 == std::string::npos) continue;
+        size_t q4 = line.find('"', q3 + 1);
+        if (q4 == std::string::npos) continue;
+
+        std::string keyStr = line.substr(q1 + 1, q2 - q1 - 1);
+        std::string valStr = line.substr(q3 + 1, q4 - q3 - 1);
+        if (keyStr.empty() || valStr.empty()) continue;
+
+        bool allDigits = true;
+        for (char c : keyStr) { if (c < '0' || c > '9') { allDigits = false; break; } }
+        if (!allDigits) continue;
+
+        try
+        {
+            uint32_t key = static_cast<uint32_t>(std::stoull(keyStr));
+            out[key] = std::move(valStr);
+        }
+        catch (...) {}
+    }
+}
+
+// -------------------------------------------------------------
+//  Helper: load a Win32 RCDATA resource into a (data, size) pair.
+//  Returns {nullptr, 0} if not found.
+// -------------------------------------------------------------
+
+static std::pair<const char*, size_t> GetResourceData(int id)
+{
+    HRSRC   hRes  = FindResource(nullptr, MAKEINTRESOURCE(id), RT_RCDATA);
+    if (!hRes) return { nullptr, 0 };
+    HGLOBAL hGlob = LoadResource(nullptr, hRes);
+    if (!hGlob) return { nullptr, 0 };
+    void*  data = LockResource(hGlob);
+    DWORD  sz   = SizeofResource(nullptr, hRes);
+    return { static_cast<const char*>(data), static_cast<size_t>(sz) };
+}
+
+// -------------------------------------------------------------
+//  ParseCharaListBuffer  (memory-based counterpart to characterList.txt loading in Load())
+// -------------------------------------------------------------
+
+static void ParseCharaListBuffer(const char* buf, size_t sz,
+                                 std::unordered_map<uint32_t, std::string>& names,
+                                 std::unordered_map<uint32_t, std::string>& codes)
+{
+    const char* end = buf + sz;
+    while (buf < end)
+    {
+        const char* lineEnd = buf;
+        while (lineEnd < end && *lineEnd != '\n') ++lineEnd;
+
+        std::string line(buf, lineEnd);
+        buf = (lineEnd < end) ? lineEnd + 1 : end;
+
+        if (line.empty() || line[0] == '#') continue;
+
+        size_t c1 = line.find(',');
+        if (c1 == std::string::npos) continue;
+        size_t c2 = line.find(',', c1 + 1);
+
+        std::string idStr = line.substr(0, c1);
+        std::string name  = (c2 != std::string::npos) ? line.substr(c1 + 1, c2 - c1 - 1) : line.substr(c1 + 1);
+        std::string code  = (c2 != std::string::npos) ? line.substr(c2 + 1) : std::string{};
+
+        auto trim = [](std::string& s) {
+            while (!s.empty() && (s.back() == '\r' || s.back() == '\n' || s.back() == ' '))
+                s.pop_back();
+        };
+        trim(idStr); trim(name); trim(code);
+        if (idStr.empty()) continue;
+
+        uint32_t id = 0;
+        try {
+            if (idStr.size() > 2 && idStr[0] == '0' && (idStr[1] == 'x' || idStr[1] == 'X'))
+                id = static_cast<uint32_t>(std::stoull(idStr, nullptr, 16));
+            else
+                id = static_cast<uint32_t>(std::stoull(idStr, nullptr, 10));
+        } catch (...) { continue; }
+
+        if (!name.empty()) names[id] = std::move(name);
+        if (!code.empty()) codes[id] = std::move(code);
+    }
+}
+
+// -------------------------------------------------------------
+//  LoadFromResources
+//  Loads all interface-data files from embedded RCDATA resources.
+//  Used as fallback when disk files are not present.
+// -------------------------------------------------------------
+
+void LabelDB::LoadFromResources()
+{
+    m_req.clear(); m_prop.clear(); m_cmd.clear();
+
+    std::pair<const char*, size_t> req  = GetResourceData(IDR_DATA_REQTXT);
+    std::pair<const char*, size_t> prop = GetResourceData(IDR_DATA_PROPTXT);
+    std::pair<const char*, size_t> cmd  = GetResourceData(IDR_DATA_CMDTXT);
+
+    if (req.first  && req.second)  ParseBuffer(req.first,  req.second,  m_req);
+    if (prop.first && prop.second) ParseBuffer(prop.first, prop.second, m_prop);
+    if (cmd.first  && cmd.second)  ParseBuffer(cmd.first,  cmd.second,  m_cmd);
+
+    m_charas.clear(); m_charasCodes.clear();
+    std::pair<const char*, size_t> chara = GetResourceData(IDR_DATA_CHARLIST);
+    if (chara.first && chara.second)
+        ParseCharaListBuffer(chara.first, chara.second, m_charas, m_charasCodes);
+
+    m_loaded = (!m_req.empty() || !m_prop.empty() || !m_cmd.empty());
+
+    std::pair<const char*, size_t> names = GetResourceData(IDR_DATA_NAMEKEYS);
+    std::pair<const char*, size_t> supp  = GetResourceData(IDR_DATA_SUPPKEYS);
+    std::pair<const char*, size_t> anim  = GetResourceData(IDR_DATA_ANIMKEYS);
+
+    if (names.first && names.second) ParseNameJsonBuffer(names.first, names.second, m_names,     /*clearFirst=*/true);
+    if (supp.first  && supp.second)  ParseNameJsonBuffer(supp.first,  supp.second,  m_names,     /*clearFirst=*/false);
+    if (anim.first  && anim.second)  ParseNameJsonBuffer(anim.first,  anim.second,  m_animNames, /*clearFirst=*/true);
 }

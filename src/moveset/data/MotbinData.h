@@ -92,9 +92,10 @@ struct ParsedCancel {
     uint16_t cancel_option;       // 0x26  option / flags
 
     // -- Resolved values (populated during parse) -------------
-    uint32_t req_list_idx    = 0xFFFFFFFF;  // index into global requirementBlock where req list starts
-    uint32_t extradata_idx   = 0xFFFFFFFF;  // index into cancel_extra block (0xFFFF = null)
-    uint32_t extradata_value = 0xFFFFFFFF;  // value at that index
+    uint32_t req_list_idx           = 0xFFFFFFFF;  // index into global requirementBlock where req list starts
+    uint32_t extradata_idx          = 0xFFFFFFFF;  // index into cancel_extra block (0xFFFF = null)
+    uint32_t extradata_value        = 0xFFFFFFFF;  // value at that index
+    uint32_t group_cancel_list_idx  = 0xFFFFFFFF;  // index into groupCancelBlock (for cancels with groupCancelStart command)
 };
 
 // -------------------------------------------------------------
@@ -199,6 +200,21 @@ struct ParsedParryableMove {
 };
 
 // -------------------------------------------------------------
+//  Sub-struct: Dialogue  (stride=0x18 in file)
+//  tk_dialogue
+// -------------------------------------------------------------
+struct ParsedDialogue {
+    uint16_t type;              // +0x00
+    uint16_t id;                // +0x02
+    uint32_t _0x4;              // +0x04
+    uint64_t requirement_addr;  // +0x08  -> Requirement list
+    uint32_t voiceclip_key;     // +0x10  raw voice clip key (not an index into voiceclipBlock)
+    uint32_t facial_anim_idx;   // +0x14
+
+    uint32_t req_list_idx = 0xFFFFFFFF;  // index into global requirementBlock
+};
+
+// -------------------------------------------------------------
 //  Sub-struct: Voiceclip  (stride=0x0C in file)
 //  tk_voiceclip: { int folder; int val2; int clip; }
 //  Terminator: all three == 0xFFFFFFFF (-1)
@@ -297,6 +313,7 @@ struct ParsedMove {
 
     // -- Block indexes (into MotbinData global blocks) ----------
     uint32_t cancel_idx        = 0xFFFFFFFF;  // first Cancel entry for this move
+    uint32_t cancel2_idx       = 0xFFFFFFFF;  // secondary cancel list (cancel2_addr; game-internal, usually 0)
     uint32_t hit_condition_idx = 0xFFFFFFFF;  // first HitCondition entry
     uint32_t voiceclip_idx     = 0xFFFFFFFF;  // Voiceclip entry
     uint32_t extra_prop_idx    = 0xFFFFFFFF;  // first ExtraProp entry
@@ -334,11 +351,61 @@ struct MotbinData {
     std::vector<ParsedThrowExtra>    throwExtraBlock;
     std::vector<ParsedThrow>         throwBlock;
     std::vector<ParsedParryableMove> parryableMoveBlock;
+    std::vector<ParsedDialogue>      dialogueBlock;
 };
 
 // Loads moveset.motbin from the given moveset folder path.
 MotbinData LoadMotbin(const std::string& folderPath);
 
 // Writes edited data back to moveset.motbin in data.folderPath.
-// Patches only scalar (non-pointer) fields; pointer relationships are unchanged.
+// Fully rebuilds the binary from parsed blocks (supports added items).
 bool SaveMotbin(MotbinData& data);
+
+// Index fixup helpers: shift block indexes in all moves/cancels after an insert.
+// Call after inserting into cancelBlock or groupCancelBlock.
+void FixupCancelInsert(MotbinData& data, uint32_t insertPos, uint32_t delta);
+void FixupGroupCancelInsert(MotbinData& data, uint32_t insertPos, uint32_t delta);
+
+// -------------------------------------------------------------
+//  Generic ref-adjust helper.
+//  isInsert=true : refs >= pos get +1
+//  isInsert=false: ref==pos -> 0xFFFFFFFF; refs > pos get -1
+// -------------------------------------------------------------
+inline void AdjRef(uint32_t& ref, uint32_t pos, bool isInsert) {
+    if (ref == 0xFFFFFFFF) return;
+    if (isInsert) { if (ref >= pos) ++ref; }
+    else          { if (ref == pos) ref = 0xFFFFFFFF; else if (ref > pos) --ref; }
+}
+
+// Unified fixup: call after inserting (isInsert=true) or removing (isInsert=false)
+// a single element at position pos in the named block.
+void FixupRef_Requirement  (MotbinData& d, uint32_t pos, bool isInsert);
+void FixupRef_Cancel       (MotbinData& d, uint32_t pos, bool isInsert);
+void FixupRef_GroupCancel  (MotbinData& d, uint32_t pos, bool isInsert);
+void FixupRef_CancelExtra  (MotbinData& d, uint32_t pos, bool isInsert);
+void FixupRef_HitCond      (MotbinData& d, uint32_t pos, bool isInsert);
+void FixupRef_ReactionList (MotbinData& d, uint32_t pos, bool isInsert);
+void FixupRef_Pushback     (MotbinData& d, uint32_t pos, bool isInsert);
+void FixupRef_PushbackExtra(MotbinData& d, uint32_t pos, bool isInsert);
+void FixupRef_ExtraProp    (MotbinData& d, uint32_t pos, bool isInsert);
+void FixupRef_StartProp    (MotbinData& d, uint32_t pos, bool isInsert);
+void FixupRef_EndProp      (MotbinData& d, uint32_t pos, bool isInsert);
+void FixupRef_Voiceclip    (MotbinData& d, uint32_t pos, bool isInsert);
+void FixupRef_ThrowExtra   (MotbinData& d, uint32_t pos, bool isInsert);
+void FixupRef_Input        (MotbinData& d, uint32_t pos, bool isInsert);
+
+// Reference-count helpers: how many dependents point at pos in that block?
+uint32_t CountRefs_Requirement  (const MotbinData& d, uint32_t pos);
+uint32_t CountRefs_Cancel       (const MotbinData& d, uint32_t pos);
+uint32_t CountRefs_GroupCancel  (const MotbinData& d, uint32_t pos);
+uint32_t CountRefs_CancelExtra  (const MotbinData& d, uint32_t pos);
+uint32_t CountRefs_HitCond      (const MotbinData& d, uint32_t pos);
+uint32_t CountRefs_ReactionList (const MotbinData& d, uint32_t pos);
+uint32_t CountRefs_Pushback     (const MotbinData& d, uint32_t pos);
+uint32_t CountRefs_PushbackExtra(const MotbinData& d, uint32_t pos);
+uint32_t CountRefs_ExtraProp    (const MotbinData& d, uint32_t pos);
+uint32_t CountRefs_StartProp    (const MotbinData& d, uint32_t pos);
+uint32_t CountRefs_EndProp      (const MotbinData& d, uint32_t pos);
+uint32_t CountRefs_Voiceclip    (const MotbinData& d, uint32_t pos);
+uint32_t CountRefs_ThrowExtra   (const MotbinData& d, uint32_t pos);
+uint32_t CountRefs_Input        (const MotbinData& d, uint32_t pos);

@@ -2,6 +2,7 @@
 #include "moveset/data/MotbinData.h"
 #include <string>
 #include <unordered_map>
+#include <functional>
 
 class MovesetEditorWindow {
 public:
@@ -79,10 +80,19 @@ public:
 
     bool Render();
 
-    // Called by RenderCancelSection (free static) -- must be public for that access
+    // Called by RenderCancelSection / RenderPropSection (free statics) — must stay public
     void RenderCancelInnerDetail(
         ParsedCancel& c, int localIdx, uint32_t blockIdx,
         const std::vector<std::pair<uint32_t,uint32_t>>& gcGroups);
+
+    // Remove-confirmation modal  (accessed by free static render helpers)
+    struct RemoveConfirmState {
+        bool pending = false;
+        char message[300] = {};
+        std::function<void()> onConfirm;
+    };
+    RemoveConfirmState m_removeConfirm;
+    bool m_endInsertBlocked = false;  // triggers [END]-insert-blocked modal
 
 private:
     void RenderMoveList();
@@ -112,6 +122,8 @@ private:
     void RenderSubWin_Projectiles();
     void RenderSubWin_InputSequences();
     void RenderSubWin_ParryableMoves();
+    void RenderSubWin_Dialogues();
+    void RenderRemoveConfirmModal();
 
     MotbinData  m_data;
     std::unordered_map<int, std::string> m_customNames;
@@ -152,4 +164,7 @@ private:
     ThrowsWinState       m_throwsWin;
     bool                 m_parryWinOpen   = false;
     TwoLevelSel          m_parryWinSel;
+    bool                 m_dialogueWinOpen = false;
+    int                  m_dialogueSel     = 0;
+
 };

@@ -165,7 +165,7 @@ App::App(ID3D11Device* device)
     });
 
     // Load InterfaceData labels (requirements, properties, commands)
-    // Search for data directory relative to the exe, tolerating various build layouts
+    // Priority: disk files (customizable) → embedded RCDATA fallback
     {
         char exePath[MAX_PATH] = {};
         GetModuleFileNameA(nullptr, exePath, MAX_PATH);
@@ -179,6 +179,7 @@ App::App(ID3D11Device* device)
             exeDir + "\\..\\..\\data\\interfacedata",
             exeDir + "\\..\\..\\..\\data\\interfacedata",
         };
+        bool loadedFromDisk = false;
         for (const auto& c : candidates)
         {
             LabelDB::Get().Load(c);
@@ -187,8 +188,14 @@ App::App(ID3D11Device* device)
                 LabelDB::Get().LoadNames(c + "\\name_keys.json");
                 LabelDB::Get().AddNames(c + "\\supplement_name_keys.json");
                 LabelDB::Get().LoadAnimNames(c + "\\anim_keys.json");
+                loadedFromDisk = true;
                 break;
             }
+        }
+        if (!loadedFromDisk)
+        {
+            // Disk files not found -- fall back to embedded RCDATA resources
+            LabelDB::Get().LoadFromResources();
         }
     }
 

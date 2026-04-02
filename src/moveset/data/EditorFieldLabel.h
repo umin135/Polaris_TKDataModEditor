@@ -225,6 +225,18 @@ namespace ParryableMoveLabel {
 } // namespace ParryableMoveLabel
 
 // -----------------------------------------------------------------------
+//  Dialogue fields  (tk_dialogue)
+// -----------------------------------------------------------------------
+namespace DialogueLabel {
+    static constexpr const char* Type          = "type";
+    static constexpr const char* Id            = "id";
+    static constexpr const char* F0x4          = "_0x4";
+    static constexpr const char* Requirements  = "requirements";
+    static constexpr const char* VoiceclipKey  = "voiceclip_key";
+    static constexpr const char* FacialAnimIdx = "facial_anim_idx";
+} // namespace DialogueLabel
+
+// -----------------------------------------------------------------------
 //  ThrowExtra fields  (tk_throw_extra)
 // -----------------------------------------------------------------------
 namespace ThrowExtraLabel {

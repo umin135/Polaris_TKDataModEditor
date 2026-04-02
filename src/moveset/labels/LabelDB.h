@@ -56,11 +56,20 @@ public:
 
     bool IsLoaded() const { return m_loaded; }
 
+    // Load from embedded RCDATA resources (fallback when disk files are absent).
+    // Requires resource.h defines IDR_DATA_* constants.
+    void LoadFromResources();
+
 private:
     LabelDB() = default;
 
     static void ParseFile(const std::string& path,
                           std::unordered_map<uint64_t, std::string>& out);
+    static void ParseBuffer(const char* buf, size_t sz,
+                            std::unordered_map<uint64_t, std::string>& out);
+    static void ParseNameJsonBuffer(const char* buf, size_t sz,
+                                    std::unordered_map<uint32_t, std::string>& out,
+                                    bool clearFirst);
 
     std::unordered_map<uint64_t, std::string> m_req;
     std::unordered_map<uint64_t, std::string> m_prop;
