@@ -1367,13 +1367,14 @@ void FixupCancelInsert(MotbinData& data, uint32_t insertPos, uint32_t delta)
 
 void FixupGroupCancelInsert(MotbinData& data, uint32_t insertPos, uint32_t delta)
 {
+    uint64_t gcStart = GameStatic::Get().data.groupCancelStart;
     for (auto& c : data.cancelBlock) {
-        if (c.group_cancel_list_idx != 0xFFFFFFFF && c.group_cancel_list_idx >= insertPos)
-            c.group_cancel_list_idx += delta;
+        if (c.command == gcStart && c.move_id != 0xFFFF && c.move_id >= insertPos)
+            c.move_id = (uint16_t)(c.move_id + delta);
     }
     for (auto& c : data.groupCancelBlock) {
-        if (c.group_cancel_list_idx != 0xFFFFFFFF && c.group_cancel_list_idx >= insertPos)
-            c.group_cancel_list_idx += delta;
+        if (c.command == gcStart && c.move_id != 0xFFFF && c.move_id >= insertPos)
+            c.move_id = (uint16_t)(c.move_id + delta);
     }
 }
 
@@ -1395,8 +1396,17 @@ void FixupRef_Cancel(MotbinData& d, uint32_t pos, bool ins) {
     for (auto& p : d.projectileBlock) AdjRef(p.cancel_idx, pos, ins);
 }
 void FixupRef_GroupCancel(MotbinData& d, uint32_t pos, bool ins) {
-    for (auto& c : d.cancelBlock)      AdjRef(c.group_cancel_list_idx, pos, ins);
-    for (auto& c : d.groupCancelBlock) AdjRef(c.group_cancel_list_idx, pos, ins);
+    // group_cancel_list_idx is always 0xFFFFFFFF (never populated, never saved).
+    // The real file field is move_id for cancels with command == groupCancelStart.
+    uint64_t gcStart = GameStatic::Get().data.groupCancelStart;
+    auto adj = [&](ParsedCancel& c) {
+        if (c.command != gcStart) return;
+        uint32_t mid = c.move_id;
+        AdjRef(mid, pos, ins);
+        c.move_id = (uint16_t)mid;
+    };
+    for (auto& c : d.cancelBlock)      adj(c);
+    for (auto& c : d.groupCancelBlock) adj(c);
 }
 void FixupRef_CancelExtra(MotbinData& d, uint32_t pos, bool ins) {
     for (auto& c : d.cancelBlock)      AdjRef(c.extradata_idx, pos, ins);
@@ -1457,9 +1467,10 @@ uint32_t CountRefs_Cancel(const MotbinData& d, uint32_t pos) {
     return n;
 }
 uint32_t CountRefs_GroupCancel(const MotbinData& d, uint32_t pos) {
+    uint64_t gcStart = GameStatic::Get().data.groupCancelStart;
     uint32_t n = 0;
-    for (auto& c : d.cancelBlock)      if (c.group_cancel_list_idx == pos) ++n;
-    for (auto& c : d.groupCancelBlock) if (c.group_cancel_list_idx == pos) ++n;
+    for (auto& c : d.cancelBlock)      if (c.command == gcStart && (uint32_t)c.move_id == pos) ++n;
+    for (auto& c : d.groupCancelBlock) if (c.command == gcStart && (uint32_t)c.move_id == pos) ++n;
     return n;
 }
 uint32_t CountRefs_CancelExtra(const MotbinData& d, uint32_t pos) {
