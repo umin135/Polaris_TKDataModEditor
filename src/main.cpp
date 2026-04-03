@@ -218,7 +218,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
     g_kbHook   = SetWindowsHookExW(WH_KEYBOARD_LL, LowLevelKbProc,
                                     GetModuleHandleW(nullptr), 0);
 
-    ::ShowWindow(hwnd, SW_SHOWMAXIMIZED);
+    ::ShowWindow(hwnd, SW_SHOWNORMAL);
     ::UpdateWindow(hwnd);
 
     // Setup Dear ImGui

@@ -69,8 +69,32 @@ bool MovesetEditorWindow::Render()
 {
     if (!m_open) return false;
 
-    ImGui::SetNextWindowSize(ImVec2(980.0f, 640.0f), ImGuiCond_FirstUseEver);
+    // On first render: position just outside the main viewport so ImGui promotes
+    // this window to a secondary viewport (independent OS window) immediately.
+    // ImGuiCond_FirstUseEver means imgui.ini saves the user's chosen position after that.
+    if (m_firstFrame)
+    {
+        m_firstFrame   = false;
+        m_pendingFocus = true;
+        const ImGuiViewport* mv = ImGui::GetMainViewport();
+        // ImGuiCond_Always: override any imgui.ini saved position so the editor
+        // always opens outside the main OS window and becomes a secondary viewport.
+        ImGui::SetNextWindowPos(
+            ImVec2(mv->Pos.x + mv->Size.x + 20.0f, mv->Pos.y + 60.0f),
+            ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(980.0f, 640.0f), ImGuiCond_Always);
+    }
+    else
+    {
+        ImGui::SetNextWindowSize(ImVec2(980.0f, 640.0f), ImGuiCond_FirstUseEver);
+    }
     ImGui::SetNextWindowSizeConstraints(ImVec2(640.0f, 420.0f), ImVec2(FLT_MAX, FLT_MAX));
+
+    if (m_pendingMoveX >= 0.f)
+    {
+        ImGui::SetNextWindowPos(ImVec2(m_pendingMoveX, m_pendingMoveY), ImGuiCond_Always);
+        m_pendingMoveX = m_pendingMoveY = -1.f;
+    }
 
     constexpr ImGuiWindowFlags kWinFlags =
         ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_MenuBar;
@@ -84,6 +108,48 @@ bool MovesetEditorWindow::Render()
         return m_open;
     }
     if (!windowOpen) RequestClose();
+
+    // Track which viewport this window is in so popups can be shown in the same OS window.
+    m_viewportId = ImGui::GetWindowViewport()->ID;
+
+    // Retry every frame until the secondary viewport OS window is actually created
+    // (PlatformHandle becomes non-null). On first editor open this can take several
+    // frames; with an existing editor it's usually ready by frame 2.
+    if (m_pendingFocus)
+    {
+        HWND edHwnd = static_cast<HWND>(ImGui::GetWindowViewport()->PlatformHandle);
+        if (edHwnd)
+        {
+            m_pendingFocus = false;
+            HWND mainHwnd  = static_cast<HWND>(ImGui::GetMainViewport()->PlatformHandle);
+
+            // Capture main window position before minimizing
+            RECT mainRect = {};
+            if (mainHwnd) ::GetWindowRect(mainHwnd, &mainRect);
+
+            ::ShowWindow(edHwnd, SW_SHOW);
+            ::SetForegroundWindow(edHwnd);
+
+            // Flash taskbar button until the editor receives focus
+            FLASHWINFO fi = {};
+            fi.cbSize    = sizeof(fi);
+            fi.hwnd      = edHwnd;
+            fi.dwFlags   = FLASHW_ALL | FLASHW_TIMERNOFG;
+            fi.uCount    = 0;
+            fi.dwTimeout = 0;
+            ::FlashWindowEx(&fi);
+
+            if (mainHwnd) ::ShowWindow(mainHwnd, SW_MINIMIZE);
+
+            // Schedule move to where the main window was via ImGui next frame
+            // (direct SetWindowPos bypasses ImGui viewport tracking → broken mouse input)
+            if (mainHwnd && (mainRect.right > mainRect.left))
+            {
+                m_pendingMoveX = (float)mainRect.left;
+                m_pendingMoveY = (float)mainRect.top;
+            }
+        }
+    }
 
     if (!m_data.loaded)
     {
@@ -132,6 +198,8 @@ bool MovesetEditorWindow::Render()
     ImGui::EndChild();
 
     RenderSavePopups();
+    RenderCloseConfirmModal();
+    RenderRemoveConfirmModal();
 
     ImGui::End();
 
@@ -151,9 +219,6 @@ bool MovesetEditorWindow::Render()
     RenderSubWin_ParryableMoves();
     RenderSubWin_Dialogues();
 
-    RenderCloseConfirmModal();
-    RenderRemoveConfirmModal();
-
     return m_open;
 }
 
@@ -163,10 +228,15 @@ bool MovesetEditorWindow::Render()
 
 void MovesetEditorWindow::RenderRemoveConfirmModal()
 {
+    ImGuiViewport* edVp = (m_viewportId != 0) ? ImGui::FindViewportByID(m_viewportId) : nullptr;
+    if (!edVp) edVp = ImGui::GetMainViewport();
+
     if (m_removeConfirm.pending) {
         ImGui::OpenPopup("Remove?##confirm_remove");
         m_removeConfirm.pending = false;
     }
+    ImGui::SetNextWindowViewport(edVp->ID);
+    ImGui::SetNextWindowPos(edVp->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
     if (ImGui::BeginPopupModal("Remove?##confirm_remove", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::TextUnformatted(m_removeConfirm.message);
         ImGui::Spacing();
@@ -182,10 +252,13 @@ void MovesetEditorWindow::RenderRemoveConfirmModal()
         }
         ImGui::EndPopup();
     }
+
     if (m_endInsertBlocked) {
         ImGui::OpenPopup("Cannot Insert##end_ins_block");
         m_endInsertBlocked = false;
     }
+    ImGui::SetNextWindowViewport(edVp->ID);
+    ImGui::SetNextWindowPos(edVp->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
     if (ImGui::BeginPopupModal("Cannot Insert##end_ins_block", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::TextUnformatted("Cannot insert at an [END] item.");
         ImGui::Spacing();
@@ -1563,8 +1636,11 @@ void MovesetEditorWindow::RenderCloseConfirmModal()
         m_pendingClose = false;
     }
 
-    const ImVec2 center = ImGui::GetMainViewport()->GetCenter();
-    ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGuiViewport* edVp = (m_viewportId != 0) ? ImGui::FindViewportByID(m_viewportId) : nullptr;
+    if (!edVp) edVp = ImGui::GetMainViewport();
+
+    ImGui::SetNextWindowViewport(edVp->ID);
+    ImGui::SetNextWindowPos(edVp->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
     if (ImGui::BeginPopupModal("Unsaved Changes##closemodal", nullptr,
                                ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse))
     {
@@ -1611,20 +1687,14 @@ void MovesetEditorWindow::RenderSavePopups()
     const ImVec2 wpos   = ImGui::GetWindowPos();
     const ImVec2 wsz    = ImGui::GetWindowSize();
     const ImVec2 center = ImVec2(wpos.x + wsz.x * 0.5f, wpos.y + wsz.y * 0.5f);
-
-    // -- Dim overlay (only while saving, not after) ---------------
-    if (m_saveState == SaveState::Saving)
-    {
-        ImGui::GetWindowDrawList()->AddRectFilled(
-            wpos, ImVec2(wpos.x + wsz.x, wpos.y + wsz.y),
-            IM_COL32(0, 0, 0, 110));
-    }
+    (void)wpos; (void)wsz;
 
     // -- Open popup triggers (must be before BeginPopupModal) -----
     if (m_openSavingPopup) { ImGui::OpenPopup("##saving_modal"); m_openSavingPopup = false; }
     if (m_openDonePopup)   { ImGui::OpenPopup("##savedone_modal"); m_openDonePopup = false; }
 
     // -- "Saving..." modal ----------------------------------------
+    ImGui::SetNextWindowViewport(m_viewportId != 0 ? m_viewportId : ImGui::GetMainViewport()->ID);
     ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
     constexpr ImGuiWindowFlags kModalFlags =
         ImGuiWindowFlags_AlwaysAutoResize |
@@ -1656,6 +1726,7 @@ void MovesetEditorWindow::RenderSavePopups()
     }
 
     // -- "Saved" modal --------------------------------------------
+    ImGui::SetNextWindowViewport(m_viewportId != 0 ? m_viewportId : ImGui::GetMainViewport()->ID);
     ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
     if (ImGui::BeginPopupModal("##savedone_modal", nullptr, kModalFlags))
     {

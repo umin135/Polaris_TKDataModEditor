@@ -129,6 +129,11 @@ private:
     std::unordered_map<int, std::string> m_customNames;
     std::string m_windowTitle;
     bool        m_open              = true;
+    bool        m_firstFrame        = true;  // used to set initial position outside main viewport
+    bool        m_pendingFocus      = false; // bring editor OS window to front on second frame
+    float       m_pendingMoveX      = -1.f; // if >= 0, move window to this pos next frame via ImGui
+    float       m_pendingMoveY      = -1.f;
+    uint32_t    m_viewportId        = 0;     // ImGuiID of the viewport this window is in (updated each frame)
     int         m_selectedIdx       = -1;
     bool        m_moveListScrollPending = false; // request scroll-to-selected on next render
     bool        m_dirty            = false; // unsaved changes exist

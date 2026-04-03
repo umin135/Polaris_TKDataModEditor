@@ -262,6 +262,10 @@ void App::ApplyStyle()
     style.FramePadding  = ImVec2(6.0f,  4.0f);
     style.ItemSpacing   = ImVec2(8.0f,  6.0f);
     style.ScrollbarSize = 14.0f;
+
+    // Disable ImGui's built-in modal dim (it affects all viewports with ViewportsEnable).
+    // MovesetEditorWindow draws its own dim on the editor viewport only.
+    colors[ImGuiCol_ModalWindowDimBg] = ImVec4(0, 0, 0, 0);
 }
 
 // -------------------------------------------------------------
@@ -735,7 +739,8 @@ void App::RenderMovesetView()
     const bool wantOpen = m_movesetView.TakePendingOpen(openPath, openName);
     ImGui::EndChild();
 
-    // Open a new editor window if the user clicked Edit on a moveset
+    // Open a new editor window if the user clicked Edit on a moveset.
+    // The editor itself will minimize the main window after it comes to the foreground.
     if (wantOpen)
         m_editorWindows.emplace_back(openPath, openName, m_nextEditorUid++);
 
