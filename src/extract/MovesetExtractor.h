@@ -67,7 +67,10 @@ private:
                     const std::string& charaName,
                     uintptr_t motbinBase,
                     const MotbinNameData* names,
+                    const std::string& gameVersion,
                     std::string& errorMsg);
+
+    std::string ReadGameVersion();
 
     GameProcessInfo m_proc;
     PlayerSlotInfo  m_slots[2];

@@ -12,7 +12,8 @@
 // -------------------------------------------------------------
 //  WriteIni -- write moveset.ini alongside the extracted motbin
 // -------------------------------------------------------------
-static void WriteIni(const std::string& folder, uint32_t charaId, const std::string& charaName)
+static void WriteIni(const std::string& folder, uint32_t charaId, const std::string& charaName,
+                     const std::string& gameVersion)
 {
     // Resolve character code from characterList.txt (id,name,code); fall back to raw name.
     const char* mapped    = LabelDB::Get().CharaCode(charaId);
@@ -23,9 +24,10 @@ static void WriteIni(const std::string& folder, uint32_t charaId, const std::str
     fopen_s(&f, path.c_str(), "w");
     if (!f) return;
 
+    const char* ver = gameVersion.empty() ? "Unknown" : gameVersion.c_str();
     fprintf(f, "[Info]\n");
     fprintf(f, "OriginalCharacter=%s\n", charaCode);
-    fprintf(f, "Version=Unknown\n");
+    fprintf(f, "Version=%s\n",           ver);
     fprintf(f, "DefaultTarget=%s\n",     charaCode);
     fclose(f);
 }
@@ -361,6 +363,7 @@ bool MovesetExtractor::SaveMotbin(const std::vector<uint8_t>& bytes,
                                    const std::string& charaName,
                                    uintptr_t motbinBase,
                                    const MotbinNameData* names,
+                                   const std::string& gameVersion,
                                    std::string& errorMsg)
 {
     // Build path: destFolder/TK8_<charaName>/moveset.motbin
@@ -398,9 +401,51 @@ bool MovesetExtractor::SaveMotbin(const std::vector<uint8_t>& bytes,
     }
 
     // Write moveset.ini -- character info sidecar (name DB is built into the editor)
-    WriteIni(folder, charaId, charaName);
+    WriteIni(folder, charaId, charaName, gameVersion);
 
     return true;
+}
+
+// -------------------------------------------------------------
+//  ReadGameVersion -- AoB scan for version string
+//
+//  Pattern: 4C 8D 2D ?? ?? ?? ?? 49 8B CD E8 ...
+//  The 4-byte signed offset at +3 is a RIP-relative displacement
+//  (RIP = match address + 7 = start of next instruction).
+//  The resolved address holds a null-terminated ASCII version string
+//  such as "3.00.01(479287)FL12_2SM6(6.7)".
+//  We extract only the prefix before the first '('.
+// -------------------------------------------------------------
+static constexpr char kVersionAob[] =
+    "4C 8D 2D ?? ?? ?? ?? 49 8B CD E8 ?? ?? ?? ?? 41 B9 ?? ?? ?? ?? 4C 8D 05";
+
+std::string MovesetExtractor::ReadGameVersion()
+{
+    if (!m_proc.valid) return {};
+
+    uintptr_t match = AobScan(m_proc, kVersionAob,
+                               m_proc.moduleBase,
+                               m_proc.moduleBase + m_proc.moduleSize);
+    if (!match) return {};
+
+    // Read the 4-byte signed RIP-relative offset at match+3
+    int32_t rel32 = 0;
+    if (!ReadGameMemory(m_proc, match + 3, &rel32, sizeof(rel32))) return {};
+
+    // RIP points to the byte after the 7-byte LEA instruction
+    uintptr_t strAddr = match + 7 + static_cast<uintptr_t>(static_cast<intptr_t>(rel32));
+
+    // Read up to 64 bytes of the version string
+    char buf[64] = {};
+    if (!ReadGameMemory(m_proc, strAddr, buf, sizeof(buf) - 1)) return {};
+    buf[sizeof(buf) - 1] = '\0';
+
+    // Extract prefix before first '('
+    std::string full(buf);
+    auto paren = full.find('(');
+    if (paren != std::string::npos)
+        return full.substr(0, paren);
+    return full;
 }
 
 // -------------------------------------------------------------
@@ -478,7 +523,9 @@ bool MovesetExtractor::ExtractToFile(int slotIndex,
         }
     }
 
-    if (!SaveMotbin(bytes, destFolder, slot.charaId, slot.charaName, slot.motbinAddr, &names, errorMsg))
+    std::string gameVersion = ReadGameVersion();
+
+    if (!SaveMotbin(bytes, destFolder, slot.charaId, slot.charaName, slot.motbinAddr, &names, gameVersion, errorMsg))
         return false;
 
     m_statusMsg = "Extracted -> TK8_" + slot.charaName + "  (" +
