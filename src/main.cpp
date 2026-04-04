@@ -238,6 +238,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
         ImGuiIO& ioRef = ImGui::GetIO();
         constexpr float kFontSize = 15.0f;
 
+        // Custom glyph ranges: Basic Latin + Latin Supplement + Arrows block (→ = U+2192)
+        static const ImWchar kGlyphRanges[] = {
+            0x0020, 0x00FF, // Basic Latin + Latin Supplement
+            0x2190, 0x21FF, // Arrows
+            0,
+        };
+
         auto LoadFontFromResource = [&](int resourceId) -> ImFont*
         {
             HRSRC   hRes  = FindResource(nullptr, MAKEINTRESOURCE(resourceId), RT_RCDATA);
@@ -251,7 +258,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
             // so we keep the resource memory alive (it stays for the process lifetime)
             ImFontConfig cfg;
             cfg.FontDataOwnedByAtlas = false;
-            return ioRef.Fonts->AddFontFromMemoryTTF(data, (int)size, kFontSize, &cfg);
+            return ioRef.Fonts->AddFontFromMemoryTTF(data, (int)size, kFontSize, &cfg, kGlyphRanges);
         };
 
         // Regular -- becomes the ImGui default font (index 0)

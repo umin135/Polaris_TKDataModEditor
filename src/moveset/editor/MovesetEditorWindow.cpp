@@ -86,11 +86,11 @@ bool MovesetEditorWindow::Render()
         ImGui::SetNextWindowPos(
             ImVec2(mv->Pos.x + mv->Size.x + 20.0f, mv->Pos.y + 60.0f),
             ImGuiCond_Always);
-        ImGui::SetNextWindowSize(ImVec2(980.0f, 640.0f), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(1280.0f, 800.0f), ImGuiCond_Always);
     }
     else
     {
-        ImGui::SetNextWindowSize(ImVec2(980.0f, 640.0f), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(1280.0f, 800.0f), ImGuiCond_FirstUseEver);
     }
     ImGui::SetNextWindowSizeConstraints(ImVec2(640.0f, 420.0f), ImVec2(FLT_MAX, FLT_MAX));
 
@@ -174,7 +174,7 @@ bool MovesetEditorWindow::Render()
     RenderMenuBar();
 
     // -- Two-panel split ----------------------------------
-    const float listW = 240.0f;
+    const float listW = 250.0f;
 
     ImGui::BeginChild("##mew_list", ImVec2(listW, 0.0f), true,
                       ImGuiWindowFlags_NoScrollbar);
@@ -183,7 +183,7 @@ bool MovesetEditorWindow::Render()
 
     ImGui::SameLine();
 
-    ImGui::BeginChild("##mew_props", ImVec2(0.0f, 0.0f), false,
+    ImGui::BeginChild("##mew_props", ImVec2(0.0f, 0.0f), true,
                       ImGuiWindowFlags_HorizontalScrollbar);
     if (m_selectedIdx >= 0 &&
         m_selectedIdx < static_cast<int>(m_data.moves.size()))
@@ -1123,17 +1123,15 @@ void MovesetEditorWindow::RenderMoveProperties(int idx)
                  "Move: %s###tab_overview", m.displayName.c_str());
         if (ImGui::BeginTabItem(overviewLabel))
         {
+            ImGui::SeparatorText("General");
             ImGui::Spacing();
             RenderSection_Overview(m, m_dirty);
+            ImGui::Spacing();
+            ImGui::SeparatorText("Hitboxes");
+            ImGui::Spacing();
+            RenderSection_Hitboxes(m, m_dirty);
             ImGui::EndTabItem();
         }
-    }
-
-    if (ImGui::BeginTabItem("Hitboxes###tab_hitboxes"))
-    {
-        ImGui::Spacing();
-        RenderSection_Hitboxes(m, m_dirty);
-        ImGui::EndTabItem();
     }
 
     if (ImGui::BeginTabItem("Debug###tab_debug"))
@@ -1176,14 +1174,12 @@ static std::vector<std::pair<uint32_t,uint32_t>>
 ComputeOtherPropGroups(const std::vector<ParsedExtraProp>&,
                        const std::vector<ParsedRequirement>&);
 
-// -- Section: Overview (3-column layout matching OldTool2 field order) ---------
+// -- Section: Overview (3-column block grid) -----------------------------------
 void MovesetEditorWindow::RenderSection_Overview(ParsedMove& m, bool& dirty)
 {
     using namespace MoveLabel;
-    const float spacing = ImGui::GetStyle().ItemSpacing.x;
-    const float colW    = (ImGui::GetContentRegionAvail().x - spacing * 2.0f) / 3.0f;
 
-    // -- Pre-compute groups (used for both validity checks and click navigation) -
+    // -- Pre-compute groups (used for validity checks and click navigation) ----
     const auto cancelGroups = ComputeGroups(m_data.cancelBlock,
         +[](const ParsedCancel& c)->bool{ return c.command == 0x8000; });
 
@@ -1210,10 +1206,9 @@ void MovesetEditorWindow::RenderSection_Overview(ParsedMove& m, bool& dirty)
     const auto spGroups = ComputeOtherPropGroups(m_data.startPropBlock, m_data.requirementBlock);
     const auto npGroups = ComputeOtherPropGroups(m_data.endPropBlock,   m_data.requirementBlock);
 
-    // -- Validity flags --------------------------------------------------------
-    const uint16_t transU16        = m.transition;
-    const bool     transIsGeneric  = (transU16 >= 0x8000);
-    // Resolve transition: generic IDs use original_aliases; direct IDs check move count
+    // -- Validity flags -------------------------------------------------------
+    const uint16_t transU16       = m.transition;
+    const bool     transIsGeneric = (transU16 >= 0x8000);
     int transResolvedIdx = -1;
     if (transIsGeneric)
     {
@@ -1230,7 +1225,7 @@ void MovesetEditorWindow::RenderSection_Overview(ParsedMove& m, bool& dirty)
         if (transU16 < static_cast<uint16_t>(m_data.moves.size()))
             transResolvedIdx = static_cast<int>(transU16);
     }
-    const bool transValid = (transResolvedIdx >= 0);
+    const bool transValid     = (transResolvedIdx >= 0);
     const bool cancelValid    = (m.cancel_idx        != 0xFFFFFFFF) && (FindGroupOuter(cancelGroups,   m.cancel_idx)        >= 0);
     const bool hitCondValid   = (m.hit_condition_idx != 0xFFFFFFFF) && (FindGroupOuter(hitCondGroups,  m.hit_condition_idx) >= 0);
     const bool voiceclipValid = (m.voiceclip_idx     != 0xFFFFFFFF) && (m.voiceclip_idx < m_data.voiceclipBlock.size());
@@ -1238,166 +1233,470 @@ void MovesetEditorWindow::RenderSection_Overview(ParsedMove& m, bool& dirty)
     const bool spValid        = (m.start_prop_idx    != 0xFFFFFFFF) && (FindGroupOuter(spGroups,       m.start_prop_idx)    >= 0);
     const bool npValid        = (m.end_prop_idx      != 0xFFFFFFFF) && (FindGroupOuter(npGroups,       m.end_prop_idx)      >= 0);
 
-    // -- Column 1 -------------------------------------------------------------
-    bool clickCancel    = false, clickTrans    = false, clickHitCond   = false;
+    // -- Navigation click flags -----------------------------------------------
+    bool clickCancel    = false, clickTrans     = false, clickHitCond  = false;
     bool clickVoiceclip = false, clickExtraProp = false;
     bool clickStartProp = false, clickEndProp   = false;
 
-    ImGui::BeginChild("##ov_c1", ImVec2(colW, 0.0f), false);
-    if (BeginPropTable("##ov1")) {
-        // Editable name (stored in editor_datas.json, not in motbin)
+    // -- Block-grid helpers ---------------------------------------------------
+    static constexpr float  kTTH     = 34.0f; // height reserved for 2-line tooltip text
+    static constexpr ImVec4 kGreen   = {0.55f, 0.85f, 0.55f, 1.0f};
+    static constexpr ImVec4 kPink    = {1.00f, 0.50f, 0.65f, 1.0f};
+    static constexpr ImVec4 kGray    = {0.50f, 0.50f, 0.50f, 1.0f};
+    static constexpr ImVec4 kTTCol   = {0.40f, 0.75f, 1.00f, 1.00f}; // sky-blue tooltip text
+    static constexpr ImVec4 kBlockBg = {0.14f, 0.14f, 0.18f, 1.00f}; // card background
+
+    // Card height: label + gap + input + gap + tooltip reserve + inner padding
+    const float kBlockH = ImGui::GetTextLineHeight()
+                        + ImGui::GetStyle().ItemSpacing.y
+                        + ImGui::GetFrameHeight()
+                        + ImGui::GetStyle().ItemSpacing.y
+                        + kTTH
+                        + ImGui::GetStyle().WindowPadding.y * 2.0f;
+
+    // Fixed-height tooltip area at the bottom of every block.
+    // Pass non-null `text` when tooltip data is available; pass nullptr for empty space.
+    auto TTArea = [&](const char* /*id*/, const char* text = nullptr)
+    {
+        if (text && text[0])
+            ImGui::TextColored(kTTCol, "%s", text);
+        else
+            ImGui::Dummy(ImVec2(-1.0f, kTTH));
+    };
+
+    // Begin a bordered card child. Always pair with BlockEnd().
+    auto BlockBegin = [&](const char* id) -> bool
+    {
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, kBlockBg);
+        return ImGui::BeginChild(id, ImVec2(-1.0f, kBlockH), ImGuiChildFlags_Borders);
+    };
+    auto BlockEnd = [&]()
+    {
+        ImGui::EndChild();
+        ImGui::PopStyleColor();
+    };
+
+    // Colored label text for navigation fields (non-clickable; navigation via Go button)
+    auto NavLabel = [&](const char* lbl, bool valid)
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, valid ? kGreen : kPink);
+        ImGui::TextUnformatted(lbl);
+        ImGui::PopStyleColor();
+    };
+
+    // "Go →" button drawn with ImDrawList (font-independent arrow triangle).
+    // Width: "Go " text + triangle + frame padding.
+    const float kArrowW = ImGui::GetFrameHeight() * 0.38f;
+    const float kBtnW   = ImGui::CalcTextSize("Go ").x + kArrowW
+                        + ImGui::GetStyle().FramePadding.x * 2.0f + 4.0f;
+
+    // "Go →" button: always rendered; disabled (greyed) when !valid.
+    // Returns true only when clicked and valid.
+    auto GoButton = [&](const char* id, bool valid) -> bool
+    {
+        if (!valid) ImGui::BeginDisabled();
+
+        const float  h  = ImGui::GetFrameHeight();
+        bool clicked    = ImGui::InvisibleButton(id, ImVec2(kBtnW, h));
+        const ImVec2 p0 = ImGui::GetItemRectMin();
+        const ImVec2 p1 = ImGui::GetItemRectMax();
+        const bool   hov= ImGui::IsItemHovered();
+        const bool   act= ImGui::IsItemActive();
+
+        // Button background (GetColorU32 respects BeginDisabled alpha automatically)
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilled(p0, p1,
+            ImGui::GetColorU32(act ? ImGuiCol_ButtonActive
+                                   : hov ? ImGuiCol_ButtonHovered
+                                         : ImGuiCol_Button),
+            ImGui::GetStyle().FrameRounding);
+        dl->AddRect(p0, p1,
+            ImGui::GetColorU32(ImGuiCol_Border),
+            ImGui::GetStyle().FrameRounding);
+
+        // "Go " text + right-pointing triangle, centred in button
+        const ImU32  col    = ImGui::GetColorU32(ImGuiCol_Text);
+        const char*  txt    = "Go ";
+        const ImVec2 txtSz  = ImGui::CalcTextSize(txt);
+        const float  totalW = txtSz.x + kArrowW;
+        const float  startX = p0.x + (kBtnW - totalW) * 0.5f;
+        const float  midY   = (p0.y + p1.y) * 0.5f;
+        const float  arrowH = h * 0.30f;
+
+        dl->AddText(ImVec2(startX, midY - txtSz.y * 0.5f), col, txt);
+        dl->AddTriangleFilled(
+            ImVec2(startX + txtSz.x,          midY - arrowH * 0.5f),
+            ImVec2(startX + txtSz.x,          midY + arrowH * 0.5f),
+            ImVec2(startX + txtSz.x + kArrowW, midY),
+            col);
+
+        if (!valid) ImGui::EndDisabled();
+        return clicked && valid;
+    };
+
+    // -- 3-column block grid --------------------------------------------------
+    // Block cards provide their own visual separation — no table inner borders needed.
+    constexpr ImGuiTableFlags kGridF = ImGuiTableFlags_PadOuterX;
+
+    if (!ImGui::BeginTable("##field_blocks", 3, kGridF)) return;
+    ImGui::TableSetupColumn("c0", ImGuiTableColumnFlags_WidthStretch);
+    ImGui::TableSetupColumn("c1", ImGuiTableColumnFlags_WidthStretch);
+    ImGui::TableSetupColumn("c2", ImGuiTableColumnFlags_WidthStretch);
+
+    // ---- Row 0: name | name_key | anim_key ----
+    ImGui::TableNextColumn();
+    if (BlockBegin("##blk_name")) {
+        ImGui::TextDisabled("%s", Name);
         {
-            ImGui::TableNextRow();
-            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("%s", MoveLabel::Name);
-            ImGui::TableSetColumnIndex(1);
+            char nameBuf[256]; snprintf(nameBuf, sizeof(nameBuf), "%s", m.displayName.c_str());
             ImGui::SetNextItemWidth(-1.0f);
-            char nameBuf[256];
-            snprintf(nameBuf, sizeof(nameBuf), "%s", m.displayName.c_str());
             ImGui::InputText("##move_name", nameBuf, sizeof(nameBuf));
             if (ImGui::IsItemDeactivatedAfterEdit())
             {
                 m.displayName = nameBuf;
-                if (nameBuf[0] != '\0')
-                    m_customNames[m_selectedIdx] = m.displayName;
-                else
-                    m_customNames.erase(m_selectedIdx);
+                if (nameBuf[0] != '\0') m_customNames[m_selectedIdx] = m.displayName;
+                else                    m_customNames.erase(m_selectedIdx);
                 SaveEditorDatas();
             }
         }
-        RowHex32(NameKey,      m.name_key);
-        // anim_key: editable InputText (AnimNameDB is the source of truth)
+        TTArea("name");
+    } BlockEnd();
+
+    ImGui::TableNextColumn();
+    if (BlockBegin("##blk_namekey")) {
+        ImGui::TextDisabled("%s", NameKey);
+        { char buf[14]; snprintf(buf, sizeof(buf), "0x%08X", m.name_key);
+          ImGui::SetNextItemWidth(-1.0f);
+          ImGui::InputText("##namekey_ro", buf, sizeof(buf), ImGuiInputTextFlags_ReadOnly); }
+        TTArea("namekey");
+    } BlockEnd();
+
+    ImGui::TableNextColumn();
+    if (BlockBegin("##blk_animkey")) {
+        const bool db = m_animNameDB.IsLoaded();
+        if (m_animKeyBufIdx != m_selectedIdx)
         {
-            const bool db = m_animNameDB.IsLoaded();
-
-            // Rebuild buf only when selected move changes
-            if (m_animKeyBufIdx != m_selectedIdx)
-            {
-                m_animKeyBufIdx = m_selectedIdx;
-                if (db)
-                {
-                    std::string name = m_animNameDB.AnimKeyToName(m.anim_key);
-                    snprintf(m_animKeyBuf, sizeof(m_animKeyBuf),
-                             "%s", name.empty() ? "" : name.c_str());
-                }
-                else
-                {
-                    snprintf(m_animKeyBuf, sizeof(m_animKeyBuf), "0x%08X", m.anim_key);
-                }
-            }
-
-            // Validate buf
-            uint32_t resolvedKey = 0;
-            const bool valid = db && m_animNameDB.NameToAnimKey(m_animKeyBuf, resolvedKey);
-
-            // Left column: colored + clickable label
-            static constexpr ImVec4 kGreen = {0.55f, 0.85f, 0.55f, 1.0f};
-            static constexpr ImVec4 kRed   = {1.00f, 0.35f, 0.35f, 1.0f};
-            static constexpr ImVec4 kGray  = {0.50f, 0.50f, 0.50f, 1.0f};
-            const ImVec4& lblCol = !db ? kGray : (valid ? kGreen : kRed);
-
-            ImGui::TableNextRow();
-            ImGui::TableSetColumnIndex(0);
-            ImGui::PushStyleColor(ImGuiCol_Text, lblCol);
-            char animLinkId[64];
-            snprintf(animLinkId, sizeof(animLinkId), "%s##animkeylnk", AnimKey);
-            bool clickedAnim = ImGui::Selectable(animLinkId, false, ImGuiSelectableFlags_None);
-            ImGui::PopStyleColor();
-            if (ImGui::IsItemHovered())
-            {
-                if (!db)         ImGui::SetTooltip("anim_names.json not loaded (open Animation Manager to generate)");
-                else if (!valid) ImGui::SetTooltip("Unknown animation name  |  Click to open Animation Manager");
-                else             ImGui::SetTooltip("Click to navigate in Animation Manager");
-            }
-
-            // Right column: InputText (editable only when DB loaded)
-            ImGui::TableSetColumnIndex(1);
-            ImGui::SetNextItemWidth(-1.0f);
+            m_animKeyBufIdx = m_selectedIdx;
             if (db)
             {
-                if (ImGui::InputText("##animkeyinput", m_animKeyBuf, sizeof(m_animKeyBuf)))
-                {
-                    uint32_t newKey = 0;
-                    if (m_animNameDB.NameToAnimKey(m_animKeyBuf, newKey))
-                    {
-                        m.anim_key = newKey;
-                        dirty      = true;
-                    }
-                }
+                std::string animName = m_animNameDB.AnimKeyToName(m.anim_key);
+                snprintf(m_animKeyBuf, sizeof(m_animKeyBuf), "%s", animName.c_str());
             }
             else
             {
-                // DB not available — show raw value as read-only
-                ImGui::TextDisabled("0x%08X", m.anim_key);
-            }
-
-            // Click: open AnimMgr (always), navigate if valid
-            if (clickedAnim)
-            {
-                if (!m_animMgr)
-                {
-                    m_animMgr = std::make_unique<AnimationManagerWindow>(
-                                    m_data.folderPath, m_movesetName, m_uid);
-                    std::vector<uint32_t> keys;
-                    keys.reserve(m_data.moves.size());
-                    for (const auto& mv : m_data.moves) keys.push_back(mv.anim_key);
-                    m_animMgr->SetMotbinAnimKeys(keys);
-                    m_animMgr->SetAnimNameDB(&m_animNameDB);
-                }
-                if (valid && m_selectedIdx >= 0 && m_selectedIdx < (int)m_data.moves.size())
-                    m_animMgr->NavigateByMotbinKey(0, m_data.moves[m_selectedIdx].anim_key);
+                snprintf(m_animKeyBuf, sizeof(m_animKeyBuf), "0x%08X", m.anim_key);
             }
         }
-        RowHex32(SkeletonId,   m.anmbin_body_sub_idx);
-        if (RowU32Edit ("##vuln",     Vuln,     m.vuln))     dirty = true;
-        if (RowU32Edit ("##hitlevel", Hitlevel, m.hitlevel)) dirty = true;
-        { auto r = RowIdxEditLink("##cancel_idx", CancelIdx, m.cancel_idx, cancelValid);
-          if (r.changed) dirty = true;  clickCancel = r.navigate; }
-        { auto r = RowMoveEditLink("##transition", Transition, m.transition, transValid, transResolvedIdx, transIsGeneric);
-          if (r.changed) dirty = true;  clickTrans = r.navigate; }
-        if (RowI32Edit ("##anim_len", AnimLen,  m.anim_len)) dirty = true;
-        { auto r = RowIdxEditLink("##hitcond_idx", HitCondIdx, m.hit_condition_idx, hitCondValid);
-          if (r.changed) dirty = true;  clickHitCond = r.navigate; }
-        { auto r = RowIdxEditLink("##voice_idx", VoiceclipIdx, m.voiceclip_idx, voiceclipValid);
-          if (r.changed) dirty = true;  clickVoiceclip = r.navigate; }
-        { auto r = RowIdxEditLink("##eprop_idx", ExtraPropIdx, m.extra_prop_idx, epValid);
-          if (r.changed) dirty = true;  clickExtraProp = r.navigate; }
-        { auto r = RowIdxEditLink("##sprop_idx", StartPropIdx, m.start_prop_idx, spValid);
-          if (r.changed) dirty = true;  clickStartProp = r.navigate; }
-        { auto r = RowIdxEditLink("##nprop_idx", EndPropIdx, m.end_prop_idx, npValid);
-          if (r.changed) dirty = true;  clickEndProp = r.navigate; }
-        ImGui::EndTable();
-    }
-    ImGui::EndChild(); ImGui::SameLine();
+        uint32_t resolvedKey = 0;
+        const bool animValid = db && m_animNameDB.NameToAnimKey(m_animKeyBuf, resolvedKey);
+        const ImVec4& lblCol = !db ? kGray : (animValid ? kGreen : kPink);
 
-    // -- Column 2 -------------------------------------------------------------
-    ImGui::BeginChild("##ov_c2", ImVec2(0.0f, 0.0f), false);
-    if (BeginPropTable("##ov2")) {
-        if (RowI16Edit   ("##0xCE",      CE,        m._0xCE))      dirty = true;
-        if (RowHex32Edit ("##t_char_id", TCharId,   m.ordinal_id2)) dirty = true;
-        if (RowHex32Edit ("##ordinal_id",OrdinalId, m.moveId))      dirty = true;
-        if (RowU32Edit ("##0x118",         F0x118,        m._0x118))         dirty = true;
-        if (RowU32Edit ("##0x11C",         F0x11C,        m._0x11C))         dirty = true;
-        if (RowU32Edit ("##airborne_start",AirborneStart, m.airborne_start)) dirty = true;
-        if (RowU32Edit ("##airborne_end",  AirborneEnd,   m.airborne_end))   dirty = true;
-        if (RowU32Edit ("##ground_fall",   GroundFall,    m.ground_fall))    dirty = true;
-        if (RowU32Edit ("##0x154",         F0x154,        m._0x154))         dirty = true;
-        if (RowU32Edit ("##u6",            U6,            m.u6))             dirty = true;
-        if (RowHex32Edit("##u15",          U15,           m.u15))            dirty = true;
+        ImGui::PushStyleColor(ImGuiCol_Text, lblCol);
+        ImGui::TextUnformatted(AnimKey);
+        ImGui::PopStyleColor();
+
+        ImGui::SetNextItemWidth(-(kBtnW + ImGui::GetStyle().ItemSpacing.x));
+        if (db)
         {
-            // collision stored as uint16, display/edit as int16
-            int16_t col16 = static_cast<int16_t>(m.collision);
-            if (RowI16Edit("##collision", Collision, col16)) { m.collision = static_cast<uint16_t>(col16); dirty = true; }
+            if (ImGui::InputText("##animkeyinput", m_animKeyBuf, sizeof(m_animKeyBuf)))
+            {
+                uint32_t newKey = 0;
+                if (m_animNameDB.NameToAnimKey(m_animKeyBuf, newKey)) { m.anim_key = newKey; dirty = true; }
+            }
         }
+        else
+        {
+            char roBuf[32]; snprintf(roBuf, sizeof(roBuf), "0x%08X", m.anim_key);
+            ImGui::InputText("##animkey_ro", roBuf, sizeof(roBuf), ImGuiInputTextFlags_ReadOnly);
+        }
+        ImGui::SameLine();
+        if (GoButton("Go \xe2\x86\x92##animkey_go", animValid))
+        {
+            if (!m_animMgr)
+            {
+                m_animMgr = std::make_unique<AnimationManagerWindow>(
+                                m_data.folderPath, m_movesetName, m_uid);
+                std::vector<uint32_t> keys;
+                keys.reserve(m_data.moves.size());
+                for (const auto& mv : m_data.moves) keys.push_back(mv.anim_key);
+                m_animMgr->SetMotbinAnimKeys(keys);
+                m_animMgr->SetAnimNameDB(&m_animNameDB);
+            }
+            if (m_selectedIdx >= 0 && m_selectedIdx < (int)m_data.moves.size())
+                m_animMgr->NavigateByMotbinKey(0, m_data.moves[m_selectedIdx].anim_key);
+        }
+        TTArea("animkey");
+    } BlockEnd();
+
+    // ---- Row 1: skeleton_id | vuln | hitlevel ----
+    ImGui::TableNextColumn();
+    if (BlockBegin("##blk_skelid")) {
+        ImGui::TextDisabled("%s", SkeletonId);
+        { char buf[14]; snprintf(buf, sizeof(buf), "0x%08X", m.anmbin_body_sub_idx);
+          ImGui::SetNextItemWidth(-1.0f);
+          ImGui::InputText("##skelid_ro", buf, sizeof(buf), ImGuiInputTextFlags_ReadOnly); }
+        TTArea("skelid");
+    } BlockEnd();
+
+    ImGui::TableNextColumn();
+    if (BlockBegin("##blk_vuln")) {
+        ImGui::TextDisabled("%s", Vuln);
+        ImGui::SetNextItemWidth(-1.0f);
+        { int tmp = (int)m.vuln; if (ImGui::InputInt("##vuln", &tmp, 0, 0)) { m.vuln = (uint32_t)tmp; dirty = true; } }
+        TTArea("vuln");
+    } BlockEnd();
+
+    ImGui::TableNextColumn();
+    if (BlockBegin("##blk_hitlevel")) {
+        ImGui::TextDisabled("%s", Hitlevel);
+        ImGui::SetNextItemWidth(-1.0f);
+        { int tmp = (int)m.hitlevel; if (ImGui::InputInt("##hitlevel", &tmp, 0, 0)) { m.hitlevel = (uint32_t)tmp; dirty = true; } }
+        TTArea("hitlevel");
+    } BlockEnd();
+
+    // ---- Row 2: cancel_idx | transition | anim_len ----
+    ImGui::TableNextColumn();
+    if (BlockBegin("##blk_cancelidx")) {
+        NavLabel(CancelIdx, cancelValid);
+        ImGui::SetNextItemWidth(-(kBtnW + ImGui::GetStyle().ItemSpacing.x));
+        int tmp = (m.cancel_idx == 0xFFFFFFFF) ? -1 : (int)m.cancel_idx;
+        if (ImGui::InputInt("##cancel_idx", &tmp, 0, 0)) { m.cancel_idx = (tmp < 0) ? 0xFFFFFFFF : (uint32_t)tmp; dirty = true; }
+        ImGui::SameLine();
+        if (GoButton("Go \xe2\x86\x92##cancel_go", cancelValid)) clickCancel = true;
+        TTArea("cancelidx");
+    } BlockEnd();
+
+    ImGui::TableNextColumn();
+    if (BlockBegin("##blk_trans")) {
+        NavLabel(Transition, transValid);
+        ImGui::SetNextItemWidth(-(kBtnW + ImGui::GetStyle().ItemSpacing.x));
+        int tmp = (int)(uint32_t)m.transition;
+        if (ImGui::InputInt("##transition", &tmp, 0, 0)) { m.transition = (uint16_t)((uint32_t)tmp & 0xFFFFu); dirty = true; }
+        ImGui::SameLine();
+        if (GoButton("Go \xe2\x86\x92##trans_go", transValid)) clickTrans = true;
+        TTArea("trans");
+    } BlockEnd();
+
+    ImGui::TableNextColumn();
+    if (BlockBegin("##blk_animlen")) {
+        ImGui::TextDisabled("%s", AnimLen);
+        ImGui::SetNextItemWidth(-1.0f);
+        if (ImGui::InputInt("##anim_len", &m.anim_len, 0, 0)) dirty = true;
+        TTArea("animlen");
+    } BlockEnd();
+
+    // ---- Row 3: hit_condition_idx | voiceclip_idx | extra_properties_idx ----
+    ImGui::TableNextColumn();
+    if (BlockBegin("##blk_hcidx")) {
+        NavLabel(HitCondIdx, hitCondValid);
+        ImGui::SetNextItemWidth(-(kBtnW + ImGui::GetStyle().ItemSpacing.x));
+        int tmp = (m.hit_condition_idx == 0xFFFFFFFF) ? -1 : (int)m.hit_condition_idx;
+        if (ImGui::InputInt("##hitcond_idx", &tmp, 0, 0)) { m.hit_condition_idx = (tmp < 0) ? 0xFFFFFFFF : (uint32_t)tmp; dirty = true; }
+        ImGui::SameLine();
+        if (GoButton("Go \xe2\x86\x92##hc_go", hitCondValid)) clickHitCond = true;
+        TTArea("hcidx");
+    } BlockEnd();
+
+    ImGui::TableNextColumn();
+    if (BlockBegin("##blk_vcidx")) {
+        NavLabel(VoiceclipIdx, voiceclipValid);
+        ImGui::SetNextItemWidth(-(kBtnW + ImGui::GetStyle().ItemSpacing.x));
+        int tmp = (m.voiceclip_idx == 0xFFFFFFFF) ? -1 : (int)m.voiceclip_idx;
+        if (ImGui::InputInt("##voice_idx", &tmp, 0, 0)) { m.voiceclip_idx = (tmp < 0) ? 0xFFFFFFFF : (uint32_t)tmp; dirty = true; }
+        ImGui::SameLine();
+        if (GoButton("Go \xe2\x86\x92##vc_go", voiceclipValid)) clickVoiceclip = true;
+        TTArea("vcidx");
+    } BlockEnd();
+
+    ImGui::TableNextColumn();
+    if (BlockBegin("##blk_epidx")) {
+        NavLabel(ExtraPropIdx, epValid);
+        ImGui::SetNextItemWidth(-(kBtnW + ImGui::GetStyle().ItemSpacing.x));
+        int tmp = (m.extra_prop_idx == 0xFFFFFFFF) ? -1 : (int)m.extra_prop_idx;
+        if (ImGui::InputInt("##eprop_idx", &tmp, 0, 0)) { m.extra_prop_idx = (tmp < 0) ? 0xFFFFFFFF : (uint32_t)tmp; dirty = true; }
+        ImGui::SameLine();
+        if (GoButton("Go \xe2\x86\x92##ep_go", epValid)) clickExtraProp = true;
+        TTArea("epidx");
+    } BlockEnd();
+
+    // ---- Row 4: start_prop_idx | end_prop_idx | _0xCE ----
+    ImGui::TableNextColumn();
+    if (BlockBegin("##blk_spidx")) {
+        NavLabel(StartPropIdx, spValid);
+        ImGui::SetNextItemWidth(-(kBtnW + ImGui::GetStyle().ItemSpacing.x));
+        int tmp = (m.start_prop_idx == 0xFFFFFFFF) ? -1 : (int)m.start_prop_idx;
+        if (ImGui::InputInt("##sprop_idx", &tmp, 0, 0)) { m.start_prop_idx = (tmp < 0) ? 0xFFFFFFFF : (uint32_t)tmp; dirty = true; }
+        ImGui::SameLine();
+        if (GoButton("Go \xe2\x86\x92##sp_go", spValid)) clickStartProp = true;
+        TTArea("spidx");
+    } BlockEnd();
+
+    ImGui::TableNextColumn();
+    if (BlockBegin("##blk_npidx")) {
+        NavLabel(EndPropIdx, npValid);
+        ImGui::SetNextItemWidth(-(kBtnW + ImGui::GetStyle().ItemSpacing.x));
+        int tmp = (m.end_prop_idx == 0xFFFFFFFF) ? -1 : (int)m.end_prop_idx;
+        if (ImGui::InputInt("##nprop_idx", &tmp, 0, 0)) { m.end_prop_idx = (tmp < 0) ? 0xFFFFFFFF : (uint32_t)tmp; dirty = true; }
+        ImGui::SameLine();
+        if (GoButton("Go \xe2\x86\x92##np_go", npValid)) clickEndProp = true;
+        TTArea("npidx");
+    } BlockEnd();
+
+    ImGui::TableNextColumn();
+    if (BlockBegin("##blk_ce")) {
+        ImGui::TextDisabled("%s", CE);
+        ImGui::SetNextItemWidth(-1.0f);
+        { int tmp = (int)m._0xCE; if (ImGui::InputInt("##0xCE", &tmp, 0, 0)) { m._0xCE = (int16_t)tmp; dirty = true; } }
+        TTArea("ce");
+    } BlockEnd();
+
+    // ---- Row 5: t_char_id | ordinal_id | _0x118 ----
+    ImGui::TableNextColumn();
+    if (BlockBegin("##blk_tcharid")) {
+        ImGui::TextDisabled("%s", TCharId);
+        ImGui::SetNextItemWidth(-1.0f);
+        {
+            char buf[14]; snprintf(buf, sizeof(buf), "0x%08X", m.ordinal_id2);
+            ImGui::InputText("##t_char_id", buf, sizeof(buf));
+            if (ImGui::IsItemDeactivatedAfterEdit())
+            {
+                const char* p = buf; if (p[0]=='0' && (p[1]=='x'||p[1]=='X')) p += 2;
+                m.ordinal_id2 = (uint32_t)strtoul(p, nullptr, 16); dirty = true;
+            }
+        }
+        TTArea("tcharid");
+    } BlockEnd();
+
+    ImGui::TableNextColumn();
+    if (BlockBegin("##blk_ordinalid")) {
+        ImGui::TextDisabled("%s", OrdinalId);
+        ImGui::SetNextItemWidth(-1.0f);
+        {
+            char buf[14]; snprintf(buf, sizeof(buf), "0x%08X", m.moveId);
+            ImGui::InputText("##ordinal_id", buf, sizeof(buf));
+            if (ImGui::IsItemDeactivatedAfterEdit())
+            {
+                const char* p = buf; if (p[0]=='0' && (p[1]=='x'||p[1]=='X')) p += 2;
+                m.moveId = (uint32_t)strtoul(p, nullptr, 16); dirty = true;
+            }
+        }
+        TTArea("ordinalid");
+    } BlockEnd();
+
+    ImGui::TableNextColumn();
+    if (BlockBegin("##blk_f118")) {
+        ImGui::TextDisabled("%s", F0x118);
+        ImGui::SetNextItemWidth(-1.0f);
+        { int tmp = (int)m._0x118; if (ImGui::InputInt("##0x118", &tmp, 0, 0)) { m._0x118 = (uint32_t)tmp; dirty = true; } }
+        TTArea("f118");
+    } BlockEnd();
+
+    // ---- Row 6: _0x11C | airborne_start | airborne_end ----
+    ImGui::TableNextColumn();
+    if (BlockBegin("##blk_f11c")) {
+        ImGui::TextDisabled("%s", F0x11C);
+        ImGui::SetNextItemWidth(-1.0f);
+        { int tmp = (int)m._0x11C; if (ImGui::InputInt("##0x11C", &tmp, 0, 0)) { m._0x11C = (uint32_t)tmp; dirty = true; } }
+        TTArea("f11c");
+    } BlockEnd();
+
+    ImGui::TableNextColumn();
+    if (BlockBegin("##blk_airstart")) {
+        ImGui::TextDisabled("%s", AirborneStart);
+        ImGui::SetNextItemWidth(-1.0f);
+        { int tmp = (int)m.airborne_start; if (ImGui::InputInt("##airborne_start", &tmp, 0, 0)) { m.airborne_start = (uint32_t)tmp; dirty = true; } }
+        TTArea("airstart");
+    } BlockEnd();
+
+    ImGui::TableNextColumn();
+    if (BlockBegin("##blk_airend")) {
+        ImGui::TextDisabled("%s", AirborneEnd);
+        ImGui::SetNextItemWidth(-1.0f);
+        { int tmp = (int)m.airborne_end; if (ImGui::InputInt("##airborne_end", &tmp, 0, 0)) { m.airborne_end = (uint32_t)tmp; dirty = true; } }
+        TTArea("airend");
+    } BlockEnd();
+
+    // ---- Row 7: ground_fall | _0x154 | u6 ----
+    ImGui::TableNextColumn();
+    if (BlockBegin("##blk_gfall")) {
+        ImGui::TextDisabled("%s", GroundFall);
+        ImGui::SetNextItemWidth(-1.0f);
+        { int tmp = (int)m.ground_fall; if (ImGui::InputInt("##ground_fall", &tmp, 0, 0)) { m.ground_fall = (uint32_t)tmp; dirty = true; } }
+        TTArea("gfall");
+    } BlockEnd();
+
+    ImGui::TableNextColumn();
+    if (BlockBegin("##blk_f154")) {
+        ImGui::TextDisabled("%s", F0x154);
+        ImGui::SetNextItemWidth(-1.0f);
+        { int tmp = (int)m._0x154; if (ImGui::InputInt("##0x154", &tmp, 0, 0)) { m._0x154 = (uint32_t)tmp; dirty = true; } }
+        TTArea("f154");
+    } BlockEnd();
+
+    ImGui::TableNextColumn();
+    if (BlockBegin("##blk_u6")) {
+        ImGui::TextDisabled("%s", U6);
+        ImGui::SetNextItemWidth(-1.0f);
+        { int tmp = (int)m.u6; if (ImGui::InputInt("##u6", &tmp, 0, 0)) { m.u6 = (uint32_t)tmp; dirty = true; } }
+        TTArea("u6");
+    } BlockEnd();
+
+    // ---- Row 8: u15 | collision | distance ----
+    ImGui::TableNextColumn();
+    if (BlockBegin("##blk_u15")) {
+        ImGui::TextDisabled("%s", U15);
+        ImGui::SetNextItemWidth(-1.0f);
+        {
+            char buf[14]; snprintf(buf, sizeof(buf), "0x%08X", m.u15);
+            ImGui::InputText("##u15", buf, sizeof(buf));
+            if (ImGui::IsItemDeactivatedAfterEdit())
+            {
+                const char* p = buf; if (p[0]=='0' && (p[1]=='x'||p[1]=='X')) p += 2;
+                m.u15 = (uint32_t)strtoul(p, nullptr, 16); dirty = true;
+            }
+        }
+        TTArea("u15");
+    } BlockEnd();
+
+    ImGui::TableNextColumn();
+    if (BlockBegin("##blk_collision")) {
+        ImGui::TextDisabled("%s", Collision);
+        ImGui::SetNextItemWidth(-1.0f);
+        {
+            int16_t col16 = static_cast<int16_t>(m.collision);
+            int tmp = (int)col16;
+            if (ImGui::InputInt("##collision", &tmp, 0, 0)) { m.collision = static_cast<uint16_t>((int16_t)tmp); dirty = true; }
+        }
+        TTArea("collision");
+    } BlockEnd();
+
+    ImGui::TableNextColumn();
+    if (BlockBegin("##blk_distance")) {
+        ImGui::TextDisabled("%s", Distance);
+        ImGui::SetNextItemWidth(-1.0f);
         {
             int16_t dist16 = static_cast<int16_t>(m.distance);
-            if (RowI16Edit("##distance", Distance, dist16)) { m.distance = static_cast<uint16_t>(dist16); dirty = true; }
+            int tmp = (int)dist16;
+            if (ImGui::InputInt("##distance", &tmp, 0, 0)) { m.distance = static_cast<uint16_t>((int16_t)tmp); dirty = true; }
         }
-        if (RowU32Edit ("##u18",           U18,           m.u18))            dirty = true;
-        ImGui::EndTable();
-    }
-    ImGui::EndChild();
+        TTArea("distance");
+    } BlockEnd();
 
-    // -- Index navigation handlers (reuse pre-computed groups) -----------------
+    // ---- Row 9: u18 (single field; remaining 2 cells empty) ----
+    ImGui::TableNextColumn();
+    if (BlockBegin("##blk_u18")) {
+        ImGui::TextDisabled("%s", U18);
+        ImGui::SetNextItemWidth(-1.0f);
+        { int tmp = (int)m.u18; if (ImGui::InputInt("##u18", &tmp, 0, 0)) { m.u18 = (uint32_t)tmp; dirty = true; } }
+        TTArea("u18");
+    } BlockEnd();
+
+    ImGui::TableNextColumn(); // empty
+    ImGui::TableNextColumn(); // empty
+
+    ImGui::EndTable();
+
+    // -- Index navigation handlers (reuse pre-computed groups) ----------------
     if (clickCancel)
     {
         int gi = FindGroupOuter(cancelGroups, m.cancel_idx);
@@ -1412,7 +1711,7 @@ void MovesetEditorWindow::RenderSection_Overview(ParsedMove& m, bool& dirty)
     }
     if (clickTrans)
     {
-        m_selectedIdx = transResolvedIdx; // already resolved (direct or via original_aliases)
+        m_selectedIdx           = transResolvedIdx;
         m_moveListScrollPending = true;
     }
     if (clickHitCond)
@@ -1484,26 +1783,42 @@ void MovesetEditorWindow::RenderSection_Unknown(ParsedMove& m, bool& dirty)
 
     if (!BeginPropTable("##unk")) return;
 
+    // Read-only row helpers — visually identical to editable InputText but non-editable
+    auto RowHex64RO = [](const char* id, const char* lbl, uint64_t v) {
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("%s", lbl);
+        ImGui::TableSetColumnIndex(1);
+        ImGui::SetNextItemWidth(-1.0f);
+        char buf[22]; snprintf(buf, sizeof(buf), "0x%016llX", static_cast<unsigned long long>(v));
+        ImGui::InputText(id, buf, sizeof(buf), ImGuiInputTextFlags_ReadOnly);
+    };
+    auto RowU32RO = [](const char* id, const char* lbl, uint32_t v) {
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("%s", lbl);
+        ImGui::TableSetColumnIndex(1);
+        ImGui::SetNextItemWidth(-1.0f);
+        char buf[16]; snprintf(buf, sizeof(buf), "%u", v);
+        ImGui::InputText(id, buf, sizeof(buf), ImGuiInputTextFlags_ReadOnly);
+    };
+
     if (RowHex64Edit("##u1", MoveLabel::U1, m.u1)) dirty = true;
     if (RowHex64Edit("##u2", MoveLabel::U2, m.u2)) dirty = true;
     if (RowHex64Edit("##u3", MoveLabel::U3, m.u3)) dirty = true;
     if (RowHex64Edit("##u4", MoveLabel::U4, m.u4)) dirty = true;
-    RowHex64(MoveLabel::EncNameKey,     m.encrypted_name_key);
-    RowHex64(MoveLabel::NameEncKey,     m.name_encryption_key);
-    RowHex64(MoveLabel::EncAnimKey,     m.encrypted_anim_key);
-    RowHex64(MoveLabel::AnimEncKey,     m.anim_encryption_key);
-    RowU32  (MoveLabel::AnmbinBodyIdx,  m.anmbin_body_idx);
-    RowHex64(MoveLabel::EncVuln,        m.encrypted_vuln);
-    RowHex64(MoveLabel::VulnEncKey,     m.vuln_encryption_key);
-    RowHex64(MoveLabel::EncHitlevel,    m.encrypted_hitlevel);
-    RowHex64(MoveLabel::HitlevelEncKey, m.hitlevel_encryption_key);
-    RowHex64(MoveLabel::EncOrdinalId2,  m.encrypted_ordinal_id2);
-    RowHex64(MoveLabel::OrdinalId2Key,  m.ordinal_id2_enc_key);
-    RowHex64(MoveLabel::EncOrdinalId,   m.encrypted_ordinal_id);
-    RowHex64(MoveLabel::OrdinalEncKey,  m.ordinal_encryption_key);
-    RowU32  (MoveLabel::AnmbinBodyIdx,  m.anmbin_body_idx);
+    RowHex64RO("##enc_namekey_ro",  MoveLabel::EncNameKey,     m.encrypted_name_key);
+    RowHex64RO("##name_enckey_ro",  MoveLabel::NameEncKey,     m.name_encryption_key);
+    RowHex64RO("##enc_animkey_ro",  MoveLabel::EncAnimKey,     m.encrypted_anim_key);
+    RowHex64RO("##anim_enckey_ro",  MoveLabel::AnimEncKey,     m.anim_encryption_key);
+    RowU32RO  ("##anmbin_idx_ro",   MoveLabel::AnmbinBodyIdx,  m.anmbin_body_idx);
+    RowHex64RO("##enc_vuln_ro",     MoveLabel::EncVuln,        m.encrypted_vuln);
+    RowHex64RO("##vuln_enckey_ro",  MoveLabel::VulnEncKey,     m.vuln_encryption_key);
+    RowHex64RO("##enc_hitlev_ro",   MoveLabel::EncHitlevel,    m.encrypted_hitlevel);
+    RowHex64RO("##hitlev_enckey_ro",MoveLabel::HitlevelEncKey, m.hitlevel_encryption_key);
+    RowHex64RO("##enc_ordid2_ro",   MoveLabel::EncOrdinalId2,  m.encrypted_ordinal_id2);
+    RowHex64RO("##ordid2_key_ro",   MoveLabel::OrdinalId2Key,  m.ordinal_id2_enc_key);
+    RowHex64RO("##enc_ordid_ro",    MoveLabel::EncOrdinalId,   m.encrypted_ordinal_id);
+    RowHex64RO("##ordid_enckey_ro", MoveLabel::OrdinalEncKey,  m.ordinal_encryption_key);
     ImGui::EndTable();
-
 }
 
 // -------------------------------------------------------------
@@ -1613,27 +1928,6 @@ void MovesetEditorWindow::RenderMenuBar()
         ImGui::EndMenu();
     }
 
-    if (ImGui::BeginMenu("Tools"))
-    {
-        bool animMgrOpen = m_animMgr != nullptr;
-        if (ImGui::MenuItem("Animation Manager", nullptr, animMgrOpen))
-        {
-            if (!m_animMgr)
-            {
-                m_animMgr = std::make_unique<AnimationManagerWindow>(
-                                m_data.folderPath, m_movesetName, m_uid);
-                std::vector<uint32_t> keys;
-                keys.reserve(m_data.moves.size());
-                for (const auto& mv : m_data.moves) keys.push_back(mv.anim_key);
-                m_animMgr->SetMotbinAnimKeys(keys);
-                m_animMgr->SetAnimNameDB(&m_animNameDB);
-            }
-            else
-                m_animMgr.reset();
-        }
-        ImGui::EndMenu();
-    }
-
     if (ImGui::BeginMenu("View"))
     {
         if (ImGui::BeginMenu("Layout"))
@@ -1651,6 +1945,27 @@ void MovesetEditorWindow::RenderMenuBar()
             if (ImGui::MenuItem("Parryable Moves",  nullptr, m_parryWinOpen))      m_parryWinOpen        = !m_parryWinOpen;
             if (ImGui::MenuItem("Dialogues",        nullptr, m_dialogueWinOpen))   m_dialogueWinOpen     = !m_dialogueWinOpen;
             ImGui::EndMenu();
+        }
+        ImGui::EndMenu();
+    }
+
+    if (ImGui::BeginMenu("Tools"))
+    {
+        bool animMgrOpen = m_animMgr != nullptr;
+        if (ImGui::MenuItem("Animation Manager", nullptr, animMgrOpen))
+        {
+            if (!m_animMgr)
+            {
+                m_animMgr = std::make_unique<AnimationManagerWindow>(
+                                m_data.folderPath, m_movesetName, m_uid);
+                std::vector<uint32_t> keys;
+                keys.reserve(m_data.moves.size());
+                for (const auto& mv : m_data.moves) keys.push_back(mv.anim_key);
+                m_animMgr->SetMotbinAnimKeys(keys);
+                m_animMgr->SetAnimNameDB(&m_animNameDB);
+            }
+            else
+                m_animMgr.reset();
         }
         ImGui::EndMenu();
     }
