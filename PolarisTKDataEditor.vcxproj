@@ -77,7 +77,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)imgui;$(ProjectDir)src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)third-party;$(ProjectDir)third-party\imgui;$(ProjectDir)src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -95,7 +95,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)imgui;$(ProjectDir)src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)third-party;$(ProjectDir)third-party\imgui;$(ProjectDir)src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -113,11 +113,12 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)imgui;$(ProjectDir)src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)third-party;$(ProjectDir)third-party\imgui;$(ProjectDir)src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>$(ProjectDir)third-party\zstd\libzstd_static.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <!-- ════════════════════════════════════════════════════════ -->
@@ -131,13 +132,14 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>NDEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)imgui;$(ProjectDir)src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)third-party;$(ProjectDir)third-party\imgui;$(ProjectDir)src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>$(ProjectDir)third-party\zstd\libzstd_static.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <!-- ════════════════════════════════════════════════════════ -->
@@ -153,11 +155,17 @@
     <ClCompile Include="src\moveset\editor\MovesetView.cpp" />
     <ClCompile Include="src\moveset\data\MotbinData.cpp" />
     <ClCompile Include="src\moveset\editor\MovesetEditorWindow.cpp" />
+    <ClCompile Include="src\moveset\data\AnmbinData.cpp" />
+    <ClCompile Include="src\moveset\data\AnimNameDB.cpp" />
+    <ClCompile Include="src\moveset\data\AnmbinRebuild.cpp" />
+    <ClCompile Include="src\moveset\editor\AnimationManagerWindow.cpp" />
     <ClCompile Include="src\moveset\live\GameLiveEdit.cpp" />
     <ClCompile Include="src\moveset\labels\LabelDB.cpp" />
     <ClCompile Include="src\moveset\serialize\MotbinSerialize.cpp" />
     <ClCompile Include="src\extract\GameProcess.cpp" />
     <ClCompile Include="src\extract\MovesetExtractor.cpp" />
+    <ClCompile Include="src\extract\AnmbinExtractor.cpp" />
+    <ClCompile Include="src\extract\TkdataExtractor.cpp" />
     <ClCompile Include="src\extract\ExtractorView.cpp" />
     <ClCompile Include="src\devmode\FbsBinaryIO.cpp" />
     <ClCompile Include="src\devmode\FbsDevView.cpp" />
@@ -167,13 +175,14 @@
   <!-- ImGui source files                                      -->
   <!-- ════════════════════════════════════════════════════════ -->
   <ItemGroup>
-    <ClCompile Include="imgui\imgui.cpp" />
-    <ClCompile Include="imgui\imgui_draw.cpp" />
-    <ClCompile Include="imgui\imgui_tables.cpp" />
-    <ClCompile Include="imgui\imgui_widgets.cpp" />
-    <ClCompile Include="imgui\backends\imgui_impl_win32.cpp" />
-    <ClCompile Include="imgui\backends\imgui_impl_dx11.cpp" />
+    <ClCompile Include="third-party\imgui\imgui.cpp" />
+    <ClCompile Include="third-party\imgui\imgui_draw.cpp" />
+    <ClCompile Include="third-party\imgui\imgui_tables.cpp" />
+    <ClCompile Include="third-party\imgui\imgui_widgets.cpp" />
+    <ClCompile Include="third-party\imgui\backends\imgui_impl_win32.cpp" />
+    <ClCompile Include="third-party\imgui\backends\imgui_impl_dx11.cpp" />
   </ItemGroup>
+  <!-- zstd: linked as pre-built static lib (third-party\zstd\libzstd_static.lib) -->
   <!-- ════════════════════════════════════════════════════════ -->
   <!-- Header files                                            -->
   <!-- ════════════════════════════════════════════════════════ -->
@@ -189,21 +198,29 @@
     <ClInclude Include="src\moveset\editor\MovesetView.h" />
     <ClInclude Include="src\moveset\data\MotbinData.h" />
     <ClInclude Include="src\moveset\editor\MovesetEditorWindow.h" />
+    <ClInclude Include="src\moveset\data\AnmbinData.h" />
+    <ClInclude Include="src\moveset\data\AnimNameDB.h" />
+    <ClInclude Include="src\moveset\data\AnmbinRebuild.h" />
+    <ClInclude Include="src\moveset\editor\AnimationManagerWindow.h" />
     <ClInclude Include="src\moveset\live\GameLiveEdit.h" />
     <ClInclude Include="src\moveset\labels\LabelDB.h" />
     <ClInclude Include="src\moveset\data\EditorFieldLabel.h" />
     <ClInclude Include="src\moveset\serialize\MotbinSerialize.h" />
     <ClInclude Include="src\extract\GameProcess.h" />
     <ClInclude Include="src\extract\MovesetExtractor.h" />
+    <ClInclude Include="src\extract\AnmbinExtractor.h" />
+    <ClInclude Include="src\extract\TkdataExtractor.h" />
+    <ClInclude Include="src\extract\TkdataNames.h" />
     <ClInclude Include="src\extract\ExtractorView.h" />
     <ClInclude Include="src\devmode\FbsBinaryIO.h" />
     <ClInclude Include="src\devmode\FbsDevView.h" />
     <ClInclude Include="src\devmode\MotbinDiffView.h" />
-    <ClInclude Include="imgui\imgui.h" />
-    <ClInclude Include="imgui\imgui_internal.h" />
-    <ClInclude Include="imgui\imconfig.h" />
-    <ClInclude Include="imgui\backends\imgui_impl_win32.h" />
-    <ClInclude Include="imgui\backends\imgui_impl_dx11.h" />
+    <ClInclude Include="third-party\imgui\imgui.h" />
+    <ClInclude Include="third-party\imgui\imgui_internal.h" />
+    <ClInclude Include="third-party\imgui\imconfig.h" />
+    <ClInclude Include="third-party\imgui\backends\imgui_impl_win32.h" />
+    <ClInclude Include="third-party\imgui\backends\imgui_impl_dx11.h" />
+    <!-- zstd\zstd.h available but not directly included; uses forward declarations in TkdataExtractor.cpp -->
   </ItemGroup>
   <!-- ════════════════════════════════════════════════════════ -->
   <!-- Resource files                                          -->

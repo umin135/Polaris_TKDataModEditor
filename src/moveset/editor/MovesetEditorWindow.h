@@ -1,8 +1,12 @@
 ﻿#pragma once
 #include "moveset/data/MotbinData.h"
+#include "moveset/data/AnimNameDB.h"
+#include "moveset/data/AnmbinRebuild.h"
+#include "moveset/editor/AnimationManagerWindow.h"
 #include <string>
 #include <unordered_map>
 #include <functional>
+#include <memory>
 
 class MovesetEditorWindow {
 public:
@@ -171,5 +175,18 @@ private:
     TwoLevelSel          m_parryWinSel;
     bool                 m_dialogueWinOpen = false;
     int                  m_dialogueSel     = 0;
+
+    // Animation name DB (anim_N <-> motbin anim_key, loaded from .tkedit/anim_names.json)
+    AnimNameDB           m_animNameDB;
+    void                 TryInitAnimNameDB();
+
+    // Animation Manager
+    std::string          m_movesetName;
+    int                  m_uid            = 0;
+    std::unique_ptr<AnimationManagerWindow> m_animMgr;
+
+    // anim_key InputText state
+    char                 m_animKeyBuf[32]    = {};
+    int                  m_animKeyBufIdx     = -1;  // m_selectedIdx when buf was last built
 
 };

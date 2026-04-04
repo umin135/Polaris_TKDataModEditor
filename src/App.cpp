@@ -115,6 +115,30 @@ static ID3D11ShaderResourceView* LoadTexturePNGFromResource(
 //  Folder picker dialog (IFileDialog, FOS_PICKFOLDERS)
 // -------------------------------------------------------------
 
+// Resolve the tkdata.bin path from a moveset root directory.
+// Moveset root:  ...\Binary\Mods\Movesets
+// tkdata.bin:    ...\Binary\pak\tkdata.bin
+// Relative:      ..\..\pak\tkdata.bin
+static std::string ResolveTkdataBinPath(const char* movesetRoot)
+{
+    if (!movesetRoot || movesetRoot[0] == '\0') return {};
+
+    std::string combined = std::string(movesetRoot) + "\\..\\..\\pak\\tkdata.bin";
+
+    char resolved[MAX_PATH] = {};
+    if (!GetFullPathNameA(combined.c_str(), MAX_PATH, resolved, nullptr))
+        return combined; // fall back to unresolved on failure
+
+    return resolved;
+}
+
+static bool TkdataBinExists(const char* movesetRoot)
+{
+    std::string path = ResolveTkdataBinPath(movesetRoot);
+    if (path.empty()) return false;
+    return GetFileAttributesA(path.c_str()) != INVALID_FILE_ATTRIBUTES;
+}
+
 static std::string BrowseForFolder()
 {
     IFileDialog* pfd = nullptr;
@@ -842,6 +866,29 @@ void App::RenderSettingsWindow()
                 if (!folder.empty())
                     strncpy_s(m_settingsMovesetRoot, sizeof(m_settingsMovesetRoot),
                               folder.c_str(), _TRUNCATE);
+            }
+
+            // tkdata.bin detection status
+            ImGui::Spacing();
+            if (m_settingsMovesetRoot[0] == '\0')
+            {
+                ImGui::TextDisabled("tkdata.bin: (no root directory set)");
+            }
+            else if (TkdataBinExists(m_settingsMovesetRoot))
+            {
+                std::string tkPath = ResolveTkdataBinPath(m_settingsMovesetRoot);
+                ImGui::TextColored(ImVec4(0.35f, 1.0f, 0.50f, 1.0f),
+                                   "tkdata.bin: Found");
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+                    ImGui::SetTooltip("%s", tkPath.c_str());
+            }
+            else
+            {
+                std::string tkPath = ResolveTkdataBinPath(m_settingsMovesetRoot);
+                ImGui::TextColored(ImVec4(1.0f, 0.40f, 0.40f, 1.0f),
+                                   "tkdata.bin: Not found");
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+                    ImGui::SetTooltip("%s", tkPath.c_str());
             }
         }
 

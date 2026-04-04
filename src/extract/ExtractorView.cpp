@@ -97,6 +97,9 @@ void ExtractorView::RenderLog()
             ? ImVec4(0.35f, 1.0f, 0.50f, 1.0f)
             : ImVec4(1.0f,  0.35f, 0.35f, 1.0f);
         ImGui::TextColored(col, "%s", m_lastMsg.c_str());
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Copy"))
+            ImGui::SetClipboardText(m_lastMsg.c_str());
     }
 
     // -- Slot info (shown after a successful connect) ---------
@@ -134,5 +137,5 @@ void ExtractorView::RenderLog()
 
     // -- Output path hint -------------------------------------
     ImGui::Spacing();
-    ImGui::TextDisabled("Save path: <root>/TK8_<CharaName>/moveset.motbin");
+    ImGui::TextDisabled("Save path: <root>/TK8_<CharaName>/moveset.motbin  (.anmbin / .stllstb / .mvl if tkdata.bin found)");
 }

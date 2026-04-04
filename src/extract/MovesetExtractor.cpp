@@ -2,6 +2,8 @@
 // Extracts moveset from Polaris-Win64-Shipping.exe and saves as .motbin
 // Reference: OldTool2 (TekkenMovesetExtractor) game_addresses.txt + motbinExport.py
 #include "MovesetExtractor.h"
+#include "TkdataExtractor.h"
+#include "moveset/data/AnmbinData.h"
 #include "moveset/labels/LabelDB.h"
 #include "moveset/serialize/MotbinSerialize.h"
 #include <windows.h>
@@ -407,6 +409,190 @@ bool MovesetExtractor::SaveMotbin(const std::vector<uint8_t>& bytes,
 }
 
 // -------------------------------------------------------------
+//  ResolveTkdataPath
+//  Derives tkdata.bin path from the moveset root directory.
+//  moveset root:  ...\TEKKEN 8\Polaris\Content\Binary\Mods\Movesets
+//  tkdata.bin:    ...\TEKKEN 8\Polaris\Content\Binary\pak\tkdata.bin
+// -------------------------------------------------------------
+static std::string ResolveTkdataPath(const std::string& movesetRoot)
+{
+    if (movesetRoot.empty()) return {};
+    std::string combined = movesetRoot + "\\..\\..\\pak\\tkdata.bin";
+    char resolved[MAX_PATH] = {};
+    if (!GetFullPathNameA(combined.c_str(), MAX_PATH, resolved, nullptr))
+        return combined;
+    return resolved;
+}
+
+// Save a raw byte buffer to a file, creating or overwriting it.
+static bool SaveBytes(const std::string& path,
+                      const std::vector<uint8_t>& data)
+{
+    HANDLE h = CreateFileA(path.c_str(), GENERIC_WRITE, 0, nullptr,
+                           CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return false;
+    DWORD written = 0;
+    BOOL ok = WriteFile(h, data.data(), static_cast<DWORD>(data.size()), &written, nullptr);
+    CloseHandle(h);
+    return ok && written == static_cast<DWORD>(data.size());
+}
+
+// Extract individual PANM animation files from moveset.anmbin (tkdata.bin file format).
+//
+// File format: 0x04 = u32[6] pool counts per category
+//              0x38 = u64[6] pool entry metadata array offsets
+//              Each entry (stride 0x38): {animKey u64, animDataPtr u64, extra u8[0x28]}
+//              animDataPtr == 0  →  animation lives in com.anmbin (skip)
+//              animDataPtr != 0  →  PANM FlatBuffer at that file offset
+//              Size = next_entry.animDataPtr - this.animDataPtr (sorted by pointer)
+//              PANM magic: data[4:8] == "PANM" (FlatBuffer file identifier)
+//
+// Saved as: charFolder\anim\<cat_folder>\anim_<poolIdx>.<ext>
+// Returns a short diagnostic string.
+static std::string ExtractAnimFilesFromAnmbin(const std::string& charFolder)
+{
+    std::string anmbinPath = charFolder + "\\moveset.anmbin";
+
+    FILE* f = nullptr;
+    if (fopen_s(&f, anmbinPath.c_str(), "rb") != 0 || !f)
+        return " | anim: no moveset.anmbin";
+
+    fseek(f, 0, SEEK_END);
+    long fileSize = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (fileSize < 0x98) { fclose(f); return " | anim: anmbin too small"; }
+
+    std::vector<uint8_t> bytes(static_cast<size_t>(fileSize));
+    fread(bytes.data(), 1, bytes.size(), f);
+    fclose(f);
+
+    auto rdU32 = [&](size_t off) -> uint32_t {
+        if (off + 4 > bytes.size()) return 0;
+        uint32_t v; memcpy(&v, bytes.data() + off, 4); return v;
+    };
+    auto rdU64 = [&](size_t off) -> uint64_t {
+        if (off + 8 > bytes.size()) return 0;
+        uint64_t v; memcpy(&v, bytes.data() + off, 8); return v;
+    };
+
+    // Collect all pool entries that have local PANM data (animDataPtr != 0)
+    struct PanmEntry { uint64_t dataPtr; uint64_t animKey; int cat; int poolIdx; };
+    std::vector<PanmEntry> entries;
+
+    for (int cat = 0; cat < 6; ++cat)
+    {
+        uint32_t count   = rdU32(0x04 + cat * 4);
+        uint64_t listOff = rdU64(0x38 + cat * 8);  // pool entry metadata array
+        if (count == 0 || listOff == 0) continue;
+        if (listOff + (uint64_t)count * 0x38 > (uint64_t)bytes.size()) continue;
+
+        for (uint32_t j = 0; j < count; ++j)
+        {
+            size_t   entOff      = static_cast<size_t>(listOff) + j * 0x38;
+            uint64_t animKey     = rdU64(entOff);
+            uint64_t animDataPtr = rdU64(entOff + 8);
+
+            // animDataPtr == 0 → animation is in com.anmbin, skip
+            if (animDataPtr == 0 || animDataPtr >= (uint64_t)bytes.size()) continue;
+
+            entries.push_back({ animDataPtr, animKey, cat, (int)j });
+        }
+    }
+
+    if (entries.empty()) return " | anim: 0 local (all in com.anmbin?)";
+
+    // Sort by animDataPtr; compute each PANM blob's size from adjacent pointers
+    std::sort(entries.begin(), entries.end(),
+              [](const PanmEntry& a, const PanmEntry& b){ return a.dataPtr < b.dataPtr; });
+
+    // Create output directories
+    std::string animRoot = charFolder + "\\anim";
+    CreateDirectoryA(animRoot.c_str(), nullptr);
+    for (int cat = 0; cat < 6; ++cat)
+        CreateDirectoryA((animRoot + "\\" + AnmbinCategoryFolder(cat)).c_str(), nullptr);
+
+    int totalSaved = 0;
+    for (int i = 0; i < (int)entries.size(); ++i)
+    {
+        uint64_t dataStart = entries[i].dataPtr;
+        uint64_t dataEnd   = (i + 1 < (int)entries.size())
+                           ? entries[i + 1].dataPtr
+                           : static_cast<uint64_t>(bytes.size());
+
+        if (dataEnd <= dataStart || dataStart >= (uint64_t)bytes.size()) continue;
+        size_t dataSize = static_cast<size_t>(dataEnd - dataStart);
+
+        const uint8_t* panm = bytes.data() + static_cast<size_t>(dataStart);
+
+        // Validate PANM magic at bytes [4:8] of the FlatBuffer
+        if (dataSize >= 8 && memcmp(panm + 4, "PANM", 4) == 0)
+        {
+            int cat = entries[i].cat;
+            int j   = entries[i].poolIdx;
+            char fname[64];
+            snprintf(fname, sizeof(fname), "anim_%d%s", j, AnmbinCategoryExt(cat));
+            std::string catDir = animRoot + "\\" + AnmbinCategoryFolder(cat);
+            SaveBytes(catDir + "\\" + fname,
+                      std::vector<uint8_t>(panm, panm + dataSize));
+            ++totalSaved;
+        }
+    }
+
+    if (totalSaved == 0) return " | anim: no PANM found";
+    return " | anim: +" + std::to_string(totalSaved) + " files";
+}
+
+// Extract anmbin / stllstb / mvl for a character from tkdata.bin.
+// Returns a short diagnostic string for display in the status bar.
+// Non-fatal: missing or unrecognised files are skipped gracefully.
+static std::string TryExtractTkdataFiles(const std::string& movesetRoot,
+                                          const std::string& charFolder,
+                                          const char*        charaCode)
+{
+    if (!charaCode || charaCode[0] == '\0')
+        return " | tkdata: no chara code";
+
+    std::string tkdataPath = ResolveTkdataPath(movesetRoot);
+    if (tkdataPath.empty())
+        return " | tkdata: path empty";
+
+    TkdataExtractor tkext;
+    std::string tkErr;
+    if (!tkext.Open(tkdataPath, tkErr))
+        return " | tkdata: " + tkErr;
+
+    struct FileSpec { const char* dir; const char* ext; const char* outName; };
+    static const FileSpec kFiles[] = {
+        { "bin",      ".anmbin",  "moveset.anmbin"  },
+        { "bin",      ".stllstb", "moveset.stllstb" },
+        { "movelist", ".mvl",     "moveset.mvl"     },
+    };
+
+    std::string extracted;
+    std::string missing;
+    for (const auto& f : kFiles) {
+        std::string vfsPath = std::string("mothead/") + f.dir + "/" + charaCode + f.ext;
+        std::vector<uint8_t> data = tkext.ExtractFile(vfsPath);
+        if (data.empty()) {
+            if (!missing.empty()) missing += ',';
+            missing += f.ext;
+            continue;
+        }
+        std::string outPath = charFolder + "\\" + f.outName;
+        if (SaveBytes(outPath, data)) {
+            if (!extracted.empty()) extracted += ',';
+            extracted += f.ext;
+        }
+    }
+
+    std::string result;
+    if (!extracted.empty()) result += " | +tkdata(" + extracted + ")";
+    if (!missing.empty())   result += " | missing(" + missing + ")";
+    if (result.empty())     result =  " | tkdata: no files extracted";
+    return result;
+}
+
+// -------------------------------------------------------------
 //  ReadGameVersion -- AoB scan for version string
 //
 //  Pattern: 4C 8D 2D ?? ?? ?? ?? 49 8B CD E8 ...
@@ -528,7 +714,23 @@ bool MovesetExtractor::ExtractToFile(int slotIndex,
     if (!SaveMotbin(bytes, destFolder, slot.charaId, slot.charaName, slot.motbinAddr, &names, gameVersion, errorMsg))
         return false;
 
+    // Build charFolder path (used by both tkdata and anmbin extraction)
+    std::string charFolder = destFolder;
+    if (!charFolder.empty() && charFolder.back() != '\\' && charFolder.back() != '/')
+        charFolder += '\\';
+    charFolder += "TK8_";
+    charFolder += slot.charaName;
+
+    // Try to extract companion files from tkdata.bin (non-fatal).
+    const char* charaCode = LabelDB::Get().CharaCode(slot.charaId);
+    std::string tkInfo = TryExtractTkdataFiles(destFolder, charFolder, charaCode);
+
+    // Extract individual PANM animation files from moveset.anmbin (non-fatal).
+    // Uses file format (tkdata.bin format, already saved by TryExtractTkdataFiles).
+    // animDataPtr==0 entries are com.anmbin references and are skipped.
+    std::string animInfo = ExtractAnimFilesFromAnmbin(charFolder);
+
     m_statusMsg = "Extracted -> TK8_" + slot.charaName + "  (" +
-                  std::to_string(bytes.size()) + " bytes)";
+                  std::to_string(bytes.size()) + " bytes)" + tkInfo + animInfo;
     return true;
 }

@@ -54,6 +54,10 @@ MovesetEditorWindow::MovesetEditorWindow(const std::string& folderPath,
 {
     m_data = LoadMotbin(folderPath);
     LoadEditorDatas();
+    TryInitAnimNameDB();
+
+    m_movesetName = movesetName;
+    m_uid         = uid;
 
     char buf[256];
     snprintf(buf, sizeof(buf), "%s  -  Moveset Editor##msed%d",
@@ -218,6 +222,45 @@ bool MovesetEditorWindow::Render()
     RenderSubWin_InputSequences();
     RenderSubWin_ParryableMoves();
     RenderSubWin_Dialogues();
+
+    // Animation Manager
+    if (m_animMgr)
+    {
+        if (!m_animMgr->Render())
+            m_animMgr.reset();
+
+        // Auto-process new pool entries discovered by Refresh:
+        //   1. Rebuild anmbin first (embeds new files; uses current animNameDB for moveList patch).
+        //   2. Only if rebuild succeeds: register stem → CRC32 in animNameDB.
+        //   3. ForceReload AnimMgr from rebuilt anmbin (or from unchanged disk if rebuild failed).
+        // Order matters: we rebuild BEFORE adding to animNameDB so that a failed rebuild
+        // doesn't permanently mark the file as "registered" and block future Refresh attempts.
+        if (m_animMgr)
+        {
+            auto newEntries = m_animMgr->TakePendingNewEntries();
+            if (!newEntries.empty())
+            {
+                std::string anmbinErr;
+                bool rebuilt = RebuildAnmbin(m_data.folderPath, m_animNameDB, m_data.moves, anmbinErr);
+
+                if (rebuilt)
+                {
+                    // Embed succeeded — now persist the name→CRC32 mapping.
+                    for (const auto& e : newEntries)
+                        m_animNameDB.AddEntry(m_data.folderPath, e.name, e.hash);
+                }
+                else
+                {
+                    // Embed failed — show error and reset to clean disk state.
+                    m_animMgr->SetRebuildError(!anmbinErr.empty() ? anmbinErr : "RebuildAnmbin returned false");
+                }
+
+                // Always ForceReload: on success this shows newly embedded entry;
+                // on failure this clears the in-memory sentinel so Refresh can retry.
+                m_animMgr->ForceReload();
+            }
+        }
+    }
 
     return m_open;
 }
@@ -1222,14 +1265,87 @@ void MovesetEditorWindow::RenderSection_Overview(ParsedMove& m, bool& dirty)
             }
         }
         RowHex32(NameKey,      m.name_key);
-        // anim_key: value + anim name lookup
+        // anim_key: editable InputText (AnimNameDB is the source of truth)
         {
+            const bool db = m_animNameDB.IsLoaded();
+
+            // Rebuild buf only when selected move changes
+            if (m_animKeyBufIdx != m_selectedIdx)
+            {
+                m_animKeyBufIdx = m_selectedIdx;
+                if (db)
+                {
+                    std::string name = m_animNameDB.AnimKeyToName(m.anim_key);
+                    snprintf(m_animKeyBuf, sizeof(m_animKeyBuf),
+                             "%s", name.empty() ? "" : name.c_str());
+                }
+                else
+                {
+                    snprintf(m_animKeyBuf, sizeof(m_animKeyBuf), "0x%08X", m.anim_key);
+                }
+            }
+
+            // Validate buf
+            uint32_t resolvedKey = 0;
+            const bool valid = db && m_animNameDB.NameToAnimKey(m_animKeyBuf, resolvedKey);
+
+            // Left column: colored + clickable label
+            static constexpr ImVec4 kGreen = {0.55f, 0.85f, 0.55f, 1.0f};
+            static constexpr ImVec4 kRed   = {1.00f, 0.35f, 0.35f, 1.0f};
+            static constexpr ImVec4 kGray  = {0.50f, 0.50f, 0.50f, 1.0f};
+            const ImVec4& lblCol = !db ? kGray : (valid ? kGreen : kRed);
+
             ImGui::TableNextRow();
-            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("%s", AnimKey);
+            ImGui::TableSetColumnIndex(0);
+            ImGui::PushStyleColor(ImGuiCol_Text, lblCol);
+            char animLinkId[64];
+            snprintf(animLinkId, sizeof(animLinkId), "%s##animkeylnk", AnimKey);
+            bool clickedAnim = ImGui::Selectable(animLinkId, false, ImGuiSelectableFlags_None);
+            ImGui::PopStyleColor();
+            if (ImGui::IsItemHovered())
+            {
+                if (!db)         ImGui::SetTooltip("anim_names.json not loaded (open Animation Manager to generate)");
+                else if (!valid) ImGui::SetTooltip("Unknown animation name  |  Click to open Animation Manager");
+                else             ImGui::SetTooltip("Click to navigate in Animation Manager");
+            }
+
+            // Right column: InputText (editable only when DB loaded)
             ImGui::TableSetColumnIndex(1);
-            const char* animName = LabelDB::Get().GetAnimName(m.anim_key);
-            if (animName) ImGui::Text("0x%08X  (%s)", m.anim_key, animName);
-            else          ImGui::Text("0x%08X", m.anim_key);
+            ImGui::SetNextItemWidth(-1.0f);
+            if (db)
+            {
+                if (ImGui::InputText("##animkeyinput", m_animKeyBuf, sizeof(m_animKeyBuf)))
+                {
+                    uint32_t newKey = 0;
+                    if (m_animNameDB.NameToAnimKey(m_animKeyBuf, newKey))
+                    {
+                        m.anim_key = newKey;
+                        dirty      = true;
+                    }
+                }
+            }
+            else
+            {
+                // DB not available — show raw value as read-only
+                ImGui::TextDisabled("0x%08X", m.anim_key);
+            }
+
+            // Click: open AnimMgr (always), navigate if valid
+            if (clickedAnim)
+            {
+                if (!m_animMgr)
+                {
+                    m_animMgr = std::make_unique<AnimationManagerWindow>(
+                                    m_data.folderPath, m_movesetName, m_uid);
+                    std::vector<uint32_t> keys;
+                    keys.reserve(m_data.moves.size());
+                    for (const auto& mv : m_data.moves) keys.push_back(mv.anim_key);
+                    m_animMgr->SetMotbinAnimKeys(keys);
+                    m_animMgr->SetAnimNameDB(&m_animNameDB);
+                }
+                if (valid && m_selectedIdx >= 0 && m_selectedIdx < (int)m_data.moves.size())
+                    m_animMgr->NavigateByMotbinKey(0, m_data.moves[m_selectedIdx].anim_key);
+            }
         }
         RowHex32(SkeletonId,   m.anmbin_body_sub_idx);
         if (RowU32Edit ("##vuln",     Vuln,     m.vuln))     dirty = true;
@@ -1407,7 +1523,7 @@ static void RenderSection_Hitboxes(ParsedMove& m, bool& dirty)
         char header[256];
         snprintf(header, sizeof(header),
             "Hitbox %d   ACTIVE: %u -> %u   LOC: 0x%08X   "
-            "RELATED FLOATS: %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f##hb%d",
+            "RELATED FLOATS: %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f###hb%d",
             h + 1, start, last, loc,
             fl[0], fl[1], fl[2], fl[3], fl[4], fl[5], fl[6], fl[7], fl[8],
             h);
@@ -1497,6 +1613,27 @@ void MovesetEditorWindow::RenderMenuBar()
         ImGui::EndMenu();
     }
 
+    if (ImGui::BeginMenu("Tools"))
+    {
+        bool animMgrOpen = m_animMgr != nullptr;
+        if (ImGui::MenuItem("Animation Manager", nullptr, animMgrOpen))
+        {
+            if (!m_animMgr)
+            {
+                m_animMgr = std::make_unique<AnimationManagerWindow>(
+                                m_data.folderPath, m_movesetName, m_uid);
+                std::vector<uint32_t> keys;
+                keys.reserve(m_data.moves.size());
+                for (const auto& mv : m_data.moves) keys.push_back(mv.anim_key);
+                m_animMgr->SetMotbinAnimKeys(keys);
+                m_animMgr->SetAnimNameDB(&m_animNameDB);
+            }
+            else
+                m_animMgr.reset();
+        }
+        ImGui::EndMenu();
+    }
+
     if (ImGui::BeginMenu("View"))
     {
         if (ImGui::BeginMenu("Layout"))
@@ -1523,6 +1660,59 @@ void MovesetEditorWindow::RenderMenuBar()
 
 // -------------------------------------------------------------
 //  Editor-only persistent data (.tkedit/editor_datas.json)
+// -------------------------------------------------------------
+
+// -------------------------------------------------------------
+//  TryInitAnimNameDB
+//  Load .tkedit/anim_names.json if it exists, otherwise build
+//  it from moveset.anmbin + motbin anim_keys and save.
+// -------------------------------------------------------------
+
+void MovesetEditorWindow::TryInitAnimNameDB()
+{
+    if (!m_data.loaded) return;
+
+    std::string anmbinPath = m_data.folderPath;
+    if (!anmbinPath.empty() && anmbinPath.back() != '\\' && anmbinPath.back() != '/')
+        anmbinPath += '\\';
+    anmbinPath += "moveset.anmbin";
+
+    if (m_animNameDB.Load(m_data.folderPath))
+    {
+        // JSON loaded. Scan pool[0] for embedded entries not yet in DB.
+        // This recovers custom animations (e.g. "testanim") that were added via Refresh
+        // but not persisted to JSON due to a prior bug (Save() excluded non-anim_N names).
+        // Recovered entries get a pool-index fallback name ("anim_K") which is functional;
+        // newly added files will use the correct custom name via the fixed Save().
+        AnmbinData anmbin = LoadAnmbin(anmbinPath);
+        if (anmbin.loaded)
+        {
+            const auto& pool = anmbin.pool[0];
+            for (int j = 0; j < (int)pool.size(); ++j)
+            {
+                if (pool[j].animDataPtr == 0) continue; // com ref, already named
+                uint32_t h = static_cast<uint32_t>(pool[j].animKey & 0xFFFFFFFF);
+                if (!m_animNameDB.AnimKeyToName(h).empty()) continue; // already in DB
+                // Missing entry — add as "anim_j" (pool-index fallback name).
+                char name[32]; snprintf(name, sizeof(name), "anim_%d", j);
+                m_animNameDB.AddEntry(m_data.folderPath, name, h);
+            }
+        }
+        return;
+    }
+
+    // JSON not found — build it from anmbin + motbin anim_keys and save.
+    AnmbinData anmbin = LoadAnmbin(anmbinPath);
+    if (anmbin.loaded)
+    {
+        std::vector<uint32_t> keys;
+        keys.reserve(m_data.moves.size());
+        for (const auto& mv : m_data.moves)
+            keys.push_back(mv.anim_key);
+        m_animNameDB.BuildAndSave(m_data.folderPath, anmbin, keys);
+    }
+}
+
 // -------------------------------------------------------------
 
 void MovesetEditorWindow::LoadEditorDatas()
@@ -1653,6 +1843,11 @@ void MovesetEditorWindow::RenderCloseConfirmModal()
         if (ImGui::Button("Save", ImVec2(90, 0)))
         {
             if (SaveMotbin(m_data)) m_dirty = false;
+            if (m_animNameDB.IsLoaded())
+            {
+                std::string anmbinErr;
+                RebuildAnmbin(m_data.folderPath, m_animNameDB, m_data.moves, anmbinErr);
+            }
             m_open = false;
             ImGui::CloseCurrentPopup();
         }
@@ -1711,6 +1906,14 @@ void MovesetEditorWindow::RenderSavePopups()
         {
             // Second frame: actually save
             if (SaveMotbin(m_data)) m_dirty = false;
+
+            // Also rebuild moveset.anmbin (non-fatal if it fails)
+            if (m_animNameDB.IsLoaded())
+            {
+                std::string anmbinErr;
+                RebuildAnmbin(m_data.folderPath, m_animNameDB, m_data.moves, anmbinErr);
+            }
+
             m_doSaveThisFrame = false;
             m_saveState       = SaveState::Done;
             m_openDonePopup   = true;

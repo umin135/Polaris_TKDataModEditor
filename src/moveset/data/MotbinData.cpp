@@ -1206,6 +1206,7 @@ static std::vector<uint8_t> RebuildMotbinBytes(MotbinData& data)
             { uint32_t enc = m.hitlevel    ^ kXorKeys[slot]; memcpy(e + kMove_EncHitlevel  + slot*4, &enc, 4); }
             { uint32_t enc = m.ordinal_id2 ^ kXorKeys[slot]; memcpy(e + kMove_EncCharId    + slot*4, &enc, 4); }
             { uint32_t enc = m.moveId      ^ kXorKeys[slot]; memcpy(e + kMove_EncOrdinalId + slot*4, &enc, 4); }
+            { uint32_t enc = m.anim_key    ^ kXorKeys[slot]; memcpy(e + kMove_EncAnimKey   + slot*4, &enc, 4); }
 
             // anmbin fields
             memcpy(e + kMove_AnimAddrEnc1, &m.anmbin_body_idx,     4);
