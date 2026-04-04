@@ -2275,7 +2275,7 @@ void MovesetEditorWindow::RenderSavePopups()
 void MovesetEditorWindow::RenderSubWin_Requirements()
 {
     if (!m_reqWinOpen) return;
-    ImGui::SetNextWindowSize(ImVec2(560.0f, 420.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(650.0f, 400.0f), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Requirements##blkwin", &m_reqWinOpen, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking))
     { ImGui::End(); return; }
 
@@ -2283,14 +2283,25 @@ void MovesetEditorWindow::RenderSubWin_Requirements()
     const uint32_t reqEnd = GameStatic::Get().data.reqListEnd;
     auto mkGroups = [&]{ return ComputeGroups(blk, +[](const ParsedRequirement& r)->bool{ return r.req==GameStatic::Get().data.reqListEnd; }); };
     auto groups = mkGroups();
-    float colW = ImGui::GetContentRegionAvail().x / 3.0f - ImGui::GetStyle().ItemSpacing.x;
+    static constexpr float kListW = 180.0f;
+
+    // Helper: render right-aligned + button, return its action
+    auto ListHeader = [](const char* popupId, const char* typeName,
+                         const char* label, int count) -> ListAction
+    {
+        float btnW = ImGui::CalcTextSize("+").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+        float rightX = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - btnW;
+        ImGui::TextDisabled("%s (%d)", label, count);
+        ImGui::SameLine(rightX);
+        return RenderListPlusMenu(popupId, typeName);
+    };
 
     // ---- Outer list ----
-    ImGui::BeginChild("##req_outer", ImVec2(colW, 0.0f), true);
+    ImGui::BeginChild("##req_outer", ImVec2(kListW, 0.0f), true);
     {
         bool hasOuter = (m_reqWinSel.outer < (int)groups.size());
-        ListAction outerAct = RenderListPlusMenu("##req_om", "Requirement-list");
-        ImGui::SameLine(); ImGui::TextDisabled("lists (%d)", (int)groups.size());
+        ListAction outerAct = ListHeader("##req_om", "Requirement-list",
+                                         "Requirement Lists", (int)groups.size());
         ImGui::Separator();
 
         if (outerAct == ListAction::Insert) {
@@ -2329,7 +2340,7 @@ void MovesetEditorWindow::RenderSubWin_Requirements()
         ImGui::BeginChild("##req_outer_sl", ImVec2(0, 0), false);
         for (int gi = 0; gi < (int)groups.size(); ++gi) {
             uint32_t items = groups[gi].second > 0 ? groups[gi].second - 1 : 0;
-            char lbl[48]; snprintf(lbl, sizeof(lbl), "[%u]  (%u)##rg%d", groups[gi].first, items, gi);
+            char lbl[48]; snprintf(lbl, sizeof(lbl), "#%u  %u items##rg%d", groups[gi].first, items, gi);
             bool s = (m_reqWinSel.outer == gi);
             if (ImGui::Selectable(lbl, s)) { m_reqWinSel.outer = gi; m_reqWinSel.inner = 0; }
             if (s && m_reqWinSel.scrollOuter) { ImGui::SetScrollHereY(0.5f); m_reqWinSel.scrollOuter = false; }
@@ -2341,7 +2352,7 @@ void MovesetEditorWindow::RenderSubWin_Requirements()
     groups = mkGroups();
 
     // ---- Inner list ----
-    ImGui::BeginChild("##req_inner", ImVec2(colW, 0.0f), true);
+    ImGui::BeginChild("##req_inner", ImVec2(kListW, 0.0f), true);
     {
         bool hasOuter = (m_reqWinSel.outer < (int)groups.size());
         bool isEndSel = false;
@@ -2352,8 +2363,9 @@ void MovesetEditorWindow::RenderSubWin_Requirements()
                 isEndSel = (blk[innerAbsIdx].req == reqEnd);
         }
 
-        ListAction innerAct = RenderListPlusMenu("##req_im", "Requirement");
-        ImGui::SameLine(); ImGui::TextDisabled("items");
+        int innerCount = hasOuter ? (int)groups[m_reqWinSel.outer].second : 0;
+        ListAction innerAct = ListHeader("##req_im", "Requirement",
+                                          "Requirements", innerCount);
         ImGui::Separator();
 
         // isOnlyEnd: group has only [END] → allow insert before it
@@ -2423,16 +2435,61 @@ void MovesetEditorWindow::RenderSubWin_Requirements()
         uint32_t idx = start + (uint32_t)m_reqWinSel.inner;
         if (idx < (uint32_t)blk.size()) {
             ParsedRequirement& r = blk[idx];
-            ImGui::TextDisabled("requirement #%u  (block[%u])", m_reqWinSel.inner, idx);
-            ImGui::Separator();
-            if (BeginPropTable("##reqdt")) {
-                if (RowU32Edit("##req",    ReqLabel::Req,    r.req))    m_dirty = true;
-                if (RowU32Edit("##param",  ReqLabel::Param0, r.param))  m_dirty = true;
-                if (RowU32Edit("##param2", ReqLabel::Param1, r.param2)) m_dirty = true;
-                if (RowU32Edit("##param3", ReqLabel::Param2, r.param3)) m_dirty = true;
-                if (RowU32Edit("##param4", ReqLabel::Param3, r.param4)) m_dirty = true;
-                ImGui::EndTable();
+            const ImGuiStyle& sty = ImGui::GetStyle();
+            static constexpr ImVec4 kBlockBg = {0.14f, 0.14f, 0.18f, 1.00f};
+            static constexpr ImVec4 kTTCol   = {0.40f, 0.75f, 1.00f, 1.00f};
+
+            // --- Block 1: req ---
+            float reqBlockH = ImGui::GetTextLineHeight()
+                + sty.ItemSpacing.y + ImGui::GetFrameHeight()
+                + sty.WindowPadding.y * 2.0f;
+            ImGui::PushStyleColor(ImGuiCol_ChildBg, kBlockBg);
+            if (ImGui::BeginChild("##req_b1", ImVec2(-1.0f, reqBlockH), ImGuiChildFlags_Borders)) {
+                ImGui::TextDisabled("%s", ReqLabel::Req);
+                ImGui::SetNextItemWidth(-1.0f);
+                int tmp = static_cast<int>(r.req);
+                if (ImGui::InputInt("##req_val", &tmp, 0, 0))
+                    { r.req = static_cast<uint32_t>(tmp); m_dirty = true; }
             }
+            ImGui::EndChild();
+            ImGui::PopStyleColor();
+
+            ImGui::Spacing();
+
+            // --- Block 2: params ---
+            float rowH   = ImGui::GetFrameHeight() + sty.ItemSpacing.y;
+            float paramBlockH = rowH * 4.0f - sty.ItemSpacing.y + sty.WindowPadding.y * 2.0f;
+            ImGui::PushStyleColor(ImGuiCol_ChildBg, kBlockBg);
+            if (ImGui::BeginChild("##req_b2", ImVec2(-1.0f, paramBlockH), ImGuiChildFlags_Borders)) {
+                constexpr ImGuiTableFlags kTF = ImGuiTableFlags_SizingFixedFit;
+                if (ImGui::BeginTable("##req_params", 2, kTF, ImVec2(-1.0f, 0.0f))) {
+                    ImGui::TableSetupColumn("##lbl", ImGuiTableColumnFlags_WidthFixed);
+                    ImGui::TableSetupColumn("##val", ImGuiTableColumnFlags_WidthStretch);
+
+                    struct { const char* label; uint32_t* val; const char* id; } rows[] = {
+                        { ReqLabel::Param0, &r.param,  "##p0" },
+                        { ReqLabel::Param1, &r.param2, "##p1" },
+                        { ReqLabel::Param2, &r.param3, "##p2" },
+                        { ReqLabel::Param3, &r.param4, "##p3" },
+                    };
+                    for (auto& row : rows) {
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("%s", row.label);
+                        ImGui::TableSetColumnIndex(1);
+                        ImGui::SetNextItemWidth(-1.0f);
+                        int tmp = static_cast<int>(*row.val);
+                        if (ImGui::InputInt(row.id, &tmp, 0, 0))
+                            { *row.val = static_cast<uint32_t>(tmp); m_dirty = true; }
+                    }
+                    ImGui::EndTable();
+                }
+            }
+            ImGui::EndChild();
+            ImGui::PopStyleColor();
+
+            // --- Tooltip area (plain, no box) ---
+            ImGui::Spacing();
+            ImGui::TextColored(kTTCol, " ");  // placeholder — tooltip text goes here
         }
     }
     ImGui::EndChild();
@@ -2448,89 +2505,193 @@ void MovesetEditorWindow::RenderCancelInnerDetail(
     ParsedCancel& c, int localIdx, uint32_t blockIdx,
     const std::vector<std::pair<uint32_t,uint32_t>>& gcGroups)
 {
-    ImGui::TextDisabled("cancel #%d  (block[%u])", localIdx, blockIdx);
-    ImGui::Separator();
-    if (!BeginPropTable("##cdt")) return;
+    const ImGuiStyle& sty = ImGui::GetStyle();
+    static constexpr ImVec4 kBlockBg = {0.14f, 0.14f, 0.18f, 1.00f};
+    static constexpr ImVec4 kGreen   = {0.55f, 0.85f, 0.55f, 1.0f};
+    static constexpr ImVec4 kPink    = {1.00f, 0.50f, 0.65f, 1.0f};
+    static constexpr ImVec4 kTTCol   = {0.40f, 0.75f, 1.00f, 1.00f};
 
-    if (RowHex64Edit("##command", CancelLabel::Command, c.command)) m_dirty = true;
+    // GoButton: custom InvisibleButton rendering identical to RenderSection_Overview
+    const float kArrowW = ImGui::GetFrameHeight() * 0.38f;
+    const float kBtnW   = ImGui::CalcTextSize("Go ").x + kArrowW
+                        + sty.FramePadding.x * 2.0f + 4.0f;
 
-    // cancel-extra link (editable)
+    auto GoButton = [&](const char* id, bool valid) -> bool {
+        if (!valid) ImGui::BeginDisabled();
+        const float  h   = ImGui::GetFrameHeight();
+        bool clicked     = ImGui::InvisibleButton(id, ImVec2(kBtnW, h));
+        const ImVec2 p0  = ImGui::GetItemRectMin();
+        const ImVec2 p1  = ImGui::GetItemRectMax();
+        const bool   hov = ImGui::IsItemHovered();
+        const bool   act = ImGui::IsItemActive();
+        ImDrawList*  dl  = ImGui::GetWindowDrawList();
+        dl->AddRectFilled(p0, p1,
+            ImGui::GetColorU32(act ? ImGuiCol_ButtonActive : hov ? ImGuiCol_ButtonHovered : ImGuiCol_Button),
+            sty.FrameRounding);
+        dl->AddRect(p0, p1, ImGui::GetColorU32(ImGuiCol_Border), sty.FrameRounding);
+        const ImU32  col    = ImGui::GetColorU32(ImGuiCol_Text);
+        const char*  txt    = "Go ";
+        const ImVec2 txtSz  = ImGui::CalcTextSize(txt);
+        const float  totalW = txtSz.x + kArrowW;
+        const float  startX = p0.x + (kBtnW - totalW) * 0.5f;
+        const float  midY   = (p0.y + p1.y) * 0.5f;
+        const float  arrowH = h * 0.30f;
+        dl->AddText(ImVec2(startX, midY - txtSz.y * 0.5f), col, txt);
+        dl->AddTriangleFilled(
+            ImVec2(startX + txtSz.x,           midY - arrowH * 0.5f),
+            ImVec2(startX + txtSz.x,           midY + arrowH * 0.5f),
+            ImVec2(startX + txtSz.x + kArrowW, midY), col);
+        if (!valid) ImGui::EndDisabled();
+        return clicked && valid;
+    };
+
+    // --- Block 1: command / extradata / requirements / move ---
+    // Height: 4 × (TextLineH + FrameH + spacing×2) − spacing + padding×2
+    float fH1     = ImGui::GetTextLineHeight() + ImGui::GetFrameHeight() + sty.ItemSpacing.y * 2.0f;
+    float block1H = fH1 * 4.0f - sty.ItemSpacing.y + sty.WindowPadding.y * 2.0f;
+
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, kBlockBg);
+    if (ImGui::BeginChild("##cdt_b1", ImVec2(-1.0f, block1H), ImGuiChildFlags_Borders))
     {
-        static constexpr ImVec4 kGreen = {0.55f, 0.85f, 0.55f, 1.0f};
-        static constexpr ImVec4 kPink  = {1.00f, 0.50f, 0.65f, 1.0f};
-        bool valid = (c.extradata_idx != 0xFFFFFFFF) &&
-                     (c.extradata_idx < (uint32_t)m_data.cancelExtraBlock.size());
-        auto r = RowIdxEditLink("##cxl_idx", CancelLabel::Extradata, c.extradata_idx, valid);
-        if (r.changed) m_dirty = true;
-        if (r.navigate) {
+        // command (hex64, no navigation)
+        ImGui::TextDisabled("%s", CancelLabel::Command);
+        ImGui::SetNextItemWidth(-1.0f);
+        char cmdBuf[22]; snprintf(cmdBuf, sizeof(cmdBuf), "0x%016llX", (unsigned long long)c.command);
+        ImGui::InputText("##cmd", cmdBuf, sizeof(cmdBuf));
+        if (ImGui::IsItemDeactivatedAfterEdit()) {
+            const char* p = cmdBuf;
+            if (p[0]=='0' && (p[1]=='x'||p[1]=='X')) p += 2;
+            c.command = (uint64_t)strtoull(p, nullptr, 16);
+            m_dirty = true;
+        }
+
+        // extradata (uint32_t, navigate to cancel-extra)
+        bool extValid = (c.extradata_idx != 0xFFFFFFFF) &&
+                        (c.extradata_idx < (uint32_t)m_data.cancelExtraBlock.size());
+        ImGui::PushStyleColor(ImGuiCol_Text, extValid ? kGreen : kPink);
+        ImGui::TextUnformatted(CancelLabel::Extradata);
+        ImGui::PopStyleColor();
+        ImGui::SetNextItemWidth(-(kBtnW + sty.ItemSpacing.x));
+        int extTmp = (c.extradata_idx == 0xFFFFFFFF) ? -1 : (int)c.extradata_idx;
+        if (ImGui::InputInt("##ext_idx", &extTmp, 0, 0)) {
+            c.extradata_idx = (extTmp < 0) ? 0xFFFFFFFF : (uint32_t)extTmp;
+            m_dirty = true;
+        }
+        ImGui::SameLine();
+        if (GoButton("##ext_go", extValid)) {
             m_cancelsWin.extradataSel       = (int)c.extradata_idx;
             m_cancelsWin.extraScrollPending = true;
         }
-    }
 
-    // requirement link (editable)
-    {
-        bool valid = (c.req_list_idx != 0xFFFFFFFF) &&
-                     (c.req_list_idx < (uint32_t)m_data.requirementBlock.size());
-        auto r = RowIdxEditLink("##creq_idx", CancelLabel::Requirements, c.req_list_idx, valid);
-        if (r.changed) m_dirty = true;
-        if (r.navigate) {
+        // requirements (uint32_t, navigate to requirement window)
+        bool reqValid = (c.req_list_idx != 0xFFFFFFFF) &&
+                        (c.req_list_idx < (uint32_t)m_data.requirementBlock.size());
+        ImGui::PushStyleColor(ImGuiCol_Text, reqValid ? kGreen : kPink);
+        ImGui::TextUnformatted(CancelLabel::Requirements);
+        ImGui::PopStyleColor();
+        ImGui::SetNextItemWidth(-(kBtnW + sty.ItemSpacing.x));
+        int reqTmp = (c.req_list_idx == 0xFFFFFFFF) ? -1 : (int)c.req_list_idx;
+        if (ImGui::InputInt("##req_idx", &reqTmp, 0, 0)) {
+            c.req_list_idx = (reqTmp < 0) ? 0xFFFFFFFF : (uint32_t)reqTmp;
+            m_dirty = true;
+        }
+        ImGui::SameLine();
+        if (GoButton("##req_go", reqValid)) {
             const auto& blk = m_data.requirementBlock;
-            auto grps = ComputeGroups(blk, +[](const ParsedRequirement& rr)->bool{ return rr.req==GameStatic::Get().data.reqListEnd; });
+            auto grps = ComputeGroups(blk, +[](const ParsedRequirement& rr)->bool{
+                return rr.req == GameStatic::Get().data.reqListEnd; });
             int gi = FindGroupOuter(grps, c.req_list_idx);
             if (gi >= 0) { m_reqWinSel.outer = gi; m_reqWinSel.inner = 0; m_reqWinSel.scrollOuter = true; }
             m_reqWinOpen = true;
         }
-    }
 
-    if (RowU32Edit("##fws", CancelLabel::InputWindowStart, c.frame_window_start)) m_dirty = true;
-    if (RowU32Edit("##fwe", CancelLabel::InputWindowEnd,   c.frame_window_end))   m_dirty = true;
-    if (RowU32Edit("##sf",  CancelLabel::StartingFrame,    c.starting_frame))     m_dirty = true;
+        // move (uint16_t, navigate — same logic as before)
+        const bool isTerm = ((c.command == 0x8000 || c.command == GameStatic::Get().data.groupCancelEnd)
+                             && c.move_id == 0x8000);
+        bool moveValid  = false;
+        int  resolvedIdx = -1;
+        const char* moveLbl = CancelLabel::Move;
 
-    // move_id (editable + navigable)
-    if (c.command == GameStatic::Get().data.groupCancelStart)
-    {
-        bool valid = (FindGroupOuter(gcGroups, (uint32_t)c.move_id) >= 0);
-        auto r = RowMoveEditLink("##cmid_gc", CancelLabel::GroupCancelIdx, c.move_id, valid);
-        if (r.changed) m_dirty = true;
-        if (r.navigate) {
-            int gi = FindGroupOuter(gcGroups, (uint32_t)c.move_id);
-            if (gi >= 0) {
-                m_cancelsWin.groupCancelSel.outer       = gi;
-                m_cancelsWin.groupCancelSel.inner       = 0;
-                m_cancelsWin.groupCancelSel.scrollOuter = true;
-            }
-            m_cancelsWin.open         = true;
-            m_cancelsWin.pendingFocus = true;
-        }
-    }
-    else
-    {
-        const bool isTerm = ((c.command == 0x8000 || c.command == GameStatic::Get().data.groupCancelEnd) && c.move_id == 0x8000);
-        if (!isTerm && c.move_id >= 0x8000)
-        {
+        if (c.command == GameStatic::Get().data.groupCancelStart) {
+            moveLbl   = CancelLabel::GroupCancelIdx;
+            moveValid = (FindGroupOuter(gcGroups, (uint32_t)c.move_id) >= 0);
+        } else if (!isTerm && c.move_id >= 0x8000) {
             const uint32_t aliasIdx = c.move_id - 0x8000u;
-            int resolvedIdx = -1;
             if (aliasIdx < m_data.originalAliases.size()) {
-                const uint16_t resolved = m_data.originalAliases[aliasIdx];
-                if ((size_t)resolved < m_data.moves.size()) resolvedIdx = (int)resolved;
+                const uint16_t res = m_data.originalAliases[aliasIdx];
+                if ((size_t)res < m_data.moves.size()) { resolvedIdx = (int)res; moveValid = true; }
             }
-            bool valid = (resolvedIdx >= 0);
-            auto r = RowMoveEditLink("##cmid_gen", CancelLabel::Move, c.move_id, valid, resolvedIdx, true);
-            if (r.changed) m_dirty = true;
-            if (r.navigate) { m_selectedIdx = resolvedIdx; m_moveListScrollPending = true; }
+        } else {
+            moveValid = !isTerm && (c.move_id < (uint16_t)m_data.moves.size());
         }
-        else
-        {
-            bool valid = !isTerm && (c.move_id < (uint16_t)m_data.moves.size());
-            auto r = RowMoveEditLink("##cmid_dir", CancelLabel::Move, c.move_id, valid);
-            if (r.changed) m_dirty = true;
-            if (r.navigate) { m_selectedIdx = (int)c.move_id; m_moveListScrollPending = true; }
+
+        ImGui::PushStyleColor(ImGuiCol_Text, moveValid ? kGreen : kPink);
+        ImGui::TextUnformatted(moveLbl);
+        ImGui::PopStyleColor();
+        ImGui::SetNextItemWidth(-(kBtnW + sty.ItemSpacing.x));
+        int moveTmp = (int)(uint16_t)c.move_id;
+        if (ImGui::InputInt("##mv_idx", &moveTmp, 0, 0)) {
+            c.move_id = (uint16_t)(moveTmp < 0 ? 0 : moveTmp > 0xFFFF ? 0xFFFF : moveTmp);
+            m_dirty = true;
+        }
+        ImGui::SameLine();
+        if (GoButton("##mv_go", moveValid)) {
+            if (c.command == GameStatic::Get().data.groupCancelStart) {
+                int gi = FindGroupOuter(gcGroups, (uint32_t)c.move_id);
+                if (gi >= 0) {
+                    m_cancelsWin.groupCancelSel.outer       = gi;
+                    m_cancelsWin.groupCancelSel.inner       = 0;
+                    m_cancelsWin.groupCancelSel.scrollOuter = true;
+                }
+                m_cancelsWin.open = true; m_cancelsWin.pendingFocus = true;
+            } else if (!isTerm && c.move_id >= 0x8000) {
+                if (resolvedIdx >= 0) { m_selectedIdx = resolvedIdx; m_moveListScrollPending = true; }
+            } else {
+                m_selectedIdx = (int)c.move_id; m_moveListScrollPending = true;
+            }
         }
     }
+    ImGui::EndChild();
+    ImGui::PopStyleColor();
 
-    if (RowU16Edit("##cancel_option", CancelLabel::Option, c.cancel_option)) m_dirty = true;
-    ImGui::EndTable();
+    ImGui::Spacing();
+
+    // --- Block 2: input_window_start / end / starting_frame / option ---
+    float fH2     = ImGui::GetFrameHeight() + sty.ItemSpacing.y;
+    float block2H = fH2 * 4.0f - sty.ItemSpacing.y + sty.WindowPadding.y * 2.0f;
+
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, kBlockBg);
+    if (ImGui::BeginChild("##cdt_b2", ImVec2(-1.0f, block2H), ImGuiChildFlags_Borders))
+    {
+        constexpr ImGuiTableFlags kTF = ImGuiTableFlags_SizingFixedFit;
+        if (ImGui::BeginTable("##cdt_tbl2", 2, kTF, ImVec2(-1.0f, 0.0f))) {
+            ImGui::TableSetupColumn("##l2", ImGuiTableColumnFlags_WidthFixed);
+            ImGui::TableSetupColumn("##v2", ImGuiTableColumnFlags_WidthStretch);
+
+            auto Row32 = [&](const char* id, const char* lbl, uint32_t& v) {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("%s", lbl);
+                ImGui::TableSetColumnIndex(1); ImGui::SetNextItemWidth(-1.0f);
+                int tmp = (int)v;
+                if (ImGui::InputInt(id, &tmp, 0, 0)) { v = (uint32_t)tmp; m_dirty = true; }
+            };
+            auto Row16 = [&](const char* id, const char* lbl, uint16_t& v) {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("%s", lbl);
+                ImGui::TableSetColumnIndex(1); ImGui::SetNextItemWidth(-1.0f);
+                int tmp = (int)v;
+                if (ImGui::InputInt(id, &tmp, 0, 0)) { v = (uint16_t)tmp; m_dirty = true; }
+            };
+
+            Row32("##fws", CancelLabel::InputWindowStart, c.frame_window_start);
+            Row32("##fwe", CancelLabel::InputWindowEnd,   c.frame_window_end);
+            Row32("##sf",  CancelLabel::StartingFrame,    c.starting_frame);
+            Row16("##opt", CancelLabel::Option,           c.cancel_option);
+            ImGui::EndTable();
+        }
+    }
+    ImGui::EndChild();
+    ImGui::PopStyleColor();
 }
 
 // -------------------------------------------------------------
@@ -2584,7 +2745,18 @@ static void RenderCancelSection(
     bool& dirty,
     bool isGroupCancel)
 {
-    float colW = ImGui::GetContentRegionAvail().x / 3.0f - ImGui::GetStyle().ItemSpacing.x;
+    static constexpr float kColW = 180.0f;
+
+    // Right-aligned + button header: "Label (N)  [+]"
+    auto ListHdr = [](const char* popupId, const char* typeName,
+                      const char* label, int count) -> ListAction
+    {
+        float btnW  = ImGui::CalcTextSize("+").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+        float rightX = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - btnW;
+        ImGui::TextDisabled("%s (%d)", label, count);
+        ImGui::SameLine(rightX);
+        return RenderListPlusMenu(popupId, typeName);
+    };
 
     auto recompGroups = [&]() {
         if (isGroupCancel) {
@@ -2596,12 +2768,12 @@ static void RenderCancelSection(
     };
 
     // ---- Outer panel ----
-    ImGui::BeginChild(outerChildId, ImVec2(colW, sectionH), true);
+    ImGui::BeginChild(outerChildId, ImVec2(kColW, sectionH), true);
     {
         bool hasOuter = (sel.outer < (int)groups.size());
         char outerMenuId[64]; snprintf(outerMenuId, sizeof(outerMenuId), "##cListMenu%s", outerChildId);
-        ListAction outerAct = RenderListPlusMenu(outerMenuId, isGroupCancel ? "Group-Cancel-list" : "Cancel-list");
-        ImGui::SameLine(); ImGui::TextDisabled("%s (%d)", listLabel, (int)groups.size());
+        ListAction outerAct = ListHdr(outerMenuId, isGroupCancel ? "Group-Cancel-list" : "Cancel-list",
+                                      listLabel, (int)groups.size());
         ImGui::Separator();
 
         if (outerAct == ListAction::Insert) {
@@ -2642,7 +2814,7 @@ static void RenderCancelSection(
         for (int gi = 0; gi < (int)groups.size(); ++gi) {
             uint32_t count = groups[gi].second;
             uint32_t items = count > 0 ? count - 1 : 0;
-            char lbl[48]; snprintf(lbl, sizeof(lbl), "[%u]  (%u)##g%d", groups[gi].first, items, gi);
+            char lbl[48]; snprintf(lbl, sizeof(lbl), "#%u  %u items##g%d", groups[gi].first, items, gi);
             bool s = (sel.outer == gi);
             if (ImGui::Selectable(lbl, s)) { sel.outer = gi; sel.inner = 0; }
             if (s && sel.scrollOuter) { ImGui::SetScrollHereY(0.5f); sel.scrollOuter = false; }
@@ -2656,7 +2828,7 @@ static void RenderCancelSection(
     ImGui::SameLine();
 
     // ---- Inner panel ----
-    ImGui::BeginChild(innerChildId, ImVec2(colW, sectionH), true);
+    ImGui::BeginChild(innerChildId, ImVec2(kColW, sectionH), true);
     {
         bool hasOuter = (sel.outer < (int)groups.size());
         bool isEndSel = false;
@@ -2667,9 +2839,10 @@ static void RenderCancelSection(
                 isEndSel = (block[innerAbsIdx].command == terminatorCmd);
         }
 
+        int innerCount = hasOuter ? (int)groups[sel.outer].second : 0;
         char innerMenuId[64]; snprintf(innerMenuId, sizeof(innerMenuId), "##cItemMenu%s", innerChildId);
-        ListAction innerAct = RenderListPlusMenu(innerMenuId, isGroupCancel ? "Group-Cancel" : "Cancel");
-        ImGui::SameLine(); ImGui::TextDisabled("items");
+        ListAction innerAct = ListHdr(innerMenuId, isGroupCancel ? "Group-Cancel" : "Cancel",
+                                      "Cancels", innerCount);
         ImGui::Separator();
 
         bool isOnlyEnd = isEndSel && hasOuter && (groups[sel.outer].second == 1);
@@ -2753,7 +2926,7 @@ void MovesetEditorWindow::RenderSubWin_Cancels()
     if (!m_cancelsWin.open) return;
     const bool cancelsBringFront = m_cancelsWin.pendingFocus;
     if (cancelsBringFront) m_cancelsWin.pendingFocus = false;
-    ImGui::SetNextWindowSize(ImVec2(900.0f, 600.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(700.0f, 400.0f), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Cancels##blkwin", &m_cancelsWin.open, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking))
     { ImGui::End(); return; }
     if (cancelsBringFront) ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());
@@ -2764,44 +2937,55 @@ void MovesetEditorWindow::RenderSubWin_Cancels()
     auto cancelGroups      = ComputeGroups(m_data.cancelBlock,      isCancelTerm);
     auto groupCancelGroups = ComputeGroups(m_data.groupCancelBlock, isGroupCancelTerm);
 
-    const auto& exb = m_data.cancelExtraBlock;
-    float rightW   = 160.0f;
-    float availW   = ImGui::GetContentRegionAvail().x - rightW - ImGui::GetStyle().ItemSpacing.x;
-    float availH   = ImGui::GetContentRegionAvail().y;
-    float halfH    = (availH - ImGui::GetStyle().ItemSpacing.y) * 0.5f;
+    static constexpr float   kCexW   = 180.0f;
+    static constexpr ImVec4  kBlockBg = {0.14f, 0.14f, 0.18f, 1.00f};
+    static constexpr ImVec4  kSelBg   = {0.22f, 0.22f, 0.30f, 1.00f};
+    static constexpr ImVec4  kTTCol   = {0.40f, 0.75f, 1.00f, 1.00f};
+    static constexpr float   kTTH     = 20.0f;
 
-    // Left+Middle: stacked cancel / group-cancel sections
-    ImGui::BeginChild("##cancelmid", ImVec2(availW, 0.0f), false);
+    float leftW = ImGui::GetContentRegionAvail().x - kCexW - ImGui::GetStyle().ItemSpacing.x;
+
+    // Left: tab bar (Cancel List | Group Cancel List)
+    ImGui::BeginChild("##canleft", ImVec2(leftW, 0.0f), false);
     {
-        // Top: cancel lists
-        ImGui::BeginChild("##ctop", ImVec2(0.0f, halfH), false);
-        RenderCancelSection("##co","##ci","##cd",
-            m_data.cancelBlock, cancelGroups, m_cancelsWin.cancelSel,
-            "cancel-lists", 0.0f, 0x8000,
-            this, groupCancelGroups,
-            m_data, m_dirty, false);
-        ImGui::EndChild();
-
-        // Bottom: group-cancel lists
-        ImGui::BeginChild("##cgbot", ImVec2(0.0f, 0.0f), false);
-        RenderCancelSection("##gco","##gci","##gcd",
-            m_data.groupCancelBlock, groupCancelGroups, m_cancelsWin.groupCancelSel,
-            "group-cancel-lists", 0.0f, (uint64_t)GameStatic::Get().data.groupCancelEnd,
-            this, {},
-            m_data, m_dirty, true);
-        ImGui::EndChild();
+        if (ImGui::BeginTabBar("##cantabs"))
+        {
+            if (ImGui::BeginTabItem("Cancel List"))
+            {
+                RenderCancelSection("##co","##ci","##cd",
+                    m_data.cancelBlock, cancelGroups, m_cancelsWin.cancelSel,
+                    "Cancel Lists", 0.0f, 0x8000,
+                    this, groupCancelGroups,
+                    m_data, m_dirty, false);
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem("Group Cancel List"))
+            {
+                RenderCancelSection("##gco","##gci","##gcd",
+                    m_data.groupCancelBlock, groupCancelGroups, m_cancelsWin.groupCancelSel,
+                    "Group Cancel Lists", 0.0f, (uint64_t)GameStatic::Get().data.groupCancelEnd,
+                    this, {},
+                    m_data, m_dirty, true);
+                ImGui::EndTabItem();
+            }
+            ImGui::EndTabBar();
+        }
     }
     ImGui::EndChild();
 
-    // Right: cancel-extra flat list
+    // Right: cancel-extra (card style, always visible)
     ImGui::SameLine();
-    ImGui::BeginChild("##cexcol", ImVec2(rightW, 0.0f), true);
+    ImGui::BeginChild("##cexcol", ImVec2(kCexW, 0.0f), true);
     {
-        auto& cexBlk = m_data.cancelExtraBlock;
-        int cexTotal = (int)cexBlk.size();
+        auto& cexBlk  = m_data.cancelExtraBlock;
+        int   cexTotal = (int)cexBlk.size();
+
+        // Header: "Cancel Extras (N)  [+]"
+        float btnW  = ImGui::CalcTextSize("+").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+        float rightX = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - btnW;
+        ImGui::TextDisabled("Cancel Extras (%d)", cexTotal);
+        ImGui::SameLine(rightX);
         ListAction cexAct = RenderListPlusMenu("##cex_pm", "Cancel-extra");
-        ImGui::SameLine();
-        ImGui::TextDisabled("cancel-extra (%d)", cexTotal);
         ImGui::Separator();
 
         bool hasCexSel = (m_cancelsWin.extradataSel >= 0 && m_cancelsWin.extradataSel < cexTotal);
@@ -2814,7 +2998,7 @@ void MovesetEditorWindow::RenderSubWin_Cancels()
             cexBlk.push_back(cexBlk[m_cancelsWin.extradataSel]);
             m_dirty = true;
         } else if (cexAct == ListAction::Remove && hasCexSel) {
-            uint32_t pos = (uint32_t)m_cancelsWin.extradataSel;
+            uint32_t pos  = (uint32_t)m_cancelsWin.extradataSel;
             uint32_t refs = CountRefs_CancelExtra(m_data, pos);
             auto doRem = [this, pos]() {
                 FixupRef_CancelExtra(m_data, pos, false);
@@ -2830,33 +3014,54 @@ void MovesetEditorWindow::RenderSubWin_Cancels()
             } else { doRem(); }
         }
 
-        constexpr ImGuiTableFlags kTf =
-            ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit;
-        if (ImGui::BeginTable("##cextbl", 2, kTf))
+        // Card-style items
+        const ImGuiStyle& sty = ImGui::GetStyle();
+        float cardH = ImGui::GetTextLineHeight() + sty.ItemSpacing.y
+                    + ImGui::GetFrameHeight() + sty.ItemSpacing.y
+                    + kTTH + sty.WindowPadding.y * 2.0f;
+
+        ImGui::BeginChild("##cex_scroll", ImVec2(0.0f, 0.0f), false);
+        for (int i = 0; i < cexTotal; ++i)
         {
-            ImGui::TableSetupColumn("Index", ImGuiTableColumnFlags_WidthFixed, 45.0f);
-            ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
-            ImGui::TableHeadersRow();
-            for (int i = 0; i < (int)m_data.cancelExtraBlock.size(); ++i)
+            bool sel = (m_cancelsWin.extradataSel == i);
+            ImGui::PushStyleColor(ImGuiCol_ChildBg, sel ? kSelBg : kBlockBg);
+            char cardId[32]; snprintf(cardId, sizeof(cardId), "##cex_%d", i);
+            if (ImGui::BeginChild(cardId, ImVec2(-1.0f, cardH), ImGuiChildFlags_Borders))
             {
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0);
-                bool sel = (m_cancelsWin.extradataSel == i);
-                char lbl[16]; snprintf(lbl, sizeof(lbl), "%d##cx%d", i, i);
-                if (ImGui::Selectable(lbl, sel, ImGuiSelectableFlags_SpanAllColumns))
+                // Click anywhere in the card to select
+                if (ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem)
+                    && ImGui::IsMouseClicked(0))
                     m_cancelsWin.extradataSel = i;
+
                 if (sel && m_cancelsWin.extraScrollPending) {
                     ImGui::SetScrollHereY(0.5f);
                     m_cancelsWin.extraScrollPending = false;
                 }
-                ImGui::TableSetColumnIndex(1);
-                ImGui::SetNextItemWidth(-1.0f);
-                char cxid[32]; snprintf(cxid, sizeof(cxid), "##cxv%d", i);
-                int cxtmp = (int)m_data.cancelExtraBlock[i];
-                if (ImGui::InputInt(cxid, &cxtmp, 0, 0)) { m_data.cancelExtraBlock[i] = (uint32_t)cxtmp; m_dirty = true; }
+
+                ImGui::TextDisabled("#%d", i);
+
+                // "value" label + InputInt on same row (2-col table)
+                constexpr ImGuiTableFlags kTF = ImGuiTableFlags_SizingFixedFit;
+                if (ImGui::BeginTable("##cex_row", 2, kTF, ImVec2(-1.0f, 0.0f))) {
+                    ImGui::TableSetupColumn("##cxl", ImGuiTableColumnFlags_WidthFixed);
+                    ImGui::TableSetupColumn("##cxv", ImGuiTableColumnFlags_WidthStretch);
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("value");
+                    ImGui::TableSetColumnIndex(1); ImGui::SetNextItemWidth(-1.0f);
+                    char cxid[32]; snprintf(cxid, sizeof(cxid), "##cxv%d", i);
+                    int cxtmp = (int)cexBlk[i];
+                    if (ImGui::InputInt(cxid, &cxtmp, 0, 0)) { cexBlk[i] = (uint32_t)cxtmp; m_dirty = true; }
+                    ImGui::EndTable();
+                }
+
+                // Tooltip placeholder
+                ImGui::TextColored(kTTCol, " ");
             }
-            ImGui::EndTable();
+            ImGui::EndChild();
+            ImGui::PopStyleColor();
+            ImGui::Spacing();
         }
+        ImGui::EndChild();
     }
     ImGui::EndChild();
 
