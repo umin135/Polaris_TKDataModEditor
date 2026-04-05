@@ -16,9 +16,7 @@
 #pragma comment(lib, "windowscodecs.lib")
 
 #include "resource.h"
-
-static const char* APP_VERSION   = "v0.1.0";
-static const float SIDEBAR_WIDTH = 200.0f;
+#include "AppStrings.h"
 
 // -------------------------------------------------------------
 //  PNG texture loader from embedded Win32 resource (RCDATA)
@@ -365,7 +363,7 @@ void App::Render()
             ImGuiID sidebarNodeId, contentNodeId;
             ImGui::DockBuilderSplitNode(
                 dockspaceId, ImGuiDir_Left,
-                SIDEBAR_WIDTH / vp->WorkSize.x,
+                AppStr::SidebarWidth / vp->WorkSize.x,
                 &sidebarNodeId, &contentNodeId);
 
             ImGui::DockBuilderDockWindow("##Sidebar", sidebarNodeId);
@@ -511,16 +509,16 @@ void App::RenderSidebar(float sidebarWidth)
     };
 
     // -- Navigation buttons --
-    if (SidebarBtn("Home",    ContentView::Home,    true))
+    if (SidebarBtn(AppStr::BtnHome,    ContentView::Home,    true))
         m_currentView = ContentView::Home;
 
     ImGui::Separator();
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 6.0f);
 
-    if (SidebarBtn("fbsdata", ContentView::FbsData, true))
+    if (SidebarBtn(AppStr::BtnFbsData, ContentView::FbsData, true))
         m_currentView = ContentView::FbsData;
 
-    if (SidebarBtn("moveset", ContentView::Moveset, true))
+    if (SidebarBtn(AppStr::BtnMoveset, ContentView::Moveset, true))
         m_currentView = ContentView::Moveset;
 
 #ifdef _DEBUG
@@ -528,12 +526,12 @@ void App::RenderSidebar(float sidebarWidth)
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 6.0f);
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.75f, 0.2f, 1.0f));
     ImGui::SetCursorPosX(paddingX);
-    ImGui::TextUnformatted("-- DEV MODE --");
+    ImGui::TextUnformatted(AppStr::DevModeLabel);
     ImGui::PopStyleColor();
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 2.0f);
-    if (SidebarBtn("fbsdata (dev)", ContentView::FbsDevMode, true))
+    if (SidebarBtn(AppStr::BtnFbsDev,     ContentView::FbsDevMode, true))
         m_currentView = ContentView::FbsDevMode;
-    if (SidebarBtn("motbin diff",  ContentView::MotbinDiff, true))
+    if (SidebarBtn(AppStr::BtnMotbinDiff, ContentView::MotbinDiff, true))
         m_currentView = ContentView::MotbinDiff;
 #endif
 
@@ -557,7 +555,7 @@ void App::RenderSidebar(float sidebarWidth)
             ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.25f, 0.44f, 0.78f, 1.00f));
         }
         ImGui::SetCursorPosX(paddingX);
-        if (ImGui::Button("Settings", ImVec2(buttonW, buttonH)))
+        if (ImGui::Button(AppStr::BtnSettings, ImVec2(buttonW, buttonH)))
         {
             m_showSettings       = !m_showSettings;
             m_settingsInitialized = false;  // re-init edit buffers on next open
@@ -568,9 +566,9 @@ void App::RenderSidebar(float sidebarWidth)
 
     // -- Version label --
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.28f, 0.28f, 0.38f, 1.00f));
-    const float verW = ImGui::CalcTextSize(APP_VERSION).x;
+    const float verW = ImGui::CalcTextSize(AppStr::Version).x;
     ImGui::SetCursorPosX((sidebarWidth - verW) * 0.5f);
-    ImGui::Text("%s", APP_VERSION);
+    ImGui::Text("%s", AppStr::Version);
     ImGui::PopStyleColor();
 }
 
@@ -601,23 +599,21 @@ void App::RenderHomeView()
     else
     {
         // Fallback text title when logo texture is unavailable
-        const char* mainTitle = "PolarisTK Data Editor";
         ImGui::SetWindowFontScale(2.0f);
-        const float titleW = ImGui::CalcTextSize(mainTitle).x;
+        const float titleW = ImGui::CalcTextSize(AppStr::AppTitle).x;
         ImGui::SetCursorPosX((contentW - titleW) * 0.5f);
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.82f, 1.00f, 1.00f));
-        ImGui::Text("%s", mainTitle);
+        ImGui::Text("%s", AppStr::AppTitle);
         ImGui::PopStyleColor();
         ImGui::SetWindowFontScale(1.0f);
     }
 
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 6.0f);
 
-    const char* subtitle = "TEKKEN8 TKData Mod Editor";
-    const float subW = ImGui::CalcTextSize(subtitle).x;
+    const float subW = ImGui::CalcTextSize(AppStr::AppSubtitle).x;
     ImGui::SetCursorPosX((contentW - subW) * 0.5f);
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.60f, 0.60f, 0.72f, 1.00f));
-    ImGui::Text("%s", subtitle);
+    ImGui::Text("%s", AppStr::AppSubtitle);
     ImGui::PopStyleColor();
 
     // -- Separator --
@@ -636,7 +632,7 @@ void App::RenderHomeView()
     };
 
     // -- Supported modules --
-    CenteredText("Supported Modules", ImVec4(0.75f, 0.75f, 0.85f, 1.00f));
+    CenteredText(AppStr::SectionModules, ImVec4(0.75f, 0.75f, 0.85f, 1.00f));
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 8.0f);
 
     const float tableW = 440.0f;
@@ -667,9 +663,8 @@ void App::RenderHomeView()
             ImGui::PopStyleColor();
         };
 
-        ModuleRow("fbsdata", "Add modded items to fbsdata (.tkmod)", true);
-        ModuleRow("moveset", "Moveset Extraction/Editor (.motbin / .anmbin / .stllstb / .mvl)",  false);
-        ModuleRow("ghost",   "Ghost data (low priority)",         false);
+        for (const auto& m : AppStr::Modules)
+            ModuleRow(m.name, m.desc, m.ready);
 
         ImGui::EndTable();
     }
@@ -724,18 +719,16 @@ void App::RenderHomeView()
         ImGui::PopStyleColor();
     };
 
-    CenteredText("Credits", ImVec4(0.75f, 0.75f, 0.85f, 1.00f));
+    CenteredText(AppStr::SectionCredits, ImVec4(0.75f, 0.75f, 0.85f, 1.00f));
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 8.0f);
-    CreditRow("UMIN",    "Editor development");
-    CreditRow("Ali",     "Game Reversing");
-    CreditRow("dawc17",  "Game reversing / Mod Loader development");
+    for (const auto& c : AppStr::Credits)
+        CreditRow(c.name, c.role);
 
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 20.0f);
-    CenteredText("Links", ImVec4(0.75f, 0.75f, 0.85f, 1.00f));
+    CenteredText(AppStr::SectionLinks, ImVec4(0.75f, 0.75f, 0.85f, 1.00f));
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 8.0f);
-    LinkText("TekkenMods",       "https://tekkenmods.com/");
-    LinkText("ModdingZaibatsu",  "https://discord.gg/nCAeJE4z5U");
-    LinkText("Github",           "https://github.com/umin135/Polaris_TKDataModEditor");
+    for (const auto& l : AppStr::Links)
+        LinkText(l.label, l.url);
 }
 
 // -------------------------------------------------------------
