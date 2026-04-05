@@ -7,6 +7,7 @@
 #include <unordered_map>
 #include <functional>
 #include <memory>
+#include <future>
 
 class MovesetEditorWindow {
 public:
@@ -91,12 +92,16 @@ public:
 
     // Remove-confirmation modal  (accessed by free static render helpers)
     struct RemoveConfirmState {
-        bool pending = false;
+        bool pending = false;   // one-frame trigger: begin showing
+        bool showing = false;   // persistent: dialog remains until dismissed
         char message[300] = {};
         std::function<void()> onConfirm;
+        uint32_t callerViewportId = 0; // viewport ID of the sub-window that triggered this dialog
     };
     RemoveConfirmState m_removeConfirm;
-    bool m_endInsertBlocked = false;  // triggers [END]-insert-blocked modal
+    bool     m_endInsertBlocked        = false; // one-frame trigger
+    bool     m_showInsertBlocked       = false; // persistent show flag
+    uint32_t m_insertBlockedViewportId = 0;     // viewport of the sub-window that set the flag
 
 private:
     void RenderMoveList();
@@ -129,6 +134,13 @@ private:
     void RenderSubWin_Dialogues();
     void RenderRemoveConfirmModal();
 
+    // Returns a per-instance ImGui window/popup ID: "Label##tag_<uid>"
+    // Prevents ID collisions when multiple MovesetEditorWindows are open.
+    std::string WinId(const char* id) const
+    {
+        return std::string(id) + "_" + std::to_string(m_uid);
+    }
+
     MotbinData  m_data;
     std::unordered_map<int, std::string> m_customNames;
     std::string m_windowTitle;
@@ -144,11 +156,9 @@ private:
     bool        m_pendingClose     = false; // close requested while dirty
 
     enum class SaveState { Idle, Saving, Done };
-    SaveState   m_saveState        = SaveState::Idle;
-    bool        m_openSavingPopup  = false;
-    bool        m_openDonePopup    = false;
-    bool        m_doSaveThisFrame  = false; // two-frame delay: show popup first, save next
-    bool        m_donePoppedFirst  = false; // skip first-frame click on Done popup
+    SaveState          m_saveState        = SaveState::Idle;
+    std::future<void>  m_saveFuture;                         // async save task
+    bool               m_donePoppedFirst  = false;           // skip first-frame click on Done popup
     char        m_searchBuf[128] = {};
 
     ReqViewState       m_reqView;

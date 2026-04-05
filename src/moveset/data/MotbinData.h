@@ -325,6 +325,7 @@ struct MotbinData {
     bool        loaded   = false;
     std::string errorMsg;
     std::string          folderPath;         // loaded-from folder, used for save
+    std::string          charaCode;          // OriginalCharacter from moveset.ini (e.g. "grf")
     std::vector<uint8_t> rawBytes;           // original index-format file bytes (pre-ExpandIndexes), used for save
 
     uint32_t moveCount = 0;

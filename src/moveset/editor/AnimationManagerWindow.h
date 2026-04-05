@@ -24,6 +24,9 @@ public:
     // Provide the AnimNameDB (used only for lookup, not for file tracking).
     void SetAnimNameDB(const AnimNameDB* db) { m_animNameDB = db; }
 
+    // Provide the character code (e.g. "grf") for fallback animation naming.
+    void SetCharaCode(const std::string& code) { m_charaCode = code; }
+
     bool IsLoaded() const { return m_loaded && m_anmbin.loaded; }
 
     std::string AnimKeyToName(uint32_t motbinAnimKey, int cat = 0);
@@ -74,9 +77,9 @@ private:
     bool                                   m_mapBuilt = false;
 
     std::vector<NewAnimEntry>              m_pendingNew;
-    bool                                   m_showComEntries = true;
 
     const AnimNameDB*                      m_animNameDB = nullptr;
+    std::string                            m_charaCode;            // set by MovesetEditorWindow
 
     // Stem labels for pool entries added via DoRefresh (in-memory only, cleared on ForceReload).
     std::unordered_map<int, std::string>   m_poolFilenames[6]; // poolIdx → stem

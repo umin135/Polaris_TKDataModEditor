@@ -6,6 +6,7 @@
 #include "imgui/imgui.h"
 #include "imgui/imgui_internal.h"  // DockBuilder API
 #include <functional>
+#include <chrono>
 
 #include <d3d11.h>
 #include <wincodec.h>
@@ -375,6 +376,16 @@ void App::Render()
 
     ImGui::End();
 
+    // -- Process completed async operations (before any rendering) --
+    m_extractorView.CheckThread();
+
+    if (m_pendingEditor.valid() &&
+        m_pendingEditor.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+    {
+        m_editorWindows.push_back(m_pendingEditor.get());
+        m_loadingActive = false;
+    }
+
     RenderMainLayout();
     RenderSettingsWindow();
 
@@ -386,6 +397,16 @@ void App::Render()
             it = m_editorWindows.erase(it);
         else
             ++it;
+    }
+
+    // -- Loading overlay (rendered last so it appears on top) --
+    const bool anyLoading = m_loadingActive || m_extractorView.IsLoading();
+    if (anyLoading)
+    {
+        const char* msg = m_extractorView.IsLoading()
+            ? "Extracting moveset..."
+            : m_loadingMessage.c_str();
+        RenderLoadingOverlay(msg);
     }
 }
 
@@ -592,7 +613,7 @@ void App::RenderHomeView()
 
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 6.0f);
 
-    const char* subtitle = "Tekken 8 mod data editor tool";
+    const char* subtitle = "TEKKEN8 TKData Mod Editor";
     const float subW = ImGui::CalcTextSize(subtitle).x;
     ImGui::SetCursorPosX((contentW - subW) * 0.5f);
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.60f, 0.60f, 0.72f, 1.00f));
@@ -646,9 +667,9 @@ void App::RenderHomeView()
             ImGui::PopStyleColor();
         };
 
-        ModuleRow("fbsdata", "Customization item data editor (.tkmod)", true);
-        ModuleRow("moveset", "Move / animation data editor (planned)",  false);
-        ModuleRow("ghost",   "Ghost data editor (low priority)",         false);
+        ModuleRow("fbsdata", "Add modded items to fbsdata (.tkmod)", true);
+        ModuleRow("moveset", "Moveset Extraction/Editor (.motbin / .anmbin / .stllstb / .mvl)",  false);
+        ModuleRow("ghost",   "Ghost data (low priority)",         false);
 
         ImGui::EndTable();
     }
@@ -763,10 +784,18 @@ void App::RenderMovesetView()
     const bool wantOpen = m_movesetView.TakePendingOpen(openPath, openName);
     ImGui::EndChild();
 
-    // Open a new editor window if the user clicked Edit on a moveset.
-    // The editor itself will minimize the main window after it comes to the foreground.
-    if (wantOpen)
-        m_editorWindows.emplace_back(openPath, openName, m_nextEditorUid++);
+    // Open a new editor window asynchronously to avoid blocking the render loop.
+    if (wantOpen && !m_loadingActive && !m_pendingEditor.valid())
+    {
+        m_loadingActive  = true;
+        m_loadingMessage = "Loading moveset...";
+        const int uid = m_nextEditorUid++;
+        m_pendingEditor = std::async(std::launch::async,
+            [openPath, openName, uid]()
+            {
+                return MovesetEditorWindow(openPath, openName, uid);
+            });
+    }
 
     // -- Extraction log (bottom) ------------------------------
     ImGui::Spacing();
@@ -785,6 +814,59 @@ void App::ApplyAndSaveSettings()
     m_movesetView.ForceRefresh();
     m_extractorView.SetDestFolder(cfg.movesetRootDir);
 }
+
+// -------------------------------------------------------------
+//  RenderLoadingOverlay
+//  Dim background + centered spinner popup.
+//  Rendered after all other UI so it appears on top.
+// -------------------------------------------------------------
+
+void App::RenderLoadingOverlay(const char* msg)
+{
+    ImGuiViewport* vp     = ImGui::GetMainViewport();
+    const ImVec2   vpPos  = vp->Pos;
+    const ImVec2   vpSize = vp->Size;
+    const ImVec2   center(vpPos.x + vpSize.x * 0.5f, vpPos.y + vpSize.y * 0.5f);
+
+    constexpr ImGuiWindowFlags kOverlayFlags =
+        ImGuiWindowFlags_NoTitleBar      | ImGuiWindowFlags_NoResize      |
+        ImGuiWindowFlags_NoMove          | ImGuiWindowFlags_NoDocking     |
+        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar   |
+        ImGuiWindowFlags_NoNav           | ImGuiWindowFlags_NoFocusOnAppearing;
+
+    // Semi-transparent dim over the entire main viewport
+    ImGui::SetNextWindowPos(vpPos);
+    ImGui::SetNextWindowSize(vpSize);
+    ImGui::SetNextWindowBgAlpha(0.28f);
+    ImGui::Begin("##ldimBg", nullptr, kOverlayFlags | ImGuiWindowFlags_NoInputs);
+    ImGui::End();
+
+    // Centered info box
+    static const char* kSpin = "|/-\\";
+    const int spinIdx = static_cast<int>(ImGui::GetTime() * 8.0) & 3;
+
+    // Measure content to size the box
+    char spinMsg[256];
+    snprintf(spinMsg, sizeof(spinMsg), "%c  %s", kSpin[spinIdx], msg);
+    const float textW   = ImGui::CalcTextSize(spinMsg).x;
+    const float pad     = ImGui::GetStyle().WindowPadding.x;
+    const float boxW    = textW + pad * 2.0f + 16.0f;
+    const float lineH   = ImGui::GetTextLineHeightWithSpacing();
+
+    ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(boxW, lineH + pad * 2.0f + 8.0f), ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.96f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
+    ImGui::Begin("##ldimInfo", nullptr, kOverlayFlags);
+    ImGui::PopStyleVar();
+
+    ImGui::SetCursorPosY(ImGui::GetStyle().WindowPadding.y + 4.0f);
+    ImGui::Text("%s", spinMsg);
+
+    ImGui::End();
+}
+
+// -------------------------------------------------------------
 
 void App::RenderSettingsWindow()
 {

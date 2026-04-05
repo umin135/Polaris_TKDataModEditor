@@ -11,7 +11,7 @@
 // -----------------------------------------------------------------------
 namespace MoveLabel {
     // Overview
-    static constexpr const char* Name         = "name";
+    static constexpr const char* Name         = "Name";
     static constexpr const char* NameKey      = "name_key";
     static constexpr const char* AnimKey      = "anim_key";
     static constexpr const char* SkeletonId   = "skeleton_id";

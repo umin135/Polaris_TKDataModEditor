@@ -122,8 +122,11 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg
 //  For the main window we pass through so DWM still owns it.
 // -------------------------------------------------------------
 
-static HWND  g_mainHwnd = nullptr;
-static HHOOK g_kbHook   = nullptr;
+static HWND   g_mainHwnd    = nullptr;
+static HHOOK  g_kbHook      = nullptr;
+static HANDLE g_hookThread  = nullptr;
+static DWORD  g_hookThreadId = 0;
+static DWORD  g_mainPid      = 0; // cached at startup, avoids per-call GetCurrentProcessId()
 
 static void SnapWindowToHalf(HWND hwnd, bool left)
 {
@@ -140,48 +143,62 @@ static void SnapWindowToHalf(HWND hwnd, bool left)
 
 static LRESULT CALLBACK LowLevelKbProc(int nCode, WPARAM wParam, LPARAM lParam)
 {
-    if (nCode == HC_ACTION && (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN))
+    if (nCode != HC_ACTION)
+        return CallNextHookEx(g_kbHook, nCode, wParam, lParam);
+
+    // Fast path: if the foreground window does not belong to this process,
+    // pass through immediately with zero extra work (game gets no added latency).
+    HWND fg = GetForegroundWindow();
+    if (!fg)
+        return CallNextHookEx(g_kbHook, nCode, wParam, lParam);
+
+    DWORD pid = 0;
+    GetWindowThreadProcessId(fg, &pid);
+    if (pid != g_mainPid)
+        return CallNextHookEx(g_kbHook, nCode, wParam, lParam);
+
+    // Our window is in the foreground — handle Win+Arrow snap.
+    if (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN)
     {
         auto* kb = reinterpret_cast<KBDLLHOOKSTRUCT*>(lParam);
-        bool winHeld = (GetAsyncKeyState(VK_LWIN) & 0x8000) ||
-                       (GetAsyncKeyState(VK_RWIN) & 0x8000);
-
-        if (winHeld && (kb->vkCode == VK_LEFT  || kb->vkCode == VK_RIGHT ||
-                        kb->vkCode == VK_UP    || kb->vkCode == VK_DOWN))
+        if (kb->vkCode == VK_LEFT  || kb->vkCode == VK_RIGHT ||
+            kb->vkCode == VK_UP    || kb->vkCode == VK_DOWN)
         {
-            HWND fg = GetForegroundWindow();
-            if (fg)
+            bool winHeld = (GetAsyncKeyState(VK_LWIN) & 0x8000) ||
+                           (GetAsyncKeyState(VK_RWIN) & 0x8000);
+            if (winHeld)
             {
-                DWORD pid = 0;
-                GetWindowThreadProcessId(fg, &pid);
-                if (pid == GetCurrentProcessId())
+                if (fg == g_mainHwnd)
+                    return 1; // suppress Win+Arrow on main window (DWM would mis-snap it)
+
+                switch (kb->vkCode)
                 {
-                    if (fg == g_mainHwnd)
-                    {
-                        // Main window: suppress Win+Arrow (no snap)
-                        return 1;
-                    }
-                    // Secondary viewport: snap manually
-                    switch (kb->vkCode)
-                    {
-                    case VK_UP:
-                        ShowWindow(fg, SW_MAXIMIZE);
-                        return 1;
-                    case VK_DOWN:
-                        ShowWindow(fg, IsZoomed(fg) ? SW_RESTORE : SW_MINIMIZE);
-                        return 1;
-                    case VK_LEFT:
-                        SnapWindowToHalf(fg, true);
-                        return 1;
-                    case VK_RIGHT:
-                        SnapWindowToHalf(fg, false);
-                        return 1;
-                    }
+                case VK_UP:    ShowWindow(fg, SW_MAXIMIZE);                                   return 1;
+                case VK_DOWN:  ShowWindow(fg, IsZoomed(fg) ? SW_RESTORE : SW_MINIMIZE);       return 1;
+                case VK_LEFT:  SnapWindowToHalf(fg, true);                                    return 1;
+                case VK_RIGHT: SnapWindowToHalf(fg, false);                                   return 1;
                 }
             }
         }
     }
     return CallNextHookEx(g_kbHook, nCode, wParam, lParam);
+}
+
+// Dedicated hook thread: installs the LL keyboard hook and runs its own message pump.
+// Running separately from the render thread means VSync blocking in Present() cannot
+// delay the hook proc and cause perceived input lag in other applications (e.g. the game).
+static DWORD WINAPI HookThreadProc(LPVOID)
+{
+    g_kbHook = SetWindowsHookExW(WH_KEYBOARD_LL, LowLevelKbProc,
+                                  GetModuleHandleW(nullptr), 0);
+    MSG msg;
+    while (GetMessage(&msg, nullptr, 0, 0))
+    {
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
+    }
+    if (g_kbHook) { UnhookWindowsHookEx(g_kbHook); g_kbHook = nullptr; }
+    return 0;
 }
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
@@ -213,10 +230,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
         return 1;
     }
 
-    // Install LL keyboard hook for Win+Arrow snap on secondary viewports
+    // Install LL keyboard hook on a dedicated thread so VSync waits in the render
+    // loop cannot delay hook delivery and cause input lag in other processes.
     g_mainHwnd = hwnd;
-    g_kbHook   = SetWindowsHookExW(WH_KEYBOARD_LL, LowLevelKbProc,
-                                    GetModuleHandleW(nullptr), 0);
+    g_mainPid  = GetCurrentProcessId();
+    g_hookThread = CreateThread(nullptr, 0, HookThreadProc, nullptr, 0, &g_hookThreadId);
 
     ::ShowWindow(hwnd, SW_SHOWNORMAL);
     ::UpdateWindow(hwnd);
@@ -340,8 +358,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
         g_pSwapChain->Present(1, 0);
     }
 
-    // Cleanup
-    if (g_kbHook) { UnhookWindowsHookEx(g_kbHook); g_kbHook = nullptr; }
+    // Cleanup: signal hook thread to exit, then wait for it
+    if (g_hookThread)
+    {
+        PostThreadMessageW(g_hookThreadId, WM_QUIT, 0, 0);
+        WaitForSingleObject(g_hookThread, 2000);
+        CloseHandle(g_hookThread);
+        g_hookThread = nullptr;
+    }
     ImGui_ImplDX11_Shutdown();
     ImGui_ImplWin32_Shutdown();
     ImGui::DestroyContext();

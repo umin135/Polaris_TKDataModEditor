@@ -113,10 +113,11 @@ bool AnimNameDB::Save(const std::string& jsonPath)
     for (const auto& kv : m_nameToKey)
     {
         int idx = -1;
-        if (kv.first.rfind("anim_", 0) == 0)
-            idx = std::atoi(kv.first.c_str() + 5);
-        else if (kv.first.rfind("com_", 0) == 0)
-            idx = std::atoi(kv.first.c_str() + 4);
+        if (kv.first.rfind("anim_", 0) == 0 || kv.first.rfind("com_", 0) == 0)
+        {
+            size_t u = kv.first.rfind('_');
+            if (u != std::string::npos) idx = std::atoi(kv.first.c_str() + u + 1);
+        }
         if (idx >= 0)
             entries.push_back({ kv.first, kv.second, idx });
         else
@@ -127,7 +128,7 @@ bool AnimNameDB::Save(const std::string& jsonPath)
         [](const Entry& a, const Entry& b) {
             bool aCom = (a.name.rfind("com_", 0) == 0);
             bool bCom = (b.name.rfind("com_", 0) == 0);
-            if (aCom != bCom) return aCom > bCom; // com_ before anim_
+            if (aCom != bCom) return aCom > bCom; // com_* before anim_*
             return a.idx < b.idx;                  // numeric sort within group
         });
     // Append arbitrary-named entries (user files like "testanim") after sorted entries.
@@ -150,7 +151,8 @@ bool AnimNameDB::Save(const std::string& jsonPath)
 
 bool AnimNameDB::BuildAndSave(const std::string&            folderPath,
                                const AnmbinData&             anmbin,
-                               const std::vector<uint32_t>&  motbinAnimKeys)
+                               const std::vector<uint32_t>&  motbinAnimKeys,
+                               const std::string&            charaCode)
 {
     m_loaded = false;
     m_keyToName.clear();
@@ -177,14 +179,17 @@ bool AnimNameDB::BuildAndSave(const std::string&            folderPath,
     const auto& pool = anmbin.pool[0];
     for (int j = 0; j < (int)pool.size(); ++j)
     {
-        bool isCom = (pool[j].animDataPtr == 0);
+        if (pool[j].animDataPtr == 0) continue; // com.anmbin ref — referenced by raw key, not named
 
         uint32_t hash32 = static_cast<uint32_t>(pool[j].animKey & 0xFFFFFFFF);
         auto it = hashToKey.find(hash32);
         if (it == hashToKey.end()) continue;
 
-        char name[32];
-        snprintf(name, sizeof(name), isCom ? "com_%d" : "anim_%d", j); // j = pool index
+        char name[64];
+        if (!charaCode.empty())
+            snprintf(name, sizeof(name), "anim_%s_%d", charaCode.c_str(), j);
+        else
+            snprintf(name, sizeof(name), "anim_%d", j); // j = pool index
         m_keyToName[it->second] = name;
         m_nameToKey[name]       = it->second;
     }
@@ -228,11 +233,16 @@ bool AnimNameDB::AddEntry(const std::string& folderPath,
 std::string AnimNameDB::AnimKeyToName(uint32_t animKey) const
 {
     auto it = m_keyToName.find(animKey);
-    return it != m_keyToName.end() ? it->second : "";
+    if (it == m_keyToName.end()) return "";
+    // Ignore legacy com_ entries from old JSON files
+    if (it->second.rfind("com_", 0) == 0) return "";
+    return it->second;
 }
 
 bool AnimNameDB::NameToAnimKey(const std::string& name, uint32_t& outKey) const
 {
+    // com_ entries are no longer named — caller should pass raw hex for com refs
+    if (name.rfind("com_", 0) == 0) return false;
     auto it = m_nameToKey.find(name);
     if (it == m_nameToKey.end()) return false;
     outKey = it->second;

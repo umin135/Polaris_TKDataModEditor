@@ -405,12 +405,21 @@ bool RebuildAnmbin(const std::string&             folderPath,
     // --- Patch moveList[0] ----------------------------------------
     // For each move i: look up name from AnimNameDB, resolve to pool hash, patch.
     //
-    // Naming convention (N = POOL INDEX directly):
-    //   "anim_N" → pool entry at index N (animDataPtr != 0)
-    //   "com_N"  → pool entry at index N (animDataPtr == 0)
-    //   arbitrary stem (e.g. "test") → scan poolHash0 for animKey == moves[i].anim_key
+    // Resolution order (two strategies):
     //
-    // The pool-index convention matches extraction tool naming (anim_500.bin = pool[500]).
+    //   1. CRC scan (tried first):
+    //      For user-added animations (CRC32-keyed), moves[i].anim_key == CRC32 ==
+    //      poolHash0[actual_insert_index].  Scan poolHash0 for this value.
+    //      This correctly handles cross-character animations where the numeric suffix
+    //      in the name (e.g. "anim_grf_500" → 500) is the SOURCE character's pool
+    //      index, not the TARGET character's insert index.
+    //
+    //   2. N-based lookup (fallback when CRC scan finds nothing):
+    //      For original game animations, moves[i].anim_key is an encrypted game key
+    //      (not a CRC32) that never matches any poolHash0 entry.  In that case the
+    //      name suffix N is the correct pool index — use poolHash0[N] directly.
+    //
+    //   3. Arbitrary stem without anim_/com_ prefix → CRC scan only (same as 1).
     uint32_t patchCount = static_cast<uint32_t>(moves.size());
     if (patchCount > moveListCount) patchCount = moveListCount;
 
@@ -422,21 +431,8 @@ bool RebuildAnmbin(const std::string&             folderPath,
         uint32_t newHash  = 0;
         bool     resolved = false;
 
-        int  N       = -1;
-        if (name.rfind("anim_", 0) == 0)     N = atoi(name.c_str() + 5);
-        else if (name.rfind("com_", 0) == 0) N = atoi(name.c_str() + 4);
-
-        if (N >= 0 && N < (int)poolHash0.size())
+        // Strategy 1: CRC scan — covers user-added and cross-character animations.
         {
-            // N is pool index directly — just read the hash.
-            newHash  = poolHash0[N];
-            resolved = true;
-        }
-        else
-        {
-            // Arbitrary stem (e.g. user file "test.bin" stored with CRC32 as animKey).
-            // The move's anim_key IS the CRC32, which equals the pool entry's animKey (low32).
-            // Scan poolHash0 to find the matching entry.
             uint32_t target = moves[i].anim_key;
             for (uint32_t j = 0; j < (uint32_t)poolHash0.size(); ++j)
             {
@@ -446,6 +442,23 @@ bool RebuildAnmbin(const std::string&             folderPath,
                     resolved = true;
                     break;
                 }
+            }
+        }
+
+        // Strategy 2: N-based fallback — original game animations whose anim_key
+        // is an encrypted value that never appears in poolHash0.
+        if (!resolved)
+        {
+            int N = -1;
+            if (name.rfind("anim_", 0) == 0 || name.rfind("com_", 0) == 0)
+            {
+                size_t u = name.rfind('_');
+                if (u != std::string::npos) N = atoi(name.c_str() + u + 1);
+            }
+            if (N >= 0 && N < (int)poolHash0.size())
+            {
+                newHash  = poolHash0[N];
+                resolved = true;
             }
         }
 

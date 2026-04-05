@@ -25,10 +25,12 @@ public:
     bool Load(const std::string& folderPath);
 
     // Build from anmbin + motbin anim_key array, then save.
+    // charaCode (e.g. "grf") is used as a prefix: "anim_grf_N".
     // Returns true if the database was built and saved successfully.
     bool BuildAndSave(const std::string& folderPath,
                       const AnmbinData&             anmbin,
-                      const std::vector<uint32_t>&  motbinAnimKeys);
+                      const std::vector<uint32_t>&  motbinAnimKeys,
+                      const std::string&            charaCode = {});
 
     bool IsLoaded() const { return m_loaded; }
 

@@ -5,6 +5,7 @@
 #include "moveset/labels/LabelDB.h"
 #include "GameStatic.h"
 #include <windows.h>
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <functional>
@@ -287,6 +288,31 @@ MotbinData LoadMotbin(const std::string& folderPath)
 
     result.folderPath = folderPath;
     result.rawBytes   = bytes;  // save before expansion for later patching
+
+    // Read OriginalCharacter from moveset.ini (written by extractor).
+    {
+        std::string iniPath = folderPath;
+        if (!iniPath.empty() && iniPath.back() != '\\' && iniPath.back() != '/') iniPath += '\\';
+        iniPath += "moveset.ini";
+        FILE* ini = nullptr;
+        if (fopen_s(&ini, iniPath.c_str(), "r") == 0 && ini)
+        {
+            char line[256];
+            while (fgets(line, sizeof(line), ini))
+            {
+                std::string s = line;
+                while (!s.empty() && (s.back() == '\n' || s.back() == '\r' || s.back() == ' '))
+                    s.pop_back();
+                const char* prefix = "OriginalCharacter=";
+                if (s.rfind(prefix, 0) == 0)
+                {
+                    result.charaCode = s.substr(strlen(prefix));
+                    break;
+                }
+            }
+            fclose(ini);
+        }
+    }
 
     // File is index-format (saved by extractor via ExportLoaderBin).
     // Expand BASE-relative header ptrs and element indexes to file offsets.

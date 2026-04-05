@@ -6,6 +6,7 @@
 #include "extract/ExtractorView.h"
 #include <string>
 #include <vector>
+#include <future>
 
 #ifdef _DEBUG
 #include "devmode/FbsDevView.h"
@@ -61,6 +62,9 @@ private:
     void RenderSettingsWindow();
     void ApplyAndSaveSettings();
 
+    // Loading overlay (dim background + centered spinner popup)
+    void RenderLoadingOverlay(const char* msg);
+
     ContentView  m_currentView = ContentView::Home;
     FbsDataView  m_fbsDataView;
     MovesetView  m_movesetView;
@@ -75,6 +79,11 @@ private:
     // Home screen logo texture (loaded from res/Home_Logo.png)
     ID3D11ShaderResourceView* m_logoTex  = nullptr;
     ImVec2                    m_logoSize = { 0.0f, 0.0f };
+
+    // Async editor loading
+    std::future<MovesetEditorWindow> m_pendingEditor;
+    bool        m_loadingActive  = false;
+    std::string m_loadingMessage;
 
     // Settings window state
     bool m_showSettings      = false;

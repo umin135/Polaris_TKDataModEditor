@@ -156,9 +156,12 @@ std::string AnimationManagerWindow::AnimKeyToName(uint32_t motbinAnimKey, int ca
     int poolIdx = it->second;
     const auto& pool = m_anmbin.pool[cat];
     if (poolIdx >= (int)pool.size()) return "";
-    bool isComRef = (pool[poolIdx].animDataPtr == 0);
-    char buf[32];
-    snprintf(buf, sizeof(buf), isComRef ? "com_%d" : "anim_%d", poolIdx); // pool index
+    if (pool[poolIdx].animDataPtr == 0) return ""; // com ref — no name, use raw key
+    char buf[64];
+    if (!m_charaCode.empty())
+        snprintf(buf, sizeof(buf), "anim_%s_%d", m_charaCode.c_str(), poolIdx);
+    else
+        snprintf(buf, sizeof(buf), "anim_%d", poolIdx);
     return buf;
 }
 
@@ -167,19 +170,14 @@ bool AnimationManagerWindow::NameToAnimKey(const std::string& name, uint32_t& ou
     BuildAnimKeyMap();
     if (cat < 0 || cat >= 6) return false;
 
-    bool wantCom = false;
-    int  N       = -1;
-    if (name.rfind("anim_", 0) == 0)      { wantCom = false; N = std::atoi(name.c_str() + 5); }
-    else if (name.rfind("com_", 0) == 0)  { wantCom = true;  N = std::atoi(name.c_str() + 4); }
-    else return false;
+    if (name.rfind("anim_", 0) != 0) return false;
+    size_t u = name.rfind('_');
+    int N = (u != std::string::npos) ? std::atoi(name.c_str() + u + 1) : -1;
     if (N < 0) return false;
 
     const auto& pool = m_anmbin.pool[cat];
-    // N is pool index directly.
     if (N >= (int)pool.size()) return false;
-    // Validate the type matches what the caller expects.
-    bool isCom = (pool[N].animDataPtr == 0);
-    if (isCom != wantCom) return false;
+    if (pool[N].animDataPtr == 0) return false; // com ref — not addressable by name
 
     uint32_t hash = static_cast<uint32_t>(pool[N].animKey & 0xFFFFFFFF);
     auto it = m_hashToAnimKey.find(hash);
@@ -304,17 +302,38 @@ void AnimationManagerWindow::DoRefresh()
         do {
             std::string fname = fd.cFileName;
 
-            // CHECK 0: filename matches pool-index naming convention (anim_N or com_N).
-            // This reliably identifies extracted original files for ALL cats including 1-5,
-            // where animNameDB has no entries (BuildAndSave only populates cat 0 data).
+            // CHECK 0: filename matches pool-index naming convention (anim_<code>_N or com_N).
+            // Only treat as "extracted original" when the charcode prefix matches this
+            // moveset's charcode.  A file like "anim_grf_500.bin" in Law's folder has the
+            // same pool index (500) as Law's original but is a completely different animation;
+            // it must NOT be skipped here — it should be picked up by the CRC check below.
             {
                 std::string stem = fname;
                 size_t sdot = stem.rfind('.');
                 if (sdot != std::string::npos) stem = stem.substr(0, sdot);
                 int  N       = -1;
                 bool wantCom = false;
-                if (stem.rfind("anim_", 0) == 0)     { N = atoi(stem.c_str() + 5); wantCom = false; }
-                else if (stem.rfind("com_", 0) == 0) { N = atoi(stem.c_str() + 4); wantCom = true;  }
+
+                // Build the expected prefix for this moveset's extracted originals.
+                // e.g. "anim_law_" if charaCode="law", or just "anim_" for legacy/no-code.
+                if (stem.rfind("anim_", 0) == 0)
+                {
+                    std::string expected = m_charaCode.empty()
+                        ? std::string("anim_")
+                        : std::string("anim_") + m_charaCode + "_";
+                    if (stem.rfind(expected, 0) == 0) // prefix matches this moveset
+                    {
+                        size_t u = stem.rfind('_');
+                        N = (u != std::string::npos) ? atoi(stem.c_str() + u + 1) : -1;
+                    }
+                    wantCom = false;
+                }
+                else if (stem.rfind("com_", 0) == 0)
+                {
+                    size_t u = stem.rfind('_');
+                    N = (u != std::string::npos) ? atoi(stem.c_str() + u + 1) : -1;
+                    wantCom = true;
+                }
                 if (N >= 0 && N < existCount)
                 {
                     bool isCom = (m_anmbin.pool[cat][N].animDataPtr == 0);
@@ -479,12 +498,11 @@ void AnimationManagerWindow::RenderTabContent(int cat)
         return;
     }
 
-    int comCount = 0, animCount = 0;
+    int animCount = 0;
     for (const auto& e : pool)
-        (e.animDataPtr == 0 ? comCount : animCount)++;
+        if (e.animDataPtr != 0) ++animCount;
 
-    ImGui::Text("%d local  +  %d com.anmbin  =  %d total",
-                animCount, comCount, (int)pool.size());
+    ImGui::TextDisabled("%d animations", animCount);
     ImGui::Separator();
 
     ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(4.f, 2.f));
@@ -530,9 +548,12 @@ void AnimationManagerWindow::RenderTabContent(int cat)
             }
 
             // Fallback: pool-index name.
-            char buf[32];
+            char buf[64];
             bool isCom = (pool[i].animDataPtr == 0);
-            snprintf(buf, sizeof(buf), isCom ? "com_%d" : "anim_%d", i);
+            if (!m_charaCode.empty() && !isCom)
+                snprintf(buf, sizeof(buf), "anim_%s_%d", m_charaCode.c_str(), i);
+            else
+                snprintf(buf, sizeof(buf), isCom ? "com_%d" : "anim_%d", i);
             return buf;
         };
 
@@ -569,29 +590,7 @@ void AnimationManagerWindow::RenderTabContent(int cat)
             ImGui::TextDisabled(grey ? "-" : "(no mapping)");
         };
 
-        // Pass 1: com.anmbin entries (animDataPtr == 0), shown grey.
-        if (m_showComEntries && comCount > 0)
-        {
-            for (int i = 0; i < (int)pool.size(); ++i)
-            {
-                if (pool[i].animDataPtr != 0) continue;
-                bool selected = (sel == i);
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0);
-                std::string entName = getEntryName(i);
-                ImGui::PushID(i);
-                if (ImGui::Selectable(entName.c_str(), selected,
-                    ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap,
-                    ImVec2(0.f, 0.f)))
-                    sel = i;
-                if (doScroll && selected) ImGui::SetScrollHereY(0.5f);
-                ImGui::TableSetColumnIndex(1);
-                showMotbinKey(i, true);
-                ImGui::PopID();
-            }
-        }
-
-        // Pass 2: local entries (animDataPtr != 0), shown normally.
+        // anim_ entries only (animDataPtr != 0); com refs are hidden.
         for (int i = 0; i < (int)pool.size(); ++i)
         {
             if (pool[i].animDataPtr == 0) continue;
@@ -650,9 +649,6 @@ bool AnimationManagerWindow::Render()
     if (ImGui::SmallButton("Refresh from disk"))
         DoRefresh();
 
-    ImGui::SameLine();
-    ImGui::Checkbox("Show com.anmbin", &m_showComEntries);
-
     // --- Rebuild error (set by MovesetEditorWindow if RebuildAnmbin failed) ---
     if (!m_rebuildError.empty())
     {
@@ -691,10 +687,11 @@ bool AnimationManagerWindow::Render()
         for (int cat = 0; cat < 6; ++cat)
         {
             char tabLabel[40];
-            snprintf(tabLabel, sizeof(tabLabel), "%s (%u)##cat%d",
-                     AnmbinCategoryName(cat),
-                     m_anmbin.poolCounts[cat],
-                     cat);
+            int localCount = 0;
+            for (const auto& e : m_anmbin.pool[cat])
+                if (e.animDataPtr != 0) ++localCount;
+            snprintf(tabLabel, sizeof(tabLabel), "%s (%d)##cat%d",
+                     AnmbinCategoryName(cat), localCount, cat);
 
             ImGuiTabItemFlags tabFlags = (m_pendingTab == cat)
                                          ? ImGuiTabItemFlags_SetSelected

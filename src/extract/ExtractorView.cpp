@@ -9,11 +9,27 @@ ExtractorView::ExtractorView(const std::string& movesetRootDir)
 }
 
 // -------------------------------------------------------------
-//  TryExtract -- one-click: connect -> refresh slot -> extract
+//  CheckThread -- call each frame to pick up worker results
 // -------------------------------------------------------------
 
-void ExtractorView::TryExtract(int slotIndex)
+void ExtractorView::CheckThread()
 {
+    if (!m_loading || !m_threadDone) return;
+    if (m_thread.joinable()) m_thread.join();
+    m_lastMsg = m_threadMsg;
+    m_lastOk  = m_threadOk;
+    m_loading = false;
+    if (m_lastOk && m_onSuccess) m_onSuccess();
+}
+
+// -------------------------------------------------------------
+//  StartExtract -- pre-check on main thread, then spawn worker
+// -------------------------------------------------------------
+
+void ExtractorView::StartExtract(int slotIndex)
+{
+    if (m_loading) return;
+
     m_lastMsg.clear();
     m_lastOk = false;
 
@@ -44,18 +60,17 @@ void ExtractorView::TryExtract(int slotIndex)
         return;
     }
 
-    // Extract
-    std::string err;
-    if (m_extractor.ExtractToFile(slotIndex, m_destFolder, err))
+    // Spawn worker thread for the heavy extraction work
+    m_loading    = true;
+    m_threadDone = false;
+    m_thread = std::thread([this, slotIndex]()
     {
-        m_lastMsg = m_extractor.GetStatusMsg();
-        m_lastOk  = true;
-        if (m_onSuccess) m_onSuccess();
-    }
-    else
-    {
-        m_lastMsg = err;
-    }
+        std::string err;
+        bool ok = m_extractor.ExtractToFile(slotIndex, m_destFolder, err);
+        m_threadMsg  = ok ? m_extractor.GetStatusMsg() : err;
+        m_threadOk   = ok;
+        m_threadDone = true;
+    });
 }
 
 // -------------------------------------------------------------
@@ -68,13 +83,18 @@ void ExtractorView::RenderButtons()
 
     if (!canExtract) ImGui::BeginDisabled();
 
+    const bool busy = m_loading;
+    if (busy) ImGui::BeginDisabled();
+
     if (ImGui::Button("Extract P1", ImVec2(120.0f, 0.0f)))
-        TryExtract(0);
+        StartExtract(0);
 
     ImGui::SameLine();
 
     if (ImGui::Button("Extract P2", ImVec2(120.0f, 0.0f)))
-        TryExtract(1);
+        StartExtract(1);
+
+    if (busy) ImGui::EndDisabled();
 
     if (!canExtract)
     {
@@ -103,6 +123,9 @@ void ExtractorView::RenderLog()
     }
 
     // -- Slot info (shown after a successful connect) ---------
+    // Do not access the extractor while the worker thread is running.
+    if (m_loading) return;
+
     if (m_extractor.IsConnected())
     {
         ImGui::Spacing();

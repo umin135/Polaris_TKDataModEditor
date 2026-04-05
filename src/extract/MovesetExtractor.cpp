@@ -4,6 +4,7 @@
 #include "MovesetExtractor.h"
 #include "TkdataExtractor.h"
 #include "moveset/data/AnmbinData.h"
+#include "moveset/data/AnimNameDB.h"
 #include "moveset/labels/LabelDB.h"
 #include "moveset/serialize/MotbinSerialize.h"
 #include <windows.h>
@@ -385,7 +386,10 @@ bool MovesetExtractor::SaveMotbin(const std::vector<uint8_t>& bytes,
         return false;
     }
 
-    std::string path = folder + "\\moveset.motbin";
+    // Use charaCode (e.g. "grf") as filename, fall back to charaName
+    const char* cCode   = LabelDB::Get().CharaCode(charaId);
+    const char* codeStr = cCode ? cCode : charaName.c_str();
+    std::string path = folder + "\\" + codeStr + ".motbin";
     HANDLE h = CreateFileA(path.c_str(), GENERIC_WRITE, 0, nullptr,
                            CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (h == INVALID_HANDLE_VALUE)
@@ -449,7 +453,8 @@ static bool SaveBytes(const std::string& path,
 //
 // Saved as: charFolder\anim\<cat_folder>\anim_<poolIdx>.<ext>
 // Returns a short diagnostic string.
-static std::string ExtractAnimFilesFromAnmbin(const std::string& charFolder)
+static std::string ExtractAnimFilesFromAnmbin(const std::string& charFolder,
+                                               const char*        charaCode)
 {
     std::string anmbinPath = charFolder + "\\moveset.anmbin";
 
@@ -530,7 +535,10 @@ static std::string ExtractAnimFilesFromAnmbin(const std::string& charFolder)
             int cat = entries[i].cat;
             int j   = entries[i].poolIdx;
             char fname[64];
-            snprintf(fname, sizeof(fname), "anim_%d%s", j, AnmbinCategoryExt(cat));
+            if (charaCode && charaCode[0])
+                snprintf(fname, sizeof(fname), "anim_%s_%d%s", charaCode, j, AnmbinCategoryExt(cat));
+            else
+                snprintf(fname, sizeof(fname), "anim_%d%s", j, AnmbinCategoryExt(cat));
             std::string catDir = animRoot + "\\" + AnmbinCategoryFolder(cat);
             SaveBytes(catDir + "\\" + fname,
                       std::vector<uint8_t>(panm, panm + dataSize));
@@ -540,6 +548,189 @@ static std::string ExtractAnimFilesFromAnmbin(const std::string& charFolder)
 
     if (totalSaved == 0) return " | anim: no PANM found";
     return " | anim: +" + std::to_string(totalSaved) + " files";
+}
+
+// -------------------------------------------------------------
+//  BakeCharAnmbin
+//
+//  Merges {charaCode}.anmbin and com.anmbin into a single
+//  moveset.anmbin:
+//    1. For each pool entry in {charaCode}.anmbin where animDataPtr == 0
+//       (com.anmbin reference), find the matching PANM blob in com.anmbin
+//       by animKey (same category, same lower-32-bit hash), append it to
+//       the buffer and patch animDataPtr.
+//    2. Set characterFlags (+0x18..+0x24) to 0xFFFFFFFF for every entry
+//       in all 6 categories.
+//    3. Save the patched buffer as moveset.anmbin.
+//    4. Copy {charaCode}.motbin → moveset.motbin.
+//    5. Build anim_names.json via AnimNameDB::BuildAndSave.
+//    6. Delete {charaCode}.anmbin, com.anmbin, {charaCode}.motbin.
+//
+//  Returns a short diagnostic string (for status bar).
+// -------------------------------------------------------------
+static std::string BakeCharAnmbin(const std::string&           charFolder,
+                                   const char*                  charaCode,
+                                   const std::vector<uint32_t>& motbinAnimKeys)
+{
+    std::string base = charFolder;
+    if (!base.empty() && base.back() != '\\' && base.back() != '/') base += '\\';
+
+    std::string charAnmbinPath = base + charaCode + ".anmbin";
+    std::string comAnmbinPath  = base + "com.anmbin";
+    std::string charMotbinPath = base + charaCode + ".motbin";
+    std::string outAnmbinPath  = base + "moveset.anmbin";
+    std::string outMotbinPath  = base + "moveset.motbin";
+
+    // File loader helper
+    auto loadFile = [](const std::string& path, std::vector<uint8_t>& out) -> bool {
+        FILE* f = nullptr;
+        if (fopen_s(&f, path.c_str(), "rb") != 0 || !f) return false;
+        fseek(f, 0, SEEK_END);
+        long sz = ftell(f); fseek(f, 0, SEEK_SET);
+        if (sz < 0x98) { fclose(f); return false; }
+        out.resize(static_cast<size_t>(sz));
+        fread(out.data(), 1, out.size(), f);
+        fclose(f);
+        return true;
+    };
+
+    std::vector<uint8_t> bytes;
+    if (!loadFile(charAnmbinPath, bytes))
+        return " | bake: cannot load " + std::string(charaCode) + ".anmbin";
+
+    std::vector<uint8_t> comBytes;
+    const bool hasCom = loadFile(comAnmbinPath, comBytes);
+
+    // Read helpers (explicit buffer parameter — safe across vector reallocations)
+    auto rdU32 = [](const std::vector<uint8_t>& buf, size_t off) -> uint32_t {
+        if (off + 4 > buf.size()) return 0;
+        uint32_t v; memcpy(&v, buf.data() + off, 4); return v;
+    };
+    auto rdU64 = [](const std::vector<uint8_t>& buf, size_t off) -> uint64_t {
+        if (off + 8 > buf.size()) return 0;
+        uint64_t v; memcpy(&v, buf.data() + off, 8); return v;
+    };
+
+    int embedded = 0;
+
+    if (hasCom)
+    {
+        // --- Build com PANM lookup: cat -> (hash -> PANM bytes) ---
+        // Collect every com.anmbin pool entry that has actual data (animDataPtr != 0),
+        // sort globally by animDataPtr to compute blob sizes from pointer differences.
+        struct ComEntry { uint64_t dataPtr; uint32_t hash; int cat; };
+        std::vector<ComEntry> comAll;
+
+        for (int cat = 0; cat < 6; ++cat)
+        {
+            uint32_t count   = rdU32(comBytes, 0x04 + (size_t)cat * 4);
+            uint64_t listOff = rdU64(comBytes, 0x38 + (size_t)cat * 8);
+            if (count == 0 || listOff == 0) continue;
+            if (listOff + (uint64_t)count * 0x38 > comBytes.size()) continue;
+            for (uint32_t j = 0; j < count; ++j)
+            {
+                size_t   entOff  = static_cast<size_t>(listOff) + j * 0x38;
+                uint64_t animKey = rdU64(comBytes, entOff);
+                uint64_t dataPtr = rdU64(comBytes, entOff + 8);
+                if (dataPtr == 0 || dataPtr >= comBytes.size()) continue;
+                comAll.push_back({ dataPtr, (uint32_t)(animKey & 0xFFFFFFFFu), cat });
+            }
+        }
+
+        std::sort(comAll.begin(), comAll.end(),
+                  [](const ComEntry& a, const ComEntry& b){ return a.dataPtr < b.dataPtr; });
+
+        // Map: cat -> hash -> PANM bytes
+        std::unordered_map<uint32_t, std::vector<uint8_t>> comPanm[6];
+        for (int i = 0; i < (int)comAll.size(); ++i)
+        {
+            uint64_t start = comAll[i].dataPtr;
+            uint64_t end   = (i + 1 < (int)comAll.size())
+                           ? comAll[i + 1].dataPtr
+                           : static_cast<uint64_t>(comBytes.size());
+            if (end <= start || start >= comBytes.size()) continue;
+            if (end > comBytes.size()) end = comBytes.size();
+            size_t sz = static_cast<size_t>(end - start);
+            comPanm[comAll[i].cat][comAll[i].hash] =
+                std::vector<uint8_t>(comBytes.data() + static_cast<size_t>(start),
+                                      comBytes.data() + static_cast<size_t>(start) + sz);
+        }
+
+        // --- Embed com refs into bytes[] ---
+        // For each pool entry with animDataPtr == 0: look up PANM in comPanm
+        // by the same category and hash, append blob, patch animDataPtr.
+        for (int cat = 0; cat < 6; ++cat)
+        {
+            uint32_t count   = rdU32(bytes, 0x04 + (size_t)cat * 4);
+            uint64_t listOff = rdU64(bytes, 0x38 + (size_t)cat * 8);
+            if (count == 0 || listOff == 0) continue;
+            if (listOff + (uint64_t)count * 0x38 > bytes.size()) continue;
+            for (uint32_t j = 0; j < count; ++j)
+            {
+                size_t   entOff  = static_cast<size_t>(listOff) + j * 0x38;
+                uint64_t dataPtr = rdU64(bytes, entOff + 8);
+                if (dataPtr != 0) continue; // already has embedded data
+                uint64_t animKey = rdU64(bytes, entOff);
+                uint32_t hash    = (uint32_t)(animKey & 0xFFFFFFFFu);
+                auto it = comPanm[cat].find(hash);
+                if (it == comPanm[cat].end()) continue; // not in com.anmbin
+                // Append PANM blob and patch animDataPtr (bytes[] may reallocate)
+                uint64_t newOff = static_cast<uint64_t>(bytes.size());
+                bytes.insert(bytes.end(), it->second.begin(), it->second.end());
+                memcpy(bytes.data() + entOff + 8, &newOff, 8);
+                ++embedded;
+            }
+        }
+    }
+
+    // --- Set characterFlags to 0xFFFFFFFF for all entries (all cats) ---
+    // Pool entry layout: +0x18..+0x24 = four u32 characterFlags fields.
+    static const size_t kFlagOff[4] = { 0x18, 0x1C, 0x20, 0x24 };
+    for (int cat = 0; cat < 6; ++cat)
+    {
+        uint32_t count   = rdU32(bytes, 0x04 + (size_t)cat * 4);
+        uint64_t listOff = rdU64(bytes, 0x38 + (size_t)cat * 8);
+        if (count == 0 || listOff == 0) continue;
+        if (listOff + (uint64_t)count * 0x38 > bytes.size()) continue;
+        for (uint32_t j = 0; j < count; ++j)
+        {
+            size_t entOff = static_cast<size_t>(listOff) + j * 0x38;
+            if (entOff + 0x28 > bytes.size()) break;
+            for (size_t fo : kFlagOff) {
+                uint32_t ff = 0xFFFFFFFFu;
+                memcpy(bytes.data() + entOff + fo, &ff, 4);
+            }
+        }
+    }
+
+    // --- Save moveset.anmbin ---
+    if (!SaveBytes(outAnmbinPath, bytes))
+        return " | bake: cannot save moveset.anmbin";
+
+    // --- Copy {charaCode}.motbin → moveset.motbin ---
+    {
+        std::vector<uint8_t> motBytes;
+        if (!loadFile(charMotbinPath, motBytes) || !SaveBytes(outMotbinPath, motBytes))
+            return " | bake: cannot save moveset.motbin";
+    }
+
+    // --- Build anim_names.json ---
+    if (!motbinAnimKeys.empty())
+    {
+        AnmbinData newAnmbin = LoadAnmbin(outAnmbinPath);
+        if (newAnmbin.loaded)
+        {
+            AnimNameDB nameDB;
+            nameDB.BuildAndSave(charFolder, newAnmbin, motbinAnimKeys, charaCode);
+        }
+    }
+
+    // --- Delete intermediate files ---
+    DeleteFileA(charAnmbinPath.c_str());
+    DeleteFileA(comAnmbinPath.c_str());
+    DeleteFileA(charMotbinPath.c_str());
+
+    return " | bake: +" + std::to_string(embedded) + " com embedded";
 }
 
 // Extract anmbin / stllstb / mvl for a character from tkdata.bin.
@@ -563,13 +754,33 @@ static std::string TryExtractTkdataFiles(const std::string& movesetRoot,
 
     struct FileSpec { const char* dir; const char* ext; const char* outName; };
     static const FileSpec kFiles[] = {
-        { "bin",      ".anmbin",  "moveset.anmbin"  },
         { "bin",      ".stllstb", "moveset.stllstb" },
         { "movelist", ".mvl",     "moveset.mvl"     },
     };
 
     std::string extracted;
     std::string missing;
+
+    // Extract char-specific anmbin as {charaCode}.anmbin
+    {
+        std::string vfsPath = std::string("mothead/bin/") + charaCode + ".anmbin";
+        std::vector<uint8_t> data = tkext.ExtractFile(vfsPath);
+        if (data.empty()) {
+            missing += ".anmbin";
+        } else {
+            std::string outPath = charFolder + "\\" + charaCode + ".anmbin";
+            if (SaveBytes(outPath, data)) extracted += ".anmbin";
+            else missing += ".anmbin";
+        }
+    }
+
+    // Extract com.anmbin (always needed for bake; non-fatal if missing)
+    {
+        std::vector<uint8_t> comData = tkext.ExtractFile("mothead/bin/com.anmbin");
+        if (!comData.empty())
+            SaveBytes(charFolder + "\\com.anmbin", comData);
+    }
+
     for (const auto& f : kFiles) {
         std::string vfsPath = std::string("mothead/") + f.dir + "/" + charaCode + f.ext;
         std::vector<uint8_t> data = tkext.ExtractFile(vfsPath);
@@ -660,6 +871,10 @@ bool MovesetExtractor::ExtractToFile(int slotIndex,
         return false;
 
     // -- Build name data -----------------------------------------------
+    // motbinAnimKeys: moves[i].anim_key — collected here, passed to BakeCharAnmbin
+    // for AnimNameDB::BuildAndSave after the bake.
+    std::vector<uint32_t> motbinAnimKeys;
+
     // Header string fields (char_name_addr at 0x10/0x18/0x20/0x28) are
     // "no longer used" in TK8 and always point to "?" in game memory.
     // We generate deterministic header strings from the character ID and
@@ -705,6 +920,7 @@ bool MovesetExtractor::ExtractToFile(int slotIndex,
                 entry.name = nStr ? nStr : "";
                 entry.anim = aStr ? aStr : "";
                 names.moves.push_back(std::move(entry));
+                motbinAnimKeys.push_back(ak);
             }
         }
     }
@@ -714,23 +930,28 @@ bool MovesetExtractor::ExtractToFile(int slotIndex,
     if (!SaveMotbin(bytes, destFolder, slot.charaId, slot.charaName, slot.motbinAddr, &names, gameVersion, errorMsg))
         return false;
 
-    // Build charFolder path (used by both tkdata and anmbin extraction)
+    // Build charFolder path (used by both tkdata and bake)
     std::string charFolder = destFolder;
     if (!charFolder.empty() && charFolder.back() != '\\' && charFolder.back() != '/')
         charFolder += '\\';
     charFolder += "TK8_";
     charFolder += slot.charaName;
 
-    // Try to extract companion files from tkdata.bin (non-fatal).
+    // Extract companion files from tkdata.bin: {charaCode}.anmbin, com.anmbin, stllstb, mvl
     const char* charaCode = LabelDB::Get().CharaCode(slot.charaId);
     std::string tkInfo = TryExtractTkdataFiles(destFolder, charFolder, charaCode);
 
-    // Extract individual PANM animation files from moveset.anmbin (non-fatal).
-    // Uses file format (tkdata.bin format, already saved by TryExtractTkdataFiles).
-    // animDataPtr==0 entries are com.anmbin references and are skipped.
-    std::string animInfo = ExtractAnimFilesFromAnmbin(charFolder);
+    // Bake: merge com.anmbin refs into {charaCode}.anmbin, set characterFlags,
+    // save moveset.anmbin + moveset.motbin, build anim_names.json, delete intermediates.
+    std::string bakeInfo;
+    if (charaCode)
+        bakeInfo = BakeCharAnmbin(charFolder, charaCode, motbinAnimKeys);
+
+    // Extract individual PANM animation files from baked moveset.anmbin.
+    // After bake, all entries have animDataPtr != 0 (com refs are now embedded).
+    std::string animInfo = ExtractAnimFilesFromAnmbin(charFolder, charaCode);
 
     m_statusMsg = "Extracted -> TK8_" + slot.charaName + "  (" +
-                  std::to_string(bytes.size()) + " bytes)" + tkInfo + animInfo;
+                  std::to_string(bytes.size()) + " bytes)" + tkInfo + bakeInfo + animInfo;
     return true;
 }
