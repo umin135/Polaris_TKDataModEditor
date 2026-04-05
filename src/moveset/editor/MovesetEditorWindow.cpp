@@ -3033,11 +3033,6 @@ void MovesetEditorWindow::RenderSubWin_Cancels()
                     && ImGui::IsMouseClicked(0))
                     m_cancelsWin.extradataSel = i;
 
-                if (sel && m_cancelsWin.extraScrollPending) {
-                    ImGui::SetScrollHereY(0.5f);
-                    m_cancelsWin.extraScrollPending = false;
-                }
-
                 ImGui::TextDisabled("#%d", i);
 
                 // "value" label + InputInt on same row (2-col table)
@@ -3058,6 +3053,11 @@ void MovesetEditorWindow::RenderSubWin_Cancels()
                 ImGui::TextColored(kTTCol, " ");
             }
             ImGui::EndChild();
+            // 카드가 ##cex_scroll의 last item이 된 시점에서 스크롤 적용
+            if (sel && m_cancelsWin.extraScrollPending) {
+                ImGui::SetScrollHereY(0.5f);
+                m_cancelsWin.extraScrollPending = false;
+            }
             ImGui::PopStyleColor();
             ImGui::Spacing();
         }
@@ -3078,7 +3078,7 @@ void MovesetEditorWindow::RenderSubWin_HitConditions()
     if (!m_hitCondWinOpen) return;
     const bool hitCondBringFront = m_hitCondWinFocus;
     if (hitCondBringFront) m_hitCondWinFocus = false;
-    ImGui::SetNextWindowSize(ImVec2(560.0f, 420.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(650.0f, 400.0f), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Hit Conditions##blkwin", &m_hitCondWinOpen, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking))
     { ImGui::End(); return; }
     if (hitCondBringFront) ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());
@@ -3094,22 +3094,31 @@ void MovesetEditorWindow::RenderSubWin_HitConditions()
     };
     auto mkGroups = [&]{ return ComputeGroups(blk, isHcEnd); };
     auto groups = mkGroups();
+    static constexpr float kListW = 180.0f;
 
-    float colW = ImGui::GetContentRegionAvail().x / 3.0f - ImGui::GetStyle().ItemSpacing.x;
+    auto ListHdr = [](const char* popupId, const char* typeName,
+                      const char* label, int count) -> ListAction
+    {
+        float btnW  = ImGui::CalcTextSize("+").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+        float rightX = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - btnW;
+        ImGui::TextDisabled("%s (%d)", label, count);
+        ImGui::SameLine(rightX);
+        return RenderListPlusMenu(popupId, typeName);
+    };
 
     // ---- Outer list ----
-    ImGui::BeginChild("##hc_outer", ImVec2(colW, 0.0f), true);
+    ImGui::BeginChild("##hc_outer", ImVec2(kListW, 0.0f), true);
     {
         bool hasOuter = (m_hitCondWinSel.outer < (int)groups.size());
-        ListAction outerAct = RenderListPlusMenu("##hc_om", "Hit-condition-list");
-        ImGui::SameLine(); ImGui::TextDisabled("lists (%d)", (int)groups.size());
+        ListAction outerAct = ListHdr("##hc_om", "Hit-condition-list",
+                                       "Hit Condition Lists", (int)groups.size());
         ImGui::Separator();
 
         if (outerAct == ListAction::Insert) {
             uint32_t insertPos = hasOuter
                 ? groups[m_hitCondWinSel.outer].first + groups[m_hitCondWinSel.outer].second
                 : (uint32_t)blk.size();
-            ParsedHitCondition term{};  // requirement_addr=0 → [END]
+            ParsedHitCondition term{};
             blk.insert(blk.begin() + insertPos, term);
             FixupRef_HitCond(m_data, insertPos, true);
             m_hitCondWinSel.outer = hasOuter ? m_hitCondWinSel.outer + 1 : 0;
@@ -3141,7 +3150,7 @@ void MovesetEditorWindow::RenderSubWin_HitConditions()
         ImGui::BeginChild("##hc_outer_sl", ImVec2(0, 0), false);
         for (int gi = 0; gi < (int)groups.size(); ++gi) {
             uint32_t items = groups[gi].second > 0 ? groups[gi].second - 1 : 0;
-            char lbl[48]; snprintf(lbl, sizeof(lbl), "[%u]  (%u)##hcg%d", groups[gi].first, items, gi);
+            char lbl[48]; snprintf(lbl, sizeof(lbl), "#%u  %u items##hcg%d", groups[gi].first, items, gi);
             bool s = (m_hitCondWinSel.outer == gi);
             if (ImGui::Selectable(lbl, s)) { m_hitCondWinSel.outer = gi; m_hitCondWinSel.inner = 0; }
             if (s && m_hitCondWinSel.scrollOuter) { ImGui::SetScrollHereY(0.5f); m_hitCondWinSel.scrollOuter = false; }
@@ -3153,7 +3162,7 @@ void MovesetEditorWindow::RenderSubWin_HitConditions()
     groups = mkGroups();
 
     // ---- Inner list ----
-    ImGui::BeginChild("##hc_inner", ImVec2(colW, 0.0f), true);
+    ImGui::BeginChild("##hc_inner", ImVec2(kListW, 0.0f), true);
     {
         bool hasOuter = (m_hitCondWinSel.outer < (int)groups.size());
         bool isEndSel = false;
@@ -3164,8 +3173,9 @@ void MovesetEditorWindow::RenderSubWin_HitConditions()
                 isEndSel = isHcEnd(blk[innerAbsIdx]);
         }
 
-        ListAction innerAct = RenderListPlusMenu("##hc_im", "Hit-condition");
-        ImGui::SameLine(); ImGui::TextDisabled("items");
+        int innerCount = hasOuter ? (int)groups[m_hitCondWinSel.outer].second : 0;
+        ListAction innerAct = ListHdr("##hc_im", "Hit-condition",
+                                       "Hit Conditions", innerCount);
         ImGui::Separator();
 
         bool isOnlyEnd = isEndSel && hasOuter && (groups[m_hitCondWinSel.outer].second == 1);
@@ -3176,7 +3186,7 @@ void MovesetEditorWindow::RenderSubWin_HitConditions()
             if (innerAct == ListAction::Insert) {
                 uint32_t ipos = isOnlyEnd ? innerAbsIdx : innerAbsIdx + 1;
                 ParsedHitCondition nh{};
-                nh.requirement_addr = 1;  // non-zero so not treated as END
+                nh.requirement_addr = 1;
                 nh.req_list_idx = !reqBlk.empty() ? 0u : 0xFFFFFFFFu;
                 blk.insert(blk.begin() + ipos, nh);
                 FixupRef_HitCond(m_data, ipos, true);
@@ -3215,10 +3225,8 @@ void MovesetEditorWindow::RenderSubWin_HitConditions()
                 const ParsedHitCondition& h = blk[idx];
                 bool isTerm = isHcEnd(h);
                 char lbl[48];
-                if (isTerm)
-                    snprintf(lbl, sizeof(lbl), "#%u  [END]##hci%u", k, idx);
-                else
-                    snprintf(lbl, sizeof(lbl), "#%u  dmg=%u##hci%u", k, h.damage, idx);
+                if (isTerm) snprintf(lbl, sizeof(lbl), "#%u  [END]##hci%u",   k, idx);
+                else        snprintf(lbl, sizeof(lbl), "#%u  dmg=%u##hci%u",  k, h.damage, idx);
                 if (isTerm) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f,0.5f,0.5f,1.0f));
                 bool sel = (m_hitCondWinSel.inner == (int)k);
                 if (ImGui::Selectable(lbl, sel)) m_hitCondWinSel.inner = (int)k;
@@ -3236,42 +3244,136 @@ void MovesetEditorWindow::RenderSubWin_HitConditions()
     if (m_hitCondWinSel.outer < (int)groups.size())
     {
         uint32_t start = groups[m_hitCondWinSel.outer].first;
-        uint32_t idx = start + (uint32_t)m_hitCondWinSel.inner;
+        uint32_t idx   = start + (uint32_t)m_hitCondWinSel.inner;
         if (idx < (uint32_t)blk.size())
         {
             ParsedHitCondition& h = m_data.hitConditionBlock[idx];
-            ImGui::TextDisabled("hit-condition #%d  (block[%u])", m_hitCondWinSel.inner, idx);
-            ImGui::Separator();
-            if (BeginPropTable("##hcdt"))
+            const ImGuiStyle& sty = ImGui::GetStyle();
+            static constexpr ImVec4 kBlockBg = {0.14f, 0.14f, 0.18f, 1.00f};
+            static constexpr ImVec4 kGreen   = {0.55f, 0.85f, 0.55f, 1.0f};
+            static constexpr ImVec4 kPink    = {1.00f, 0.50f, 0.65f, 1.0f};
+            static constexpr ImVec4 kTTCol   = {0.40f, 0.75f, 1.00f, 1.00f};
+            static constexpr float  kTTH     = 34.0f;
+
+            // GoButton helper
+            const float kArrowW = ImGui::GetFrameHeight() * 0.38f;
+            const float kBtnW   = ImGui::CalcTextSize("Go ").x + kArrowW
+                                + sty.FramePadding.x * 2.0f + 4.0f;
+            auto GoButton = [&](const char* id, bool valid) -> bool {
+                if (!valid) ImGui::BeginDisabled();
+                const float  hh  = ImGui::GetFrameHeight();
+                bool clicked     = ImGui::InvisibleButton(id, ImVec2(kBtnW, hh));
+                const ImVec2 p0  = ImGui::GetItemRectMin();
+                const ImVec2 p1  = ImGui::GetItemRectMax();
+                const bool   hov = ImGui::IsItemHovered();
+                const bool   act = ImGui::IsItemActive();
+                ImDrawList*  dl  = ImGui::GetWindowDrawList();
+                dl->AddRectFilled(p0, p1,
+                    ImGui::GetColorU32(act ? ImGuiCol_ButtonActive : hov ? ImGuiCol_ButtonHovered : ImGuiCol_Button),
+                    sty.FrameRounding);
+                dl->AddRect(p0, p1, ImGui::GetColorU32(ImGuiCol_Border), sty.FrameRounding);
+                const ImU32  col    = ImGui::GetColorU32(ImGuiCol_Text);
+                const char*  txt    = "Go ";
+                const ImVec2 txtSz  = ImGui::CalcTextSize(txt);
+                const float  totalW = txtSz.x + kArrowW;
+                const float  startX = p0.x + (kBtnW - totalW) * 0.5f;
+                const float  midY   = (p0.y + p1.y) * 0.5f;
+                const float  arrowH = hh * 0.30f;
+                dl->AddText(ImVec2(startX, midY - txtSz.y * 0.5f), col, txt);
+                dl->AddTriangleFilled(
+                    ImVec2(startX + txtSz.x,           midY - arrowH * 0.5f),
+                    ImVec2(startX + txtSz.x,           midY + arrowH * 0.5f),
+                    ImVec2(startX + txtSz.x + kArrowW, midY), col);
+                if (!valid) ImGui::EndDisabled();
+                return clicked && valid;
+            };
+
+            // --- Block 1: requirements ---
+            // Height: TextLineH + FrameH + kTTH + spacing×2 + padding×2
+            float b1H = ImGui::GetTextLineHeight() + ImGui::GetFrameHeight() + kTTH
+                      + sty.ItemSpacing.y * 2.0f + sty.WindowPadding.y * 2.0f;
+            ImGui::PushStyleColor(ImGuiCol_ChildBg, kBlockBg);
+            if (ImGui::BeginChild("##hcdt_b1", ImVec2(-1.0f, b1H), ImGuiChildFlags_Borders))
             {
-                {
-                    bool valid = (h.req_list_idx != 0xFFFFFFFF) &&
-                                 (h.req_list_idx < (uint32_t)m_data.requirementBlock.size());
-                    auto r = RowIdxEditLink("##hcreq_idx", HitCondLabel::Requirements, h.req_list_idx, valid);
-                    if (r.changed) m_dirty = true;
-                    if (r.navigate) {
-                        const auto& rblk = m_data.requirementBlock;
-                        auto grps = ComputeGroups(rblk, +[](const ParsedRequirement& rr)->bool{ return rr.req==GameStatic::Get().data.reqListEnd; });
-                        int gi = FindGroupOuter(grps, h.req_list_idx);
-                        if (gi >= 0) { m_reqWinSel.outer = gi; m_reqWinSel.inner = 0; m_reqWinSel.scrollOuter = true; }
-                        m_reqWinOpen = true;
-                    }
+                bool reqValid = (h.req_list_idx != 0xFFFFFFFF) &&
+                                (h.req_list_idx < (uint32_t)m_data.requirementBlock.size());
+                ImGui::PushStyleColor(ImGuiCol_Text, reqValid ? kGreen : kPink);
+                ImGui::TextUnformatted(HitCondLabel::Requirements);
+                ImGui::PopStyleColor();
+                ImGui::SetNextItemWidth(-(kBtnW + sty.ItemSpacing.x));
+                int reqTmp = (h.req_list_idx == 0xFFFFFFFF) ? -1 : (int)h.req_list_idx;
+                if (ImGui::InputInt("##hcreq_val", &reqTmp, 0, 0)) {
+                    h.req_list_idx = (reqTmp < 0) ? 0xFFFFFFFF : (uint32_t)reqTmp;
+                    m_dirty = true;
                 }
-                if (RowU32Edit("##hc_damage", HitCondLabel::Damage, h.damage)) m_dirty = true;
-                if (RowU32Edit("##hc_0x0C",  HitCondLabel::F0x0C,  h._0x0C))  m_dirty = true;
-                {
-                    bool valid = (h.reaction_list_idx != 0xFFFFFFFF) &&
-                                 (h.reaction_list_idx < (uint32_t)m_data.reactionListBlock.size());
-                    auto r = RowIdxEditLink("##hcrl_idx", HitCondLabel::ReactionList, h.reaction_list_idx, valid);
-                    if (r.changed) m_dirty = true;
-                    if (r.navigate) {
-                        m_reacWin.open          = true;
-                        m_reacWin.selectedIdx   = (int)h.reaction_list_idx;
-                        m_reacWin.scrollPending = true;
-                    }
+                ImGui::SameLine();
+                if (GoButton("##hcreq_go", reqValid)) {
+                    const auto& rblk = m_data.requirementBlock;
+                    auto grps = ComputeGroups(rblk, +[](const ParsedRequirement& rr)->bool{
+                        return rr.req == GameStatic::Get().data.reqListEnd; });
+                    int gi = FindGroupOuter(grps, h.req_list_idx);
+                    if (gi >= 0) { m_reqWinSel.outer = gi; m_reqWinSel.inner = 0; m_reqWinSel.scrollOuter = true; }
+                    m_reqWinOpen = true;
                 }
-                ImGui::EndTable();
+                // Tooltip area inside card
+                ImGui::TextColored(kTTCol, " ");
             }
+            ImGui::EndChild();
+            ImGui::PopStyleColor();
+
+            ImGui::Spacing();
+
+            // --- Block 2: damage / _0x0C / reaction_list ---
+            // Height: FrameH×3 + TextLineH + spacing×3 + padding×2
+            float b2H = ImGui::GetFrameHeight() * 3.0f + ImGui::GetTextLineHeight()
+                      + sty.ItemSpacing.y * 3.0f + sty.WindowPadding.y * 2.0f;
+            ImGui::PushStyleColor(ImGuiCol_ChildBg, kBlockBg);
+            if (ImGui::BeginChild("##hcdt_b2", ImVec2(-1.0f, b2H), ImGuiChildFlags_Borders))
+            {
+                // damage + _0x0C as 2-col label/input rows
+                constexpr ImGuiTableFlags kTF = ImGuiTableFlags_SizingFixedFit;
+                if (ImGui::BeginTable("##hcdt_tbl", 2, kTF, ImVec2(-1.0f, 0.0f))) {
+                    ImGui::TableSetupColumn("##hl", ImGuiTableColumnFlags_WidthFixed);
+                    ImGui::TableSetupColumn("##hv", ImGuiTableColumnFlags_WidthStretch);
+
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("%s", HitCondLabel::Damage);
+                    ImGui::TableSetColumnIndex(1); ImGui::SetNextItemWidth(-1.0f);
+                    { int tmp = (int)h.damage; if (ImGui::InputInt("##hc_dmg", &tmp, 0, 0)) { h.damage = (uint32_t)tmp; m_dirty = true; } }
+
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("%s", HitCondLabel::F0x0C);
+                    ImGui::TableSetColumnIndex(1); ImGui::SetNextItemWidth(-1.0f);
+                    { int tmp = (int)h._0x0C; if (ImGui::InputInt("##hc_f0c", &tmp, 0, 0)) { h._0x0C = (uint32_t)tmp; m_dirty = true; } }
+
+                    ImGui::EndTable();
+                }
+
+                // reaction_list: label on top + input+Go below
+                bool rlValid = (h.reaction_list_idx != 0xFFFFFFFF) &&
+                               (h.reaction_list_idx < (uint32_t)m_data.reactionListBlock.size());
+                ImGui::PushStyleColor(ImGuiCol_Text, rlValid ? kGreen : kPink);
+                ImGui::TextUnformatted(HitCondLabel::ReactionList);
+                ImGui::PopStyleColor();
+                ImGui::SetNextItemWidth(-(kBtnW + sty.ItemSpacing.x));
+                int rlTmp = (h.reaction_list_idx == 0xFFFFFFFF) ? -1 : (int)h.reaction_list_idx;
+                if (ImGui::InputInt("##hcrl_val", &rlTmp, 0, 0)) {
+                    h.reaction_list_idx = (rlTmp < 0) ? 0xFFFFFFFF : (uint32_t)rlTmp;
+                    m_dirty = true;
+                }
+                ImGui::SameLine();
+                if (GoButton("##hcrl_go", rlValid)) {
+                    m_reacWin.open          = true;
+                    m_reacWin.selectedIdx   = (int)h.reaction_list_idx;
+                    m_reacWin.scrollPending = true;
+                }
+            }
+            ImGui::EndChild();
+            ImGui::PopStyleColor();
+
+            // Plain tooltip space at bottom (no box)
+            ImGui::Spacing();
+            ImGui::TextColored(kTTCol, " ");
         }
     }
     ImGui::EndChild();
