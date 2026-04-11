@@ -753,7 +753,7 @@ void App::RenderFbsDataView()
 #ifdef _DEBUG
 void App::RenderFbsDevView()
 {
-    m_fbsDevView.Render();
+    m_fbsDevView.Render(&m_fbsDataView.GetModData());
 }
 
 void App::RenderMotbinDiffView()

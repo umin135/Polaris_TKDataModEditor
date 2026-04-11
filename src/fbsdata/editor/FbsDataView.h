@@ -47,6 +47,11 @@ private:
     void RenderAssistInputListEditor(ContentsBinData& bin);
 
     ModData m_data;
+
+public:
+    ModData& GetModData() { return m_data; }
+
+private:
     bool    m_showSaveResult = false;
     bool    m_lastSaveOk     = false;
     float   m_statusTimer    = 0.0f;

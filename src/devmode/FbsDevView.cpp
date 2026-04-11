@@ -112,8 +112,9 @@ void FbsDevView::RenderToolbar()
 //  Main render entry
 // -----------------------------------------------------------------------------
 
-void FbsDevView::Render()
+void FbsDevView::Render(ModData* customMod)
 {
+    m_customMod = customMod;
     RenderToolbar();
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 4.0f);
     ImGui::Separator();
@@ -249,7 +250,7 @@ void FbsDevView::RenderCustomizeItemCommonEditor(ContentsBinData& bin)
         62.0f,  // id 24
         82.0f,  // id 25
     };
-    ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 52.0f);
+    ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 72.0f);
     for (int fi = 0; fi < FieldNames::CommonItemCount; ++fi)
         ImGui::TableSetupColumn(FieldNames::CommonItem[fi],
                                 ImGuiTableColumnFlags_WidthFixed, k_ColWidths[fi]);
@@ -277,6 +278,29 @@ void FbsDevView::RenderCustomizeItemCommonEditor(ContentsBinData& bin)
             ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
             if (ImGui::SmallButton("X")) deleteIdx = i;
             ImGui::PopStyleColor(3);
+            if (m_customMod)
+            {
+                ImGui::SameLine(0, 4.0f);
+                ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.12f, 0.38f, 0.58f, 1.00f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.18f, 0.52f, 0.78f, 1.00f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.15f, 0.44f, 0.65f, 1.00f));
+                if (ImGui::SmallButton(">"))
+                {
+                    ContentsBinData* target = nullptr;
+                    for (auto& b : m_customMod->contents)
+                        if (b.name == bin.name) { target = &b; break; }
+                    if (!target)
+                    {
+                        ContentsBinData nb;
+                        nb.name = bin.name;
+                        nb.type = bin.type;
+                        m_customMod->contents.push_back(std::move(nb));
+                        target = &m_customMod->contents.back();
+                    }
+                    target->commonEntries.push_back(e);
+                }
+                ImGui::PopStyleColor(3);
+            }
 
             auto U32Cell = [](const char* id, uint32_t& v) {
                 ImGui::SetNextItemWidth(-FLT_MIN);
@@ -388,7 +412,7 @@ void FbsDevView::RenderCharacterEditor(ContentsBinData& bin)
        160.0f,  // id 13  height_key
        160.0f,  // id 14  weight_key
     };
-    ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 52.0f);
+    ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 72.0f);
     for (int fi = 0; fi < FieldNames::CharacterCount; ++fi)
         ImGui::TableSetupColumn(FieldNames::Character[fi],
                                 ImGuiTableColumnFlags_WidthFixed, k_ColWidths[fi]);
@@ -416,6 +440,29 @@ void FbsDevView::RenderCharacterEditor(ContentsBinData& bin)
             ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
             if (ImGui::SmallButton("X")) deleteIdx = i;
             ImGui::PopStyleColor(3);
+            if (m_customMod)
+            {
+                ImGui::SameLine(0, 4.0f);
+                ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.12f, 0.38f, 0.58f, 1.00f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.18f, 0.52f, 0.78f, 1.00f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.15f, 0.44f, 0.65f, 1.00f));
+                if (ImGui::SmallButton(">"))
+                {
+                    ContentsBinData* target = nullptr;
+                    for (auto& b : m_customMod->contents)
+                        if (b.name == bin.name) { target = &b; break; }
+                    if (!target)
+                    {
+                        ContentsBinData nb;
+                        nb.name = bin.name;
+                        nb.type = bin.type;
+                        m_customMod->contents.push_back(std::move(nb));
+                        target = &m_customMod->contents.back();
+                    }
+                    target->characterEntries.push_back(e);
+                }
+                ImGui::PopStyleColor(3);
+            }
 
             auto StrCell = [](const char* id, char* buf, size_t sz) {
                 ImGui::SetNextItemWidth(-FLT_MIN);

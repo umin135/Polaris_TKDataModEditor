@@ -14,7 +14,7 @@
 class FbsDevView
 {
 public:
-    void Render();
+    void Render(ModData* customMod = nullptr);
 
 private:
     void RenderToolbar();
@@ -25,7 +25,8 @@ private:
     void RenderCustomizeItemCommonEditor(ContentsBinData& bin);
     void RenderCharacterEditor(ContentsBinData& bin);
 
-    ModData m_data;
+    ModData  m_data;
+    ModData* m_customMod = nullptr;
 
     // Status feedback
     bool        m_showExportResult = false;
