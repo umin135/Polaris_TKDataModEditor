@@ -28,9 +28,12 @@
 //      remap hash values for moves whose animation reference changed
 //      (via AnimNameDB anim_N / com_N → pool index → new hash).
 //
-// Limitations:
-//   - Move count changes (motbin adds/removes moves) are not handled here.
-//     The moveList is patched for min(moves.size(), existingMoveCount) entries.
+// Move count changes:
+//   When the motbin has more moves than the original anmbin moveList (e.g. a
+//   duplicate was appended), the moveList is relocated to end of file and
+//   extended with zero-filled slots so that AnmbinRebuild can patch the new
+//   entries.  The game uses anmbin_body_idx (= move index) to look up
+//   moveList[anmbin_body_idx], so every move index must have an entry.
 // -------------------------------------------------------------
 
 #define NOMINMAX
@@ -96,9 +99,9 @@ bool RebuildAnmbin(const std::string&             folderPath,
         if (off + 8 <= bytes.size()) memcpy(bytes.data() + off, &v, 8);
     };
 
-    // --- Parse stable header fields (unchanged by embedding) ------
-    const uint32_t moveListCount = rdU32(0x1C);   // per-move entries cat 0
-    const uint64_t moveListOff0  = rdU64(0x68);   // moveList offset cat 0
+    // --- Parse moveList header fields (updated if list is extended) ------
+    uint32_t moveListCount = rdU32(0x1C);   // per-move entries cat 0
+    uint64_t moveListOff0  = rdU64(0x68);   // moveList offset cat 0
 
     if (moveListOff0 == 0 || moveListCount == 0)
     {
@@ -380,6 +383,37 @@ bool RebuildAnmbin(const std::string&             folderPath,
         }
     }
 
+    // --- Extend moveList when motbin has more moves than original anmbin --------
+    // The game resolves each move's animation as: moveList[anmbin_body_idx].
+    // anmbin_body_idx == move index for every move.  New moves at indices
+    // >= moveListCount need new entries; relocate the list and zero-fill them.
+    {
+        const uint32_t newMoveCount = static_cast<uint32_t>(moves.size());
+        if (newMoveCount > moveListCount)
+        {
+            const size_t origOff  = static_cast<size_t>(moveListOff0);
+            const size_t origSize = moveListCount * 4;
+
+            std::vector<uint8_t> tmp;
+            if (origSize > 0 && origOff + origSize <= bytes.size())
+                tmp.assign(bytes.data() + origOff, bytes.data() + origOff + origSize);
+            else
+                tmp.resize(origSize, 0);
+
+            tmp.resize(tmp.size() + (newMoveCount - moveListCount) * 4, 0);
+
+            const uint64_t newOff = static_cast<uint64_t>(bytes.size());
+            bytes.insert(bytes.end(), tmp.begin(), tmp.end());
+
+            patchU32(0x1C, newMoveCount);
+            patchU64(0x68, newOff);
+            moveListCount = newMoveCount;
+            moveListOff0  = newOff;
+
+            anyChanged = true;
+        }
+    }
+
     // --- Build pool index → hash map (cat 0) from UPDATED bytes[] -
     // This must happen AFTER embedding so that newly added pool entries
     // (indices >= original pool count) are included in poolHash0.
@@ -420,8 +454,8 @@ bool RebuildAnmbin(const std::string&             folderPath,
     //      name suffix N is the correct pool index — use poolHash0[N] directly.
     //
     //   3. Arbitrary stem without anim_/com_ prefix → CRC scan only (same as 1).
-    uint32_t patchCount = static_cast<uint32_t>(moves.size());
-    if (patchCount > moveListCount) patchCount = moveListCount;
+    // moveListCount was extended above; all move indices are now covered.
+    const uint32_t patchCount = static_cast<uint32_t>(moves.size());
 
     for (uint32_t i = 0; i < patchCount; ++i)
     {

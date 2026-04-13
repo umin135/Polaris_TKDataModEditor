@@ -2,6 +2,7 @@
 // Field offsets based on OldTool2 (TekkenMovesetExtractor TK8) t8_offsetTable.
 // Move struct size = 0x448 bytes (FILE format, NOT in-memory).
 #include "moveset/data/MotbinData.h"
+#include "moveset/data/AnimNameDB.h"
 #include "moveset/labels/LabelDB.h"
 #include "GameStatic.h"
 #include <windows.h>
@@ -961,6 +962,10 @@ MotbinData LoadMotbin(const std::string& folderPath)
                 m.hitbox_floats[h][f] = ReadAt<float>(mb, kMove_Size, hbase + 0x0C + f * 4);
         }
 
+        // -- Second hitbox table (0x2E4..0x443, 88 × uint32) --------
+        for (int k = 0; k < 88; ++k)
+            m.unk5[k] = ReadAt<uint32_t>(mb, kMove_Size, 0x2E4 + k * 4);
+
         // -- Collision / distance -----------------------------
         m.collision = ReadAt<uint16_t>(mb, kMove_Size, kMove_Collision);
         m.distance  = ReadAt<uint16_t>(mb, kMove_Size, kMove_Distance);
@@ -1054,6 +1059,31 @@ static std::vector<uint8_t> RebuildMotbinBytes(MotbinData& data)
 
     // Start output: copy header (0x318 bytes)
     std::vector<uint8_t> out(raw.begin(), raw.begin() + kMotbinBase);
+
+    // -- String block tracking for new moves ---------------------------------
+    // header[0x170] = total virtual string-block size (byte count).
+    // Each move[i]+0x040 = nameOff (uint64), move[i]+0x048 = animOff (uint64):
+    // byte offsets into the string block where the loader writes name/anim strings.
+    // The mod loader uses animOff to find the anim key string, whose hash must
+    // match anmbin moveList[anmbin_body_idx]. Wrong animOff → hash mismatch → Fatal Error.
+    //
+    // For existing moves (i < origMoveCnt): rawBytes already has correct values
+    // (captured from game memory after load), preserved via anim_related[4..7].
+    // For new/duplicate moves: compute correct offsets by appending to the block.
+    AnimNameDB animDB;
+    if (!data.folderPath.empty()) animDB.Load(data.folderPath);
+
+    uint64_t strBlockCur = 0;
+    if (0x170 + 8 <= raw.size())
+        memcpy(&strBlockCur, raw.data() + 0x170, 8);
+
+    size_t origMoveCnt = 0;
+    {
+        uint64_t c = 0;
+        if (0x238 + 8 <= raw.size()) memcpy(&c, raw.data() + 0x238, 8);
+        origMoveCnt = (size_t)c;
+    }
+    // ------------------------------------------------------------------------
 
     // Helper: update header entry in out
     auto UpdateHeader = [&](size_t ptrOff, size_t cntOff, size_t blockStart, size_t cnt) {
@@ -1227,15 +1257,54 @@ static std::vector<uint8_t> RebuildMotbinBytes(MotbinData& data)
             const ParsedMove& m = data.moves[i];
             uint32_t slot = (uint32_t)(i % 8);
 
-            // Encrypted fields: re-XOR with the same key
+            // Restore full encrypted blocks from ParsedMove.
+            // For existing moves (rawBytes copied) this is a no-op since ParsedMove
+            // was read from those same bytes.  For new/duplicated moves (zero-filled)
+            // this writes back all raw storage — including the extra words beyond the
+            // 8 XOR slots (e.g. anim_related[4..7] at kMove_EncAnimKey+0x20) that the
+            // game engine requires and that would otherwise remain zero.
+            memcpy(e + kMove_EncNameKey,        &m.encrypted_name_key,       8);
+            memcpy(e + kMove_EncNameKey + 8,    &m.name_encryption_key,      8);
+            for (int k = 0; k < 4; ++k)
+                memcpy(e + kMove_EncNameKey + 16 + k*4, &m.name_related[k], 4);
+
+            memcpy(e + kMove_EncAnimKey,        &m.encrypted_anim_key,       8);
+            memcpy(e + kMove_EncAnimKey + 8,    &m.anim_encryption_key,      8);
+            for (int k = 0; k < 8; ++k)
+                memcpy(e + kMove_EncAnimKey + 16 + k*4, &m.anim_related[k], 4);
+
+            memcpy(e + kMove_EncVuln,           &m.encrypted_vuln,           8);
+            memcpy(e + kMove_EncVuln + 8,       &m.vuln_encryption_key,      8);
+            for (int k = 0; k < 4; ++k)
+                memcpy(e + kMove_EncVuln + 16 + k*4, &m.vuln_related[k], 4);
+
+            memcpy(e + kMove_EncHitlevel,       &m.encrypted_hitlevel,       8);
+            memcpy(e + kMove_EncHitlevel + 8,   &m.hitlevel_encryption_key,  8);
+            for (int k = 0; k < 4; ++k)
+                memcpy(e + kMove_EncHitlevel + 16 + k*4, &m.hitlevel_related[k], 4);
+
+            memcpy(e + kMove_EncCharId,         &m.encrypted_ordinal_id2,    8);
+            memcpy(e + kMove_EncCharId + 8,     &m.ordinal_id2_enc_key,      8);
+            for (int k = 0; k < 4; ++k)
+                memcpy(e + kMove_EncCharId + 16 + k*4, &m.ordinal_id2_related[k], 4);
+
+            memcpy(e + kMove_EncOrdinalId,      &m.encrypted_ordinal_id,     8);
+            memcpy(e + kMove_EncOrdinalId + 8,  &m.ordinal_encryption_key,   8);
+            for (int k = 0; k < 4; ++k)
+                memcpy(e + kMove_EncOrdinalId + 16 + k*4, &m.ordinal_related[k], 4);
+
+            // Per-slot patches: overwrite this move's specific slot with current values.
             { uint32_t enc = m.vuln        ^ kXorKeys[slot]; memcpy(e + kMove_EncVuln      + slot*4, &enc, 4); }
             { uint32_t enc = m.hitlevel    ^ kXorKeys[slot]; memcpy(e + kMove_EncHitlevel  + slot*4, &enc, 4); }
             { uint32_t enc = m.ordinal_id2 ^ kXorKeys[slot]; memcpy(e + kMove_EncCharId    + slot*4, &enc, 4); }
             { uint32_t enc = m.moveId      ^ kXorKeys[slot]; memcpy(e + kMove_EncOrdinalId + slot*4, &enc, 4); }
             { uint32_t enc = m.anim_key    ^ kXorKeys[slot]; memcpy(e + kMove_EncAnimKey   + slot*4, &enc, 4); }
 
-            // anmbin fields
-            memcpy(e + kMove_AnimAddrEnc1, &m.anmbin_body_idx,     4);
+            // anmbin fields: body_idx == move index (game uses this to index into
+            // anmbin moveList; duplicated moves must get their own index, not the
+            // original move's index).
+            uint32_t bodyIdx = static_cast<uint32_t>(i);
+            memcpy(e + kMove_AnimAddrEnc1, &bodyIdx,               4);
             memcpy(e + kMove_AnimAddrEnc2, &m.anmbin_body_sub_idx, 4);
 
             // Plain scalar fields
@@ -1254,8 +1323,11 @@ static std::vector<uint8_t> RebuildMotbinBytes(MotbinData& data)
             memcpy(e + kMove_GroundFall,    &m.ground_fall,    4);
             memcpy(e + kMove_U15,           &m.u15,            4);
             memcpy(e + kMove_0x154,         &m._0x154,         4);
-            memcpy(e + kMove_Startup,       &m.startup,        4);
-            memcpy(e + kMove_Recovery,      &m.recovery,       4);
+
+            // Move-level startup/recovery (0x158/0x15C): written directly from
+            // m.startup / m.recovery, which the editor now exposes as "active_frame".
+            memcpy(e + kMove_Startup,  &m.startup,  4);
+            memcpy(e + kMove_Recovery, &m.recovery, 4);
             memcpy(e + kMove_Collision,     &m.collision,      2);
             memcpy(e + kMove_Distance,      &m.distance,       2);
             memcpy(e + 0x444,               &m.u18,            4);
@@ -1268,6 +1340,72 @@ static std::vector<uint8_t> RebuildMotbinBytes(MotbinData& data)
                 memcpy(e + hb + 0x08, &m.hitbox_location[h],     4);
                 for (int f = 0; f < 9; ++f)
                     memcpy(e + hb + 0x0C + f*4, &m.hitbox_floats[h][f], 4);
+            }
+
+            // Second hitbox table (0x2E4..0x443, 88 × uint32 = 352 bytes).
+            // Parsed into ParsedMove::unk5[88] during LoadMotbin.
+            // For duplicate/new moves unk5 is copied from the source ParsedMove,
+            // so sentinel headers (+0x00..+0x17) and slot data (+0x18..+0x2B)
+            // are both preserved correctly without any special-casing.
+            memcpy(e + 0x2E4, m.unk5, sizeof(m.unk5));
+
+            // String block offsets: move[i]+0x040 = nameOff, move[i]+0x048 = animOff.
+            // These are byte offsets into the virtual string block that the mod loader
+            // creates. The loader places the anim key string at animOff; the game
+            // computes hash(animStr) and validates it against anmbin moveList[body_idx].
+            // Wrong animOff → hash mismatch → Fatal Error.
+            //
+            // For existing moves: anim_related[4..7] (already copied above) have the
+            // correct values from the original extraction. No override needed.
+            //
+            // For new moves (i >= origMoveCnt): the source move's values were inherited
+            // by anim_related[4..7]. Override them with freshly computed offsets so the
+            // loader places the correct anim key string at the right position.
+            if (i >= origMoveCnt && strBlockCur > 0) {
+                // Name string
+                const std::string& nameStr = m.displayName;
+                uint64_t nameOff = strBlockCur;
+                strBlockCur += (uint64_t)(nameStr.size() + 1);
+
+                // Anim key string: look up from AnimNameDB, or fall back to an existing
+                // move that shares the same anim_key (covers the common "duplicate + match"
+                // workflow even when AnimNameDB hasn't been built yet).
+                uint64_t animOff = strBlockCur;
+                std::string animStr;
+                if (animDB.IsLoaded())
+                    animStr = animDB.AnimKeyToName(m.anim_key);
+
+                if (!animStr.empty()) {
+                    strBlockCur += (uint64_t)(animStr.size() + 1);
+                } else {
+                    // Fallback: find an existing original move with the same anim_key
+                    // and reuse its animOff (same string → same hash → anmbin agrees).
+                    uint64_t reusedAnimOff = 0;
+                    for (size_t j = 0; j < origMoveCnt && j < data.moves.size(); ++j) {
+                        if (data.moves[j].anim_key == m.anim_key) {
+                            reusedAnimOff = (uint64_t)data.moves[j].anim_related[6]
+                                          | ((uint64_t)data.moves[j].anim_related[7] << 32);
+                            break;
+                        }
+                    }
+                    if (reusedAnimOff != 0) {
+                        animOff = reusedAnimOff;
+                        // strBlockCur not advanced: we're reusing an existing position.
+                    } else {
+                        // Last resort: allocate a null-byte placeholder. The animation
+                        // lookup will fail gracefully (no crash from out-of-bounds).
+                        strBlockCur += 1;
+                    }
+                }
+
+                // Write nameOff (uint64) at e+0x40 and animOff (uint64) at e+0x48.
+                // anim_related[4/5] = low/high 32 bits of nameOff,
+                // anim_related[6/7] = low/high 32 bits of animOff.
+                auto W32at = [](uint8_t* b, size_t o, uint32_t v){ memcpy(b+o,&v,4); };
+                W32at(e, 0x40, (uint32_t)(nameOff & 0xFFFFFFFF));
+                W32at(e, 0x44, (uint32_t)(nameOff >> 32));
+                W32at(e, 0x48, (uint32_t)(animOff & 0xFFFFFFFF));
+                W32at(e, 0x4C, (uint32_t)(animOff >> 32));
             }
 
             // Pointer fields (stored as indexes in index-format)
@@ -1340,6 +1478,12 @@ static std::vector<uint8_t> RebuildMotbinBytes(MotbinData& data)
             W32(e, 0x10, d.voiceclip_key);
             W32(e, 0x14, d.facial_anim_idx);
         });
+
+    // Update string block total size if new moves were added.
+    // The loader allocates strBlockCur bytes for the virtual string block and uses
+    // each move's nameOff/animOff to place strings and resolve pointers.
+    if (strBlockCur > 0 && out.size() >= 0x170 + 8)
+        memcpy(out.data() + 0x170, &strBlockCur, 8);
 
     return out;
 }

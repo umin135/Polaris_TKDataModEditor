@@ -1836,6 +1836,27 @@ void MovesetEditorWindow::RenderSection_Unknown(ParsedMove& m, bool& dirty)
 
 static void RenderSection_Hitboxes(ParsedMove& m, bool& dirty)
 {
+    // active_frame: move-level startup/recovery (0x158/0x15C).
+    // OldTool2 calls these first_active_frame / last_active_frame.
+    // The game reads 0x158 for hitbox timing; always equals hitbox1 active_start
+    // in original movesets.
+    if (BeginPropTable("##hb_active_frame", true))
+    {
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        ImGui::TextDisabled("%s", MoveLabel::ActiveFrame);
+        ImGui::TableSetColumnIndex(1);
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.5f - 4.0f);
+        { int tmp = (int)m.startup;
+          if (ImGui::InputInt("##af_start", &tmp, 0, 0)) { m.startup = (uint32_t)tmp; dirty = true; } }
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(-1.0f);
+        { int tmp = (int)m.recovery;
+          if (ImGui::InputInt("##af_last",  &tmp, 0, 0)) { m.recovery = (uint32_t)tmp; dirty = true; } }
+        ImGui::EndTable();
+    }
+    ImGui::Spacing();
+
     for (int h = 0; h < 8; ++h)
     {
         const uint32_t start = m.hitbox_active_start[h];
@@ -2626,15 +2647,16 @@ void MovesetEditorWindow::RenderCancelInnerDetail(
         }
 
         // extradata (uint32_t, navigate to cancel-extra)
+        // TK8: extradata pointer is always valid (game crashes on null); minimum valid index = 0
         bool extValid = (c.extradata_idx != 0xFFFFFFFF) &&
                         (c.extradata_idx < (uint32_t)m_data.cancelExtraBlock.size());
         ImGui::PushStyleColor(ImGuiCol_Text, extValid ? kGreen : kPink);
         ImGui::TextUnformatted(CancelLabel::Extradata); ShowFieldTooltip(FieldTT::Cancel::Extradata);
         ImGui::PopStyleColor();
         ImGui::SetNextItemWidth(-(kBtnW + sty.ItemSpacing.x));
-        int extTmp = (c.extradata_idx == 0xFFFFFFFF) ? -1 : (int)c.extradata_idx;
+        int extTmp = (c.extradata_idx == 0xFFFFFFFF) ? 0 : (int)c.extradata_idx;
         if (ImGui::InputInt("##ext_idx", &extTmp, 0, 0)) {
-            c.extradata_idx = (extTmp < 0) ? 0xFFFFFFFF : (uint32_t)extTmp;
+            c.extradata_idx = (extTmp < 0) ? 0 : (uint32_t)extTmp;
             m_dirty = true;
         }
         ImGui::SameLine();
@@ -2765,7 +2787,7 @@ static ParsedCancel MakeCancelTerminator()
     c.command       = 0x8000;
     c.move_id       = 0x8000;
     c.req_list_idx  = 0xFFFFFFFF;
-    c.extradata_idx = 0xFFFFFFFF;
+    c.extradata_idx = 0;  // TK8: always valid; index 0 = cancel_extra[0]
     c.group_cancel_list_idx = 0xFFFFFFFF;
     return c;
 }
@@ -2776,7 +2798,7 @@ static ParsedCancel MakeGroupCancelTerminator()
     c.command       = (uint64_t)GameStatic::Get().data.groupCancelEnd;
     c.move_id       = 0x8000;
     c.req_list_idx  = 0xFFFFFFFF;
-    c.extradata_idx = 0xFFFFFFFF;
+    c.extradata_idx = 0;  // TK8: always valid; index 0 = cancel_extra[0]
     c.group_cancel_list_idx = 0xFFFFFFFF;
     return c;
 }
@@ -2787,7 +2809,7 @@ static ParsedCancel MakeEmptyCancel()
     c.command       = 0;
     c.move_id       = 0;
     c.req_list_idx  = 0xFFFFFFFF;
-    c.extradata_idx = 0xFFFFFFFF;
+    c.extradata_idx = 0;  // TK8: always valid; index 0 = cancel_extra[0]
     c.group_cancel_list_idx = 0xFFFFFFFF;
     return c;
 }
@@ -3971,8 +3993,9 @@ static void RenderPropSection(
             uint32_t gf = groups[sel.outer].first, gc = groups[sel.outer].second;
             if (innerAct == ListAction::Insert) {
                 uint32_t ipos = isOnlyEnd ? innerAbsIdx : innerAbsIdx + 1;
-                ParsedExtraProp ne{}; ne.req_list_idx = 0xFFFFFFFF;
-                if (isExtraProp) ne.id = 1; // non-zero id so (type==0,id==0) doesn't trigger END
+                ParsedExtraProp ne{};
+                ne.req_list_idx = 0;        // requirements: index 0
+                if (isExtraProp) ne.type = 32769; // frame: 32769; type!=0 prevents END trigger
                 block.insert(block.begin() + ipos, ne);
                 fixupFn(data, ipos, true);
                 if (!isOnlyEnd) sel.inner++;

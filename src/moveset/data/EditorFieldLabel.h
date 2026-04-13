@@ -26,8 +26,7 @@ namespace MoveLabel {
     static constexpr const char* StartPropIdx = "start_prop_idx";
     static constexpr const char* EndPropIdx   = "end_prop_idx";
     static constexpr const char* HitboxLoc    = "hitbox_location";
-    static constexpr const char* FirstActive  = "first_active_frame";
-    static constexpr const char* LastActive   = "last_active_frame";
+    static constexpr const char* ActiveFrame  = "First/Last active frame";
     static constexpr const char* CE           = "_0xCE";
     static constexpr const char* TCharId      = "t_char_id";
     static constexpr const char* OrdinalId    = "ordinal_id";
