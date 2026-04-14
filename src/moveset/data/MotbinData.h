@@ -27,8 +27,8 @@ struct ParsedPushbackExtra {
 //  tk_pushback
 // -------------------------------------------------------------
 struct ParsedPushback {
-    uint16_t val1;              // +0x00  non_linear_displacement
-    uint16_t val2;              // +0x02  non_linear_distance
+    uint16_t val1;              // +0x00  linear_displacement
+    uint16_t val2;              // +0x02  linear_distance
     uint32_t val3;              // +0x04  num_of_extra_pushbacks
     uint64_t extra_addr;        // +0x08  -> PushbackExtra block entry
     uint32_t pushback_extra_idx = 0xFFFFFFFF;  // index into global pushbackExtraBlock

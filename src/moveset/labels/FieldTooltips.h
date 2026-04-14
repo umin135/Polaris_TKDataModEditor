@@ -160,8 +160,8 @@ namespace FieldTT
 
     // ── Pushback ─────────────────────────────────────────────────────────────
     namespace Pushback {
-        static constexpr FieldTooltip NonLinearDisplacement = { "" };
-        static constexpr FieldTooltip NonLinearDistance     = { "" };
+        static constexpr FieldTooltip LinearDisplacement = { "" };
+        static constexpr FieldTooltip LinearDistance     = { "" };
         static constexpr FieldTooltip NumOfExtraPushbacks   = { "" };
         static constexpr FieldTooltip PushbackExtradata     = { "" };
     } // namespace Pushback
