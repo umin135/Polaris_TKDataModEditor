@@ -232,38 +232,6 @@ bool MovesetEditorWindow::Render()
     {
         if (!m_animMgr->Render())
             m_animMgr.reset();
-
-        // Auto-process new pool entries discovered by Refresh:
-        //   1. Rebuild anmbin first (embeds new files; uses current animNameDB for moveList patch).
-        //   2. Only if rebuild succeeds: register stem → CRC32 in animNameDB.
-        //   3. ForceReload AnimMgr from rebuilt anmbin (or from unchanged disk if rebuild failed).
-        // Order matters: we rebuild BEFORE adding to animNameDB so that a failed rebuild
-        // doesn't permanently mark the file as "registered" and block future Refresh attempts.
-        if (m_animMgr)
-        {
-            auto newEntries = m_animMgr->TakePendingNewEntries();
-            if (!newEntries.empty())
-            {
-                std::string anmbinErr;
-                bool rebuilt = RebuildAnmbin(m_data.folderPath, m_animNameDB, m_data.moves, anmbinErr);
-
-                if (rebuilt)
-                {
-                    // Embed succeeded — now persist the name→CRC32 mapping.
-                    for (const auto& e : newEntries)
-                        m_animNameDB.AddEntry(m_data.folderPath, e.name, e.hash);
-                }
-                else
-                {
-                    // Embed failed — show error and reset to clean disk state.
-                    m_animMgr->SetRebuildError(!anmbinErr.empty() ? anmbinErr : "RebuildAnmbin returned false");
-                }
-
-                // Always ForceReload: on success this shows newly embedded entry;
-                // on failure this clears the in-memory sentinel so Refresh can retry.
-                m_animMgr->ForceReload();
-            }
-        }
     }
 
     // Overlay-style dialogs rendered LAST so they appear on top of all sub-windows.
@@ -1494,6 +1462,15 @@ void MovesetEditorWindow::RenderSection_Overview(ParsedMove& m, bool& dirty)
                     m_animMgr->SetMotbinAnimKeys(keys);
                     m_animMgr->SetAnimNameDB(&m_animNameDB);
                     m_animMgr->SetCharaCode(m_data.charaCode);
+                    m_animMgr->SetMoves(&m_data.moves);
+                    m_animMgr->SetOnAnimAdded([this](int /*cat*/, const std::string& name, uint32_t crc32) {
+                        m_animNameDB.AddEntry(m_data.folderPath, name, crc32);
+                    });
+                    m_animMgr->SetOnAnimRemoved([this](uint32_t removedHash) {
+                        for (auto& mv : m_data.moves)
+                            if (mv.anim_key == removedHash) mv.anim_key = 0;
+                        m_dirty = true;
+                    });
                 }
                 if (m_selectedIdx >= 0 && m_selectedIdx < (int)m_data.moves.size())
                     m_animMgr->NavigateByMotbinKey(0, m_data.moves[m_selectedIdx].anim_key);
@@ -1994,6 +1971,15 @@ void MovesetEditorWindow::RenderMenuBar()
                 m_animMgr->SetMotbinAnimKeys(keys);
                 m_animMgr->SetAnimNameDB(&m_animNameDB);
                 m_animMgr->SetCharaCode(m_data.charaCode);
+                m_animMgr->SetMoves(&m_data.moves);
+                m_animMgr->SetOnAnimAdded([this](int /*cat*/, const std::string& name, uint32_t crc32) {
+                    m_animNameDB.AddEntry(m_data.folderPath, name, crc32);
+                });
+                m_animMgr->SetOnAnimRemoved([this](uint32_t removedHash) {
+                    for (auto& mv : m_data.moves)
+                        if (mv.anim_key == removedHash) mv.anim_key = 0;
+                    m_dirty = true;
+                });
             }
             else
                 m_animMgr.reset();

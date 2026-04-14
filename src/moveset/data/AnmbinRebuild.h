@@ -32,3 +32,40 @@ bool RebuildAnmbin(const std::string&             folderPath,
                    const AnimNameDB&               animNameDB,
                    const std::vector<ParsedMove>&  moves,
                    std::string&                    errorMsg);
+
+// -------------------------------------------------------------
+//  AddAnimToAnmbin  --  embed a single PANM blob from memory
+//
+//  Reads moveset.anmbin, checks whether the blob's CRC32 is
+//  already in pool[cat], then appends the new pool entry and
+//  PANM blob, patches characterFlags, extends + patches the
+//  Fullbody moveList (same as RebuildAnmbin), and writes back.
+//
+//  outCRC32 is set to the computed CRC32 of panmBytes.
+//  Returns true on success (including "already present" no-op).
+// -------------------------------------------------------------
+bool AddAnimToAnmbin(const std::string&             folderPath,
+                     const AnimNameDB&               animNameDB,
+                     const std::vector<ParsedMove>&  moves,
+                     int                             cat,
+                     const std::vector<uint8_t>&     panmBytes,
+                     uint32_t&                       outCRC32,
+                     std::string&                    errorMsg);
+
+// -------------------------------------------------------------
+//  RemoveAnimFromAnmbin  --  remove one pool entry from a category
+//
+//  Reads moveset.anmbin, rebuilds pool[cat] without the entry at
+//  poolIdx (appended at end-of-file, patch-in-place strategy),
+//  updates the header, zeros any moveList[cat] hashes that matched
+//  the removed entry, and writes back.
+//
+//  outRemovedHash receives the animKey (low32) of the removed entry.
+//  The PANM blob becomes orphaned bytes (not compacted).
+//  Returns true on success.
+// -------------------------------------------------------------
+bool RemoveAnimFromAnmbin(const std::string& folderPath,
+                          int                cat,
+                          int                poolIdx,
+                          uint32_t&          outRemovedHash,
+                          std::string&       errorMsg);

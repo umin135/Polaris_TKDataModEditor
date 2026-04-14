@@ -1,11 +1,13 @@
 #pragma once
 #include "moveset/data/AnmbinData.h"
 #include "moveset/data/AnimNameDB.h"
+#include "moveset/data/MotbinData.h"
 #include <string>
 #include <vector>
+#include <functional>
 #include <unordered_map>
 
-// AnimationManagerWindow -- sub-window for viewing anmbin animation lists
+// AnimationManagerWindow -- sub-window for viewing and managing anmbin animation lists
 class AnimationManagerWindow {
 public:
     AnimationManagerWindow(const std::string& folderPath, const std::string& movesetName, int uid);
@@ -21,8 +23,21 @@ public:
     // Provide per-move anim_key values from motbin (moves[i].anim_key).
     void SetMotbinAnimKeys(const std::vector<uint32_t>& animKeys);
 
-    // Provide the AnimNameDB (used only for lookup, not for file tracking).
+    // Provide the AnimNameDB (read-only; used for key lookups and moveList patching).
     void SetAnimNameDB(const AnimNameDB* db) { m_animNameDB = db; }
+
+    // Provide a pointer to the live moves list (for AddAnimToAnmbin moveList patching).
+    void SetMoves(const std::vector<ParsedMove>* moves) { m_moves = moves; }
+
+    // Called when an animation was successfully added:
+    //   MovesetEditorWindow registers name → crc32 in AnimNameDB.
+    void SetOnAnimAdded(std::function<void(int cat, const std::string& name, uint32_t crc32)> cb)
+    { m_onAnimAdded = std::move(cb); }
+
+    // Called when an animation was successfully removed:
+    //   MovesetEditorWindow clears anim_key references and marks motbin dirty.
+    void SetOnAnimRemoved(std::function<void(uint32_t removedHash)> cb)
+    { m_onAnimRemoved = std::move(cb); }
 
     // Provide the character code (e.g. "grf") for fallback animation naming.
     void SetCharaCode(const std::string& code) { m_charaCode = code; }
@@ -35,31 +50,28 @@ public:
     void        NavigateToPool(int cat, int poolIdx);
 
     // Navigate to the pool entry for a given motbin anim_key.
-    // Works for both original animations (via moveList map) and newly-added
-    // animations not yet in moveList (direct animKey scan fallback).
-    void        NavigateByMotbinKey(int cat, uint32_t motbinAnimKey);
+    void NavigateByMotbinKey(int cat, uint32_t motbinAnimKey);
 
-    // Reload anmbin from disk (called by MovesetEditorWindow after auto-rebuild).
+    // Reload anmbin from disk (called after rebuild).
     void ForceReload();
 
-    // Display a rebuild error message in the AnimMgr UI (called by MovesetEditorWindow on failure).
+    // Display a rebuild error message in the AnimMgr UI.
     void SetRebuildError(const std::string& msg) { m_rebuildError = msg; }
-
-    // New pool entries discovered by the last Refresh, not yet registered in AnimNameDB.
-    // Cleared after each call.
-    struct NewAnimEntry {
-        int         cat;
-        int         poolIdx;
-        uint32_t    hash;      // CRC32 of file content == initial motbin_anim_key
-        std::string name;      // filename stem (e.g. "testanim")
-        std::string filename;  // original filename (e.g. "testanim.bin") for display
-    };
-    std::vector<NewAnimEntry> TakePendingNewEntries();
 
 private:
     void TryLoad();
-    void DoRefresh();
+    void BuildAnimKeyMap();
     void RenderTabContent(int cat);
+    void RenderPreviewPanel();
+
+    // Action handlers
+    void DoAdd(int cat);
+    void DoExtract(int cat, int poolIdx);
+    void DoRemove(int cat, int poolIdx);
+    void DoExtractAll();
+
+    // Compute PANM size for a pool entry (sort-by-ptr method).
+    size_t ComputePanmSize(int cat, int poolIdx);
 
     std::string m_folderPath;
     std::string m_windowId;
@@ -76,22 +88,27 @@ private:
     std::unordered_map<uint32_t, int>      m_animKeyToPoolIdx[6];
     bool                                   m_mapBuilt = false;
 
-    std::vector<NewAnimEntry>              m_pendingNew;
+    const AnimNameDB*              m_animNameDB = nullptr;
+    const std::vector<ParsedMove>* m_moves      = nullptr;
+    std::string                    m_charaCode;
 
-    const AnimNameDB*                      m_animNameDB = nullptr;
-    std::string                            m_charaCode;            // set by MovesetEditorWindow
+    std::function<void(int, const std::string&, uint32_t)> m_onAnimAdded;
+    std::function<void(uint32_t)>                          m_onAnimRemoved;
 
-    // Stem labels for pool entries added via DoRefresh (in-memory only, cleared on ForceReload).
-    std::unordered_map<int, std::string>   m_poolFilenames[6]; // poolIdx → stem
+    // Status message shown in toolbar (Add/Remove/Extract results)
+    std::string m_statusMsg;
+    bool        m_statusOk = true;
 
-    // Diagnostic info from the last DoRefresh call
-    struct RefreshResult {
-        int  totalFound = 0;
-        bool ran        = false;
-        std::string statusLines;
+    // Rebuild error (set by MovesetEditorWindow if RebuildAnmbin fails)
+    std::string m_rebuildError;
+
+    // Remove confirmation state
+    struct RemoveConfirm {
+        bool        showing  = false;
+        int         cat      = -1;
+        int         poolIdx  = -1;
+        std::string animName;
     };
-    RefreshResult m_lastRefresh;
-    std::string   m_rebuildError; // set by MovesetEditorWindow if RebuildAnmbin fails
+    RemoveConfirm m_removeConfirm;
 
-    void BuildAnimKeyMap();
 };

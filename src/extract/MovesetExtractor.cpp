@@ -547,7 +547,31 @@ static std::string ExtractAnimFilesFromAnmbin(const std::string& charFolder,
     }
 
     if (totalSaved == 0) return " | anim: no PANM found";
-    return " | anim: +" + std::to_string(totalSaved) + " files";
+
+    // Delete the anim/ folder: animations are now managed via AnimationManagerWindow.
+    // Users can re-extract individual files at any time using the "Extract" / "Extract All" buttons.
+    {
+        // Recursive delete: clear each category subfolder, then the root
+        for (int cat = 0; cat < 6; ++cat)
+        {
+            std::string catDir = animRoot + "\\" + AnmbinCategoryFolder(cat);
+            std::string delPat = catDir + "\\*";
+            WIN32_FIND_DATAA fd = {};
+            HANDLE h = FindFirstFileA(delPat.c_str(), &fd);
+            if (h != INVALID_HANDLE_VALUE)
+            {
+                do {
+                    if (strcmp(fd.cFileName, ".") == 0 || strcmp(fd.cFileName, "..") == 0) continue;
+                    DeleteFileA((catDir + "\\" + fd.cFileName).c_str());
+                } while (FindNextFileA(h, &fd));
+                FindClose(h);
+            }
+            RemoveDirectoryA(catDir.c_str());
+        }
+        RemoveDirectoryA(animRoot.c_str());
+    }
+
+    return " | anim: +" + std::to_string(totalSaved) + " (cleaned)";
 }
 
 // -------------------------------------------------------------

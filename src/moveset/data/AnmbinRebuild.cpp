@@ -519,3 +519,321 @@ bool RebuildAnmbin(const std::string&             folderPath,
     fclose(f);
     return true;
 }
+
+// =============================================================================
+//  Shared CRC32 helper (same polynomial as above)
+// =============================================================================
+
+static uint32_t ComputeCRC32(const uint8_t* data, size_t len)
+{
+    static uint32_t table[256];
+    static bool     init = false;
+    if (!init)
+    {
+        for (uint32_t i = 0; i < 256; ++i)
+        {
+            uint32_t c = i;
+            for (int j = 0; j < 8; ++j)
+                c = (c & 1) ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
+            table[i] = c;
+        }
+        init = true;
+    }
+    uint32_t crc = 0xFFFFFFFFu;
+    for (size_t i = 0; i < len; ++i)
+        crc = table[(crc ^ data[i]) & 0xFF] ^ (crc >> 8);
+    return crc ^ 0xFFFFFFFFu;
+}
+
+// =============================================================================
+//  Shared anmbin read / write helpers
+// =============================================================================
+
+static bool ReadAnmbinBytes(const std::string& path, std::vector<uint8_t>& out, std::string& err)
+{
+    FILE* f = nullptr;
+    if (fopen_s(&f, path.c_str(), "rb") != 0 || !f)
+    { err = "Cannot open moveset.anmbin: " + path; return false; }
+    fseek(f, 0, SEEK_END);
+    long sz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (sz < 0x98) { fclose(f); err = "moveset.anmbin too small"; return false; }
+    out.resize(static_cast<size_t>(sz));
+    fread(out.data(), 1, out.size(), f);
+    fclose(f);
+    return true;
+}
+
+static bool WriteAnmbinBytes(const std::string& path, const std::vector<uint8_t>& data, std::string& err)
+{
+    FILE* f = nullptr;
+    if (fopen_s(&f, path.c_str(), "wb") != 0 || !f)
+    { err = "Cannot write moveset.anmbin"; return false; }
+    fwrite(data.data(), 1, data.size(), f);
+    fclose(f);
+    return true;
+}
+
+// Helper: patch moveList[cat] for a given bytes[] buffer, using animNameDB + moves.
+// cat == 0 is the only category currently supported for moveList patching.
+static void PatchMoveList(std::vector<uint8_t>& bytes,
+                          const AnimNameDB& animNameDB,
+                          const std::vector<ParsedMove>& moves,
+                          int patchCat)
+{
+    if (patchCat != 0) return; // only Fullbody moveList is currently patched
+
+    auto rdU32 = [&](size_t o) { uint32_t v; memcpy(&v, bytes.data()+o, 4); return v; };
+    auto rdU64 = [&](size_t o) { uint64_t v; memcpy(&v, bytes.data()+o, 8); return v; };
+    auto wrU32 = [&](size_t o, uint32_t v) { if(o+4<=bytes.size()) memcpy(bytes.data()+o,&v,4); };
+
+    uint32_t moveListCount = rdU32(0x1C);
+    uint64_t moveListOff   = rdU64(0x68);
+    if (moveListOff == 0 || moveListCount == 0) return;
+
+    // Build pool hash array for cat 0 from updated bytes[]
+    uint32_t poolCount0   = rdU32(0x04);
+    uint64_t poolListOff0 = rdU64(0x38);
+    std::vector<uint32_t> poolHash0;
+    if (poolListOff0 != 0 && poolCount0 != 0 &&
+        poolListOff0 + (uint64_t)poolCount0 * 0x38 <= (uint64_t)bytes.size())
+    {
+        poolHash0.resize(poolCount0);
+        for (uint32_t j = 0; j < poolCount0; ++j)
+        {
+            size_t   entOff  = static_cast<size_t>(poolListOff0) + j * 0x38;
+            uint64_t animKey = rdU64(entOff);
+            poolHash0[j]     = static_cast<uint32_t>(animKey & 0xFFFFFFFFu);
+        }
+    }
+
+    const uint32_t patchCount = (uint32_t)moves.size();
+    for (uint32_t i = 0; i < patchCount && i < moveListCount; ++i)
+    {
+        std::string name = animNameDB.AnimKeyToName(moves[i].anim_key);
+        if (name.empty()) continue;
+
+        uint32_t newHash  = 0;
+        bool     resolved = false;
+
+        // CRC scan first
+        uint32_t target = moves[i].anim_key;
+        for (uint32_t j = 0; j < (uint32_t)poolHash0.size(); ++j)
+        {
+            if (poolHash0[j] == target) { newHash = poolHash0[j]; resolved = true; break; }
+        }
+        // N-based fallback
+        if (!resolved)
+        {
+            int N = -1;
+            if (name.rfind("anim_", 0) == 0 || name.rfind("com_", 0) == 0)
+            {
+                size_t u = name.rfind('_');
+                if (u != std::string::npos) N = atoi(name.c_str() + u + 1);
+            }
+            if (N >= 0 && N < (int)poolHash0.size()) { newHash = poolHash0[N]; resolved = true; }
+        }
+        if (!resolved) continue;
+
+        size_t   off = static_cast<size_t>(moveListOff) + i * 4;
+        uint32_t old; memcpy(&old, bytes.data()+off, 4);
+        if (old != newHash) wrU32(off, newHash);
+    }
+}
+
+// =============================================================================
+//  AddAnimToAnmbin
+// =============================================================================
+
+bool AddAnimToAnmbin(const std::string&             folderPath,
+                     const AnimNameDB&               animNameDB,
+                     const std::vector<ParsedMove>&  moves,
+                     int                             cat,
+                     const std::vector<uint8_t>&     panmBytes,
+                     uint32_t&                       outCRC32,
+                     std::string&                    errorMsg)
+{
+    if (cat < 0 || cat >= 6) { errorMsg = "Invalid category index"; return false; }
+    if (panmBytes.empty())   { errorMsg = "Empty PANM data";        return false; }
+
+    // --- Compute CRC32 ---
+    outCRC32 = ComputeCRC32(panmBytes.data(), panmBytes.size());
+
+    // --- Build path and read ---
+    std::string base = folderPath;
+    if (!base.empty() && base.back() != '\\' && base.back() != '/') base += '\\';
+    const std::string anmbinPath = base + "moveset.anmbin";
+
+    std::vector<uint8_t> bytes;
+    if (!ReadAnmbinBytes(anmbinPath, bytes, errorMsg)) return false;
+
+    auto rdU32 = [&](size_t o) -> uint32_t { uint32_t v; memcpy(&v,bytes.data()+o,4); return v; };
+    auto rdU64 = [&](size_t o) -> uint64_t { uint64_t v; memcpy(&v,bytes.data()+o,8); return v; };
+    auto wrU32 = [&](size_t o, uint32_t v){ if(o+4<=bytes.size()) memcpy(bytes.data()+o,&v,4); };
+    auto wrU64 = [&](size_t o, uint64_t v){ if(o+8<=bytes.size()) memcpy(bytes.data()+o,&v,8); };
+
+    bool anyChanged = false;
+
+    // --- characterFlags patch (all cats) ---
+    static const size_t kFlagOff[4] = { 0x18, 0x1C, 0x20, 0x24 };
+    for (int c = 0; c < 6; ++c)
+    {
+        uint32_t cnt  = rdU32(0x04 + c * 4);
+        uint64_t plOff = rdU64(0x38 + c * 8);
+        if (cnt == 0 || plOff == 0) continue;
+        if (plOff + (uint64_t)cnt * 0x38 > (uint64_t)bytes.size()) continue;
+        for (uint32_t j = 0; j < cnt; ++j)
+        {
+            size_t base2 = static_cast<size_t>(plOff) + j * 0x38;
+            for (size_t fo : kFlagOff)
+            {
+                uint32_t cur; memcpy(&cur, bytes.data()+base2+fo, 4);
+                if (cur != 0xFFFFFFFFu) { wrU32(base2+fo, 0xFFFFFFFFu); anyChanged = true; }
+            }
+        }
+    }
+
+    // --- Embed new PANM blob ---
+    {
+        uint32_t origCount  = rdU32(0x04 + cat * 4);
+        uint64_t origPlOff  = rdU64(0x38 + cat * 8);
+        size_t   origSize   = (size_t)origCount * 0x38;
+
+        // Relocate original pool list to end of file
+        std::vector<uint8_t> origPool;
+        if (origSize > 0 && origPlOff != 0 &&
+            static_cast<size_t>(origPlOff) + origSize <= bytes.size())
+            origPool.assign(bytes.data() + origPlOff, bytes.data() + origPlOff + origSize);
+
+        uint64_t newPlOff = static_cast<uint64_t>(bytes.size());
+        bytes.insert(bytes.end(), origPool.begin(), origPool.end());
+
+        // Append new pool entry (animDataPtr filled in below)
+        uint8_t entry[0x38] = {};
+        memcpy(entry + 0x00, &outCRC32, 4);          // animKey low32 = CRC32
+        memset(entry + 0x18, 0xFF, 4);               // characterFlags1
+        memset(entry + 0x1C, 0xFF, 4);               // characterFlags2
+        memset(entry + 0x20, 0xFF, 4);               // characterFlags3
+        memset(entry + 0x24, 0xFF, 4);               // characterFlags4
+        size_t entryOff = bytes.size();
+        bytes.insert(bytes.end(), entry, entry + 0x38);
+
+        // Append PANM blob, patch animDataPtr
+        uint64_t panmOff = static_cast<uint64_t>(bytes.size());
+        memcpy(bytes.data() + entryOff + 0x08, &panmOff, 8);
+        bytes.insert(bytes.end(), panmBytes.begin(), panmBytes.end());
+
+        // Update header
+        uint32_t newCount = origCount + 1;
+        wrU32(0x04 + cat * 4, newCount);
+        wrU64(0x38 + cat * 8, newPlOff);
+
+        anyChanged = true;
+    }
+
+    // --- Extend moveList[0] if motbin has more moves ---
+    if (cat == 0)
+    {
+        uint32_t moveListCount = rdU32(0x1C);
+        uint64_t moveListOff0  = rdU64(0x68);
+        const uint32_t newMoveCount = static_cast<uint32_t>(moves.size());
+        if (moveListOff0 != 0 && newMoveCount > moveListCount)
+        {
+            size_t origOff  = static_cast<size_t>(moveListOff0);
+            size_t origSize = moveListCount * 4;
+            std::vector<uint8_t> tmp;
+            if (origSize > 0 && origOff + origSize <= bytes.size())
+                tmp.assign(bytes.data() + origOff, bytes.data() + origOff + origSize);
+            else
+                tmp.resize(origSize, 0);
+            tmp.resize(tmp.size() + (newMoveCount - moveListCount) * 4, 0);
+            uint64_t newOff = static_cast<uint64_t>(bytes.size());
+            bytes.insert(bytes.end(), tmp.begin(), tmp.end());
+            wrU32(0x1C, newMoveCount);
+            wrU64(0x68, newOff);
+        }
+    }
+
+    // --- Patch moveList[0] ---
+    PatchMoveList(bytes, animNameDB, moves, cat);
+
+    if (!anyChanged) return true;
+
+    return WriteAnmbinBytes(anmbinPath, bytes, errorMsg);
+}
+
+// =============================================================================
+//  RemoveAnimFromAnmbin
+// =============================================================================
+
+bool RemoveAnimFromAnmbin(const std::string& folderPath,
+                          int                cat,
+                          int                poolIdx,
+                          uint32_t&          outRemovedHash,
+                          std::string&       errorMsg)
+{
+    if (cat < 0 || cat >= 6) { errorMsg = "Invalid category index"; return false; }
+
+    std::string base = folderPath;
+    if (!base.empty() && base.back() != '\\' && base.back() != '/') base += '\\';
+    const std::string anmbinPath = base + "moveset.anmbin";
+
+    std::vector<uint8_t> bytes;
+    if (!ReadAnmbinBytes(anmbinPath, bytes, errorMsg)) return false;
+
+    auto rdU32 = [&](size_t o) -> uint32_t { uint32_t v; memcpy(&v,bytes.data()+o,4); return v; };
+    auto rdU64 = [&](size_t o) -> uint64_t { uint64_t v; memcpy(&v,bytes.data()+o,8); return v; };
+    auto wrU32 = [&](size_t o, uint32_t v){ if(o+4<=bytes.size()) memcpy(bytes.data()+o,&v,4); };
+    auto wrU64 = [&](size_t o, uint64_t v){ if(o+8<=bytes.size()) memcpy(bytes.data()+o,&v,8); };
+
+    uint32_t origCount = rdU32(0x04 + cat * 4);
+    uint64_t origPlOff = rdU64(0x38 + cat * 8);
+
+    if ((uint32_t)poolIdx >= origCount)
+    { errorMsg = "poolIdx out of range"; return false; }
+
+    // --- Read removed hash ---
+    size_t removedEntOff = static_cast<size_t>(origPlOff) + (size_t)poolIdx * 0x38;
+    if (removedEntOff + 0x38 > bytes.size())
+    { errorMsg = "Pool entry out of bounds"; return false; }
+    uint64_t removedAnimKey; memcpy(&removedAnimKey, bytes.data() + removedEntOff, 8);
+    outRemovedHash = static_cast<uint32_t>(removedAnimKey & 0xFFFFFFFFu);
+
+    // --- Build new pool list (all entries except poolIdx) ---
+    std::vector<uint8_t> newPool;
+    newPool.reserve((origCount - 1) * 0x38);
+    for (uint32_t j = 0; j < origCount; ++j)
+    {
+        if ((int)j == poolIdx) continue;
+        size_t eoff = static_cast<size_t>(origPlOff) + j * 0x38;
+        if (eoff + 0x38 > bytes.size()) break;
+        newPool.insert(newPool.end(), bytes.data()+eoff, bytes.data()+eoff+0x38);
+    }
+
+    // --- Append new pool list at end of file ---
+    uint64_t newPlOff = static_cast<uint64_t>(bytes.size());
+    bytes.insert(bytes.end(), newPool.begin(), newPool.end());
+
+    // --- Update header ---
+    uint32_t newCount = origCount - 1;
+    wrU32(0x04 + cat * 4, newCount);
+    wrU64(0x38 + cat * 8, newPlOff);
+
+    // --- Zero moveList[cat] entries that referenced the removed hash ---
+    {
+        uint32_t mlCount = rdU32(0x1C + cat * 4);
+        uint64_t mlOff   = rdU64(0x68 + cat * 8);
+        if (mlOff != 0 && mlCount != 0 &&
+            static_cast<size_t>(mlOff) + mlCount * 4 <= bytes.size())
+        {
+            for (uint32_t i = 0; i < mlCount; ++i)
+            {
+                size_t   off = static_cast<size_t>(mlOff) + i * 4;
+                uint32_t h;  memcpy(&h, bytes.data()+off, 4);
+                if (h == outRemovedHash) wrU32(off, 0u);
+            }
+        }
+    }
+
+    return WriteAnmbinBytes(anmbinPath, bytes, errorMsg);
+}

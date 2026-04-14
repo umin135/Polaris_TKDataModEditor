@@ -1,13 +1,15 @@
 // AnimationManagerWindow.cpp
 #include "AnimationManagerWindow.h"
+#include "moveset/data/AnmbinRebuild.h"
 #include "imgui/imgui.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <algorithm>
-#include <unordered_set>
 #define NOMINMAX
 #include <windows.h>
+#include <shlobj.h>
+#include <shobjidl.h>
 
 // -------------------------------------------------------------
 //  Constructor
@@ -44,16 +46,12 @@ void AnimationManagerWindow::TryLoad()
 
 // -------------------------------------------------------------
 //  ForceReload
-//  Called by MovesetEditorWindow after auto-rebuilding the anmbin.
-//  Resets loaded state so next Render() re-reads moveset.anmbin from disk.
 // -------------------------------------------------------------
 
 void AnimationManagerWindow::ForceReload()
 {
     m_loaded   = false;
     m_mapBuilt = false;
-    for (int c = 0; c < 6; ++c)
-        m_poolFilenames[c].clear();
     // Keep m_selRow / m_pendingTab so the UI stays on the same position.
 }
 
@@ -77,7 +75,7 @@ void AnimationManagerWindow::BuildAnimKeyMap()
     for (int cat = 0; cat < 6; ++cat)
         m_animKeyToPoolIdx[cat].clear();
 
-    // Map anmbin moveList hashes → motbin anim_keys (original animations).
+    // Pass A: Map anmbin moveList hashes → motbin anim_keys (original animations).
     if (!m_motbinAnimKeys.empty())
     {
         for (int cat = 0; cat < 6; ++cat)
@@ -100,26 +98,8 @@ void AnimationManagerWindow::BuildAnimKeyMap()
         }
     }
 
-    // Pass B: DoRefresh entries in memory (animDataPtr == 1 sentinel).
-    // CRC32 == motbin_anim_key for these entries (not yet in anmbin moveList).
-    for (int cat = 0; cat < 6; ++cat)
-    {
-        for (const auto& kv : m_poolFilenames[cat])
-        {
-            int idx = kv.first;
-            if (idx >= (int)m_anmbin.pool[cat].size()) continue;
-            uint32_t crc32 = static_cast<uint32_t>(m_anmbin.pool[cat][idx].animKey & 0xFFFFFFFF);
-            if (crc32 == 0) continue;
-            m_hashToAnimKey.emplace(crc32, crc32);   // for display
-            m_animKeyToPoolIdx[cat].emplace(crc32, idx);
-        }
-    }
-
-    // Pass C: Saved CRC32-based user animations (post-rebuild, animDataPtr is real PANM offset).
-    // After reopen, m_poolFilenames is empty but animNameDB still has the CRC32 → name mapping.
-    // These entries are identified by animNameDB recognizing pool[j].animKey (low32) as a key
-    // (possible only for user-added CRC32-style entries, not original game entries whose
-    // animKey is a game-internal hash never stored in animNameDB).
+    // Pass B: Saved CRC32-based user animations (post-rebuild reopen).
+    // pool[j].animKey (low32) == CRC32 == motbin_key stored in animNameDB.
     if (m_animNameDB)
     {
         for (int cat = 0; cat < 6; ++cat)
@@ -127,12 +107,11 @@ void AnimationManagerWindow::BuildAnimKeyMap()
             const auto& pool = m_anmbin.pool[cat];
             for (int j = 0; j < (int)pool.size(); ++j)
             {
-                if (pool[j].animDataPtr == 0 || pool[j].animDataPtr == 1) continue;
+                if (pool[j].animDataPtr == 0) continue;
                 uint32_t h = static_cast<uint32_t>(pool[j].animKey & 0xFFFFFFFF);
                 if (m_animNameDB->AnimKeyToName(h).empty()) continue;
-                // CRC32 == motbin_key for this saved user entry.
                 m_animKeyToPoolIdx[cat].emplace(h, j);
-                m_hashToAnimKey.emplace(h, h); // for display
+                m_hashToAnimKey.emplace(h, h);
             }
         }
     }
@@ -142,9 +121,6 @@ void AnimationManagerWindow::BuildAnimKeyMap()
 
 // -------------------------------------------------------------
 //  Lookup API
-//  Naming: "anim_N" where N = pool index (animDataPtr != 0)
-//           "com_N" where N = pool index (animDataPtr == 0)
-//  N is the POOL INDEX directly — matches extraction tool file naming convention.
 // -------------------------------------------------------------
 
 std::string AnimationManagerWindow::AnimKeyToName(uint32_t motbinAnimKey, int cat)
@@ -156,7 +132,7 @@ std::string AnimationManagerWindow::AnimKeyToName(uint32_t motbinAnimKey, int ca
     int poolIdx = it->second;
     const auto& pool = m_anmbin.pool[cat];
     if (poolIdx >= (int)pool.size()) return "";
-    if (pool[poolIdx].animDataPtr == 0) return ""; // com ref — no name, use raw key
+    if (pool[poolIdx].animDataPtr == 0) return "";
     char buf[64];
     if (!m_charaCode.empty())
         snprintf(buf, sizeof(buf), "anim_%s_%d", m_charaCode.c_str(), poolIdx);
@@ -169,20 +145,16 @@ bool AnimationManagerWindow::NameToAnimKey(const std::string& name, uint32_t& ou
 {
     BuildAnimKeyMap();
     if (cat < 0 || cat >= 6) return false;
-
     if (name.rfind("anim_", 0) != 0) return false;
     size_t u = name.rfind('_');
     int N = (u != std::string::npos) ? std::atoi(name.c_str() + u + 1) : -1;
     if (N < 0) return false;
-
     const auto& pool = m_anmbin.pool[cat];
     if (N >= (int)pool.size()) return false;
-    if (pool[N].animDataPtr == 0) return false; // com ref — not addressable by name
-
+    if (pool[N].animDataPtr == 0) return false;
     uint32_t hash = static_cast<uint32_t>(pool[N].animKey & 0xFFFFFFFF);
     auto it = m_hashToAnimKey.find(hash);
     if (it == m_hashToAnimKey.end()) return false;
-
     outMotbinKey = it->second;
     return true;
 }
@@ -206,230 +178,6 @@ void AnimationManagerWindow::NavigateToPool(int cat, int poolIdx)
     m_scrollPending[cat] = true;
 }
 
-std::vector<AnimationManagerWindow::NewAnimEntry>
-AnimationManagerWindow::TakePendingNewEntries()
-{
-    std::vector<NewAnimEntry> result;
-    result.swap(m_pendingNew);
-    return result;
-}
-
-// -------------------------------------------------------------
-//  DoRefresh
-// -------------------------------------------------------------
-
-static uint32_t LocalCRC32(const std::string& path)
-{
-    static uint32_t table[256];
-    static bool init = false;
-    if (!init)
-    {
-        for (uint32_t i = 0; i < 256; ++i)
-        {
-            uint32_t c = i;
-            for (int j = 0; j < 8; ++j)
-                c = (c & 1) ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
-            table[i] = c;
-        }
-        init = true;
-    }
-    FILE* f = nullptr;
-    if (fopen_s(&f, path.c_str(), "rb") != 0 || !f) return 0;
-    uint32_t crc = 0xFFFFFFFFu;
-    uint8_t  buf[4096];
-    size_t   n;
-    while ((n = fread(buf, 1, sizeof(buf), f)) > 0)
-        for (size_t i = 0; i < n; ++i)
-            crc = table[(crc ^ buf[i]) & 0xFF] ^ (crc >> 8);
-    fclose(f);
-    return crc ^ 0xFFFFFFFFu;
-}
-
-void AnimationManagerWindow::DoRefresh()
-{
-    TryLoad();
-
-    m_lastRefresh = {};
-    m_lastRefresh.ran = true;
-
-    if (!m_anmbin.loaded)
-    {
-        m_lastRefresh.statusLines = "ERROR: moveset.anmbin not loaded.";
-        return;
-    }
-
-    std::string base = m_folderPath;
-    if (!base.empty() && base.back() != '\\' && base.back() != '/') base += '\\';
-
-    char lineBuf[512];
-    int  totalFound = 0;
-
-    for (int cat = 0; cat < 6; ++cat)
-    {
-        std::string catDir  = base + "anim\\" + AnmbinCategoryFolder(cat);
-        std::string ext     = AnmbinCategoryExt(cat);
-        std::string pattern = catDir + "\\*" + ext;
-
-        WIN32_FIND_DATAA fd = {};
-        HANDLE h = FindFirstFileA(pattern.c_str(), &fd);
-        if (h == INVALID_HANDLE_VALUE)
-        {
-            snprintf(lineBuf, sizeof(lineBuf),
-                     "[%s] folder not found: %s\n",
-                     AnmbinCategoryName(cat), catDir.c_str());
-            m_lastRefresh.statusLines += lineBuf;
-            continue;
-        }
-
-        int existCount = (int)m_anmbin.pool[cat].size();
-
-        // Build CRC32 set from pool animKeys (catches user-previously-added files
-        // whose CRC32 was stored as animKey after rebuild).
-        std::unordered_set<uint32_t> knownCRC32s;
-        for (int j = 0; j < existCount; ++j)
-            knownCRC32s.insert(static_cast<uint32_t>(m_anmbin.pool[cat][j].animKey & 0xFFFFFFFF));
-
-        // Count existing local (non-com) entries for type-local index assignment.
-        int animTypeIdx = 0;
-        for (int j = 0; j < existCount; ++j)
-            if (m_anmbin.pool[cat][j].animDataPtr != 0) ++animTypeIdx;
-
-        struct FileCandidate { std::string filename; uint32_t hash; };
-        std::vector<FileCandidate> candidates;
-        int skippedPattern = 0;
-        int skippedCRC     = 0;
-
-        do {
-            std::string fname = fd.cFileName;
-
-            // CHECK 0: filename matches pool-index naming convention (anim_<code>_N or com_N).
-            // Only treat as "extracted original" when the charcode prefix matches this
-            // moveset's charcode.  A file like "anim_grf_500.bin" in Law's folder has the
-            // same pool index (500) as Law's original but is a completely different animation;
-            // it must NOT be skipped here — it should be picked up by the CRC check below.
-            {
-                std::string stem = fname;
-                size_t sdot = stem.rfind('.');
-                if (sdot != std::string::npos) stem = stem.substr(0, sdot);
-                int  N       = -1;
-                bool wantCom = false;
-
-                // Build the expected prefix for this moveset's extracted originals.
-                // e.g. "anim_law_" if charaCode="law", or just "anim_" for legacy/no-code.
-                if (stem.rfind("anim_", 0) == 0)
-                {
-                    std::string expected = m_charaCode.empty()
-                        ? std::string("anim_")
-                        : std::string("anim_") + m_charaCode + "_";
-                    if (stem.rfind(expected, 0) == 0) // prefix matches this moveset
-                    {
-                        size_t u = stem.rfind('_');
-                        N = (u != std::string::npos) ? atoi(stem.c_str() + u + 1) : -1;
-                    }
-                    wantCom = false;
-                }
-                else if (stem.rfind("com_", 0) == 0)
-                {
-                    size_t u = stem.rfind('_');
-                    N = (u != std::string::npos) ? atoi(stem.c_str() + u + 1) : -1;
-                    wantCom = true;
-                }
-                if (N >= 0 && N < existCount)
-                {
-                    bool isCom = (m_anmbin.pool[cat][N].animDataPtr == 0);
-                    if (isCom == wantCom)
-                    {
-                        // Extracted original: pool slot N already covers this file.
-                        ++skippedPattern;
-                        continue;
-                    }
-                }
-            }
-
-            std::string fpath = catDir + "\\" + fname;
-            uint32_t    hash  = LocalCRC32(fpath);
-            if (hash == 0) continue;
-
-            // CHECK 3: CRC32 already a pool animKey (file was previously embedded in anmbin).
-            if (knownCRC32s.count(hash))
-            { ++skippedCRC; continue; }
-
-            candidates.push_back({ fname, hash });
-        } while (FindNextFileA(h, &fd));
-
-        FindClose(h);
-
-        snprintf(lineBuf, sizeof(lineBuf),
-                 "[%s] %d new  |  %d skipped(pool-name)  |  %d skipped(CRC)\n"
-                 "  path: %s\n",
-                 AnmbinCategoryName(cat),
-                 (int)candidates.size(), skippedPattern, skippedCRC,
-                 catDir.c_str());
-        m_lastRefresh.statusLines += lineBuf;
-
-        if (candidates.empty()) continue;
-
-        std::sort(candidates.begin(), candidates.end(),
-            [](const FileCandidate& a, const FileCandidate& b) {
-                return a.filename < b.filename;
-            });
-
-        int nextIdx = existCount;
-
-        for (const auto& c : candidates)
-        {
-            int idx = nextIdx++;
-
-            while ((int)m_anmbin.pool[cat].size() <= idx)
-            {
-                AnmbinEntry blank = {};
-                m_anmbin.pool[cat].push_back(blank);
-            }
-            m_anmbin.pool[cat][idx].animKey     = static_cast<uint64_t>(c.hash);
-            // Sentinel (non-zero) so entry is classified as LOCAL, not com ref.
-            m_anmbin.pool[cat][idx].animDataPtr = 1;
-
-            if (idx + 1 > (int)m_anmbin.poolCounts[cat])
-                m_anmbin.poolCounts[cat] = static_cast<uint32_t>(idx + 1);
-
-            m_mapBuilt = false;
-
-            // Name = filename stem.  This matches the extraction tool convention:
-            // "anim_500.bin" → stem "anim_500" = the name used in the editor and json.
-            std::string stem = c.filename;
-            size_t dot = stem.rfind('.');
-            if (dot != std::string::npos) stem = stem.substr(0, dot);
-
-            m_poolFilenames[cat][idx] = stem;
-
-            snprintf(lineBuf, sizeof(lineBuf),
-                     "  -> \"%s\"  name=%s  (CRC32=0x%08X  pool[%d])\n",
-                     c.filename.c_str(), stem.c_str(), c.hash, idx);
-            m_lastRefresh.statusLines += lineBuf;
-
-            NewAnimEntry e;
-            e.cat      = cat;
-            e.poolIdx  = idx;
-            e.hash     = c.hash;
-            e.name     = stem;
-            e.filename = c.filename;
-            m_pendingNew.push_back(e);
-            ++totalFound;
-        }
-    }
-
-    m_lastRefresh.totalFound = totalFound;
-    if (m_lastRefresh.statusLines.empty())
-        m_lastRefresh.statusLines = "No categories found.";
-}
-
-// -------------------------------------------------------------
-//  NavigateByMotbinKey
-//  Navigate to the pool entry for a given motbin anim_key.
-//  Works for both original animations (via map) and newly-added
-//  animations not yet in moveList (direct CRC32 pool scan).
-// -------------------------------------------------------------
-
 void AnimationManagerWindow::NavigateByMotbinKey(int cat, uint32_t motbinAnimKey)
 {
     TryLoad();
@@ -437,10 +185,8 @@ void AnimationManagerWindow::NavigateByMotbinKey(int cat, uint32_t motbinAnimKey
     if (cat < 0 || cat >= 6) return;
     BuildAnimKeyMap();
 
-    // Primary: map lookup (covers both original and DoRefresh entries after BuildAnimKeyMap fix).
     int poolIdx = AnimKeyToPoolIdx(motbinAnimKey, cat);
 
-    // Fallback: direct scan (in case map is stale or entry is missing).
     if (poolIdx < 0)
     {
         const auto& pool = m_anmbin.pool[cat];
@@ -455,19 +201,13 @@ void AnimationManagerWindow::NavigateByMotbinKey(int cat, uint32_t motbinAnimKey
         NavigateToPool(cat, poolIdx);
 }
 
-// -------------------------------------------------------------
-//  NavigateTo
-// -------------------------------------------------------------
-
 void AnimationManagerWindow::NavigateTo(int cat, int moveIdx)
 {
     TryLoad();
     if (!m_anmbin.loaded) return;
     if (cat < 0 || cat >= 6) return;
-
     const auto& ml = m_anmbin.moveList[cat];
     if (moveIdx < 0 || moveIdx >= (int)ml.size()) return;
-
     uint32_t targetHash = ml[moveIdx];
     const auto& pool = m_anmbin.pool[cat];
     for (int i = 0; i < (int)pool.size(); ++i)
@@ -483,9 +223,306 @@ void AnimationManagerWindow::NavigateTo(int cat, int moveIdx)
 }
 
 // -------------------------------------------------------------
-//  RenderTabContent
-//  Display: com.anmbin entries first (com_0, com_1, ...),
-//           then local entries (anim_0, anim_1, ...).
+//  ComputePanmSize
+//  Determines the byte size of a PANM blob by sorting all pool
+//  entries across all cats by animDataPtr and computing the gap.
+// -------------------------------------------------------------
+
+size_t AnimationManagerWindow::ComputePanmSize(int cat, int poolIdx)
+{
+    TryLoad();
+    if (!m_anmbin.loaded) return 0;
+    if (cat < 0 || cat >= 6) return 0;
+    if (poolIdx < 0 || poolIdx >= (int)m_anmbin.pool[cat].size()) return 0;
+
+    uint64_t targetPtr = m_anmbin.pool[cat][poolIdx].animDataPtr;
+    if (targetPtr == 0) return 0;
+
+    // Collect all non-zero animDataPtrs across all cats
+    std::vector<uint64_t> ptrs;
+    for (int c = 0; c < 6; ++c)
+        for (const auto& e : m_anmbin.pool[c])
+            if (e.animDataPtr != 0) ptrs.push_back(e.animDataPtr);
+    std::sort(ptrs.begin(), ptrs.end());
+    ptrs.erase(std::unique(ptrs.begin(), ptrs.end()), ptrs.end());
+
+    // Get file size
+    std::string anmbinPath = m_folderPath;
+    if (!anmbinPath.empty() && anmbinPath.back() != '\\' && anmbinPath.back() != '/')
+        anmbinPath += '\\';
+    anmbinPath += "moveset.anmbin";
+
+    FILE* f = nullptr;
+    fopen_s(&f, anmbinPath.c_str(), "rb");
+    if (!f) return 0;
+    fseek(f, 0, SEEK_END);
+    size_t fileSize = static_cast<size_t>(ftell(f));
+    fclose(f);
+
+    auto it = std::lower_bound(ptrs.begin(), ptrs.end(), targetPtr);
+    if (it == ptrs.end()) return 0;
+
+    auto next = std::next(it);
+    if (next != ptrs.end())
+        return static_cast<size_t>(*next - *it);
+    else
+        return fileSize - static_cast<size_t>(*it);
+}
+
+// -------------------------------------------------------------
+//  DoAdd  --  open file dialog, read bytes, embed into anmbin
+// -------------------------------------------------------------
+
+void AnimationManagerWindow::DoAdd(int cat)
+{
+    if (!m_moves || !m_animNameDB) { m_statusMsg = "Not ready (no moves data)"; m_statusOk = false; return; }
+
+    // Open file dialog
+    const char* filter = (cat == 0)
+        ? "Animation (*.bin)\0*.bin\0All files (*.*)\0*.*\0\0"
+        : "All files (*.*)\0*.*\0\0";
+    char filePath[MAX_PATH] = {};
+    OPENFILENAMEA ofn = {};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner   = NULL;
+    ofn.lpstrFilter = filter;
+    ofn.lpstrFile   = filePath;
+    ofn.nMaxFile    = MAX_PATH;
+    ofn.Flags       = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+    if (!GetOpenFileNameA(&ofn)) return; // cancelled
+
+    // Read file bytes
+    FILE* f = nullptr;
+    if (fopen_s(&f, filePath, "rb") != 0 || !f)
+    { m_statusMsg = "Cannot open file"; m_statusOk = false; return; }
+    fseek(f, 0, SEEK_END);
+    long sz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (sz <= 0) { fclose(f); m_statusMsg = "Empty file"; m_statusOk = false; return; }
+    std::vector<uint8_t> panmBytes(static_cast<size_t>(sz));
+    fread(panmBytes.data(), 1, panmBytes.size(), f);
+    fclose(f);
+
+    // Extract stem name from filename
+    std::string stem = filePath;
+    {
+        size_t p = stem.rfind('\\');
+        if (p == std::string::npos) p = stem.rfind('/');
+        if (p != std::string::npos) stem = stem.substr(p + 1);
+        size_t d = stem.rfind('.');
+        if (d != std::string::npos) stem = stem.substr(0, d);
+    }
+
+    uint32_t crc32 = 0;
+    std::string err;
+    bool ok = AddAnimToAnmbin(m_folderPath, *m_animNameDB, *m_moves, cat, panmBytes, crc32, err);
+
+    if (ok)
+    {
+        if (m_onAnimAdded) m_onAnimAdded(cat, stem, crc32);
+        char msg[128];
+        snprintf(msg, sizeof(msg), "Added: %s  (0x%08X)", stem.c_str(), crc32);
+        m_statusMsg = msg;
+        m_statusOk  = true;
+        ForceReload();
+    }
+    else
+    {
+        m_statusMsg = "Add failed: " + err;
+        m_statusOk  = false;
+    }
+}
+
+// -------------------------------------------------------------
+//  DoExtract  --  read PANM bytes from anmbin, save to file
+// -------------------------------------------------------------
+
+void AnimationManagerWindow::DoExtract(int cat, int poolIdx)
+{
+    TryLoad();
+    if (!m_anmbin.loaded) return;
+    if (poolIdx < 0 || poolIdx >= (int)m_anmbin.pool[cat].size()) return;
+
+    uint64_t animDataPtr = m_anmbin.pool[cat][poolIdx].animDataPtr;
+    if (animDataPtr == 0)
+    { m_statusMsg = "Cannot extract: com.anmbin reference"; m_statusOk = false; return; }
+
+    size_t panmSize = ComputePanmSize(cat, poolIdx);
+    if (panmSize == 0)
+    { m_statusMsg = "Cannot determine animation size"; m_statusOk = false; return; }
+
+    // Build default save filename
+    char defName[MAX_PATH] = {};
+    snprintf(defName, sizeof(defName), "anim_%d%s", poolIdx, AnmbinCategoryExt(cat));
+
+    OPENFILENAMEA ofn = {};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner   = NULL;
+    ofn.lpstrFilter = "Animation file\0*.*\0\0";
+    ofn.lpstrFile   = defName;
+    ofn.nMaxFile    = MAX_PATH;
+    ofn.Flags       = OFN_OVERWRITEPROMPT;
+    if (!GetSaveFileNameA(&ofn)) return; // cancelled
+
+    // Read PANM bytes from anmbin
+    std::string anmbinPath = m_folderPath;
+    if (!anmbinPath.empty() && anmbinPath.back() != '\\' && anmbinPath.back() != '/')
+        anmbinPath += '\\';
+    anmbinPath += "moveset.anmbin";
+
+    FILE* f = nullptr;
+    if (fopen_s(&f, anmbinPath.c_str(), "rb") != 0 || !f)
+    { m_statusMsg = "Cannot read moveset.anmbin"; m_statusOk = false; return; }
+    fseek(f, static_cast<long>(animDataPtr), SEEK_SET);
+    std::vector<uint8_t> panmBytes(panmSize);
+    fread(panmBytes.data(), 1, panmSize, f);
+    fclose(f);
+
+    // Write to selected path
+    FILE* out = nullptr;
+    if (fopen_s(&out, defName, "wb") != 0 || !out)
+    { m_statusMsg = "Cannot write output file"; m_statusOk = false; return; }
+    fwrite(panmBytes.data(), 1, panmBytes.size(), out);
+    fclose(out);
+
+    m_statusMsg = std::string("Extracted to: ") + defName;
+    m_statusOk  = true;
+}
+
+// -------------------------------------------------------------
+//  DoRemove  --  remove pool entry from anmbin, notify motbin
+// -------------------------------------------------------------
+
+void AnimationManagerWindow::DoRemove(int cat, int poolIdx)
+{
+    uint32_t removedHash = 0;
+    std::string err;
+    bool ok = RemoveAnimFromAnmbin(m_folderPath, cat, poolIdx, removedHash, err);
+
+    if (ok)
+    {
+        if (m_onAnimRemoved) m_onAnimRemoved(removedHash);
+        char msg[80];
+        snprintf(msg, sizeof(msg), "Removed pool[%d][%d]  (key 0x%08X)", cat, poolIdx, removedHash);
+        m_statusMsg = msg;
+        m_statusOk  = true;
+        // Clamp selection
+        if (m_selRow[cat] >= poolIdx && m_selRow[cat] > 0) --m_selRow[cat];
+        ForceReload();
+    }
+    else
+    {
+        m_statusMsg = "Remove failed: " + err;
+        m_statusOk  = false;
+    }
+}
+
+// -------------------------------------------------------------
+//  DoExtractAll  --  dump all pool entries to a chosen folder
+// -------------------------------------------------------------
+
+void AnimationManagerWindow::DoExtractAll()
+{
+    TryLoad();
+    if (!m_anmbin.loaded) return;
+
+    // Open Vista-style folder picker (IFileDialog)
+    char selectedPath[MAX_PATH] = {};
+    {
+        IFileDialog* pfd = nullptr;
+        if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
+                                    IID_PPV_ARGS(&pfd))))
+            return;
+
+        DWORD opts = 0;
+        pfd->GetOptions(&opts);
+        pfd->SetOptions(opts | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST);
+        pfd->SetTitle(L"Select output folder for animation export");
+
+        if (SUCCEEDED(pfd->Show(NULL)))
+        {
+            IShellItem* psi = nullptr;
+            if (SUCCEEDED(pfd->GetResult(&psi)))
+            {
+                PWSTR pszPath = nullptr;
+                if (SUCCEEDED(psi->GetDisplayName(SIGDN_FILESYSPATH, &pszPath)))
+                {
+                    WideCharToMultiByte(CP_ACP, 0, pszPath, -1,
+                                        selectedPath, MAX_PATH, nullptr, nullptr);
+                    CoTaskMemFree(pszPath);
+                }
+                psi->Release();
+            }
+        }
+        pfd->Release();
+        if (selectedPath[0] == '\0') return; // user cancelled
+    }
+
+    std::string destRoot = selectedPath;
+    if (destRoot.empty())
+    { m_statusMsg = "No output folder selected"; m_statusOk = false; return; }
+    if (destRoot.back() != '\\' && destRoot.back() != '/') destRoot += '\\';
+
+    // Read anmbin into memory once
+    std::string anmbinPath = m_folderPath;
+    if (!anmbinPath.empty() && anmbinPath.back() != '\\' && anmbinPath.back() != '/')
+        anmbinPath += '\\';
+    anmbinPath += "moveset.anmbin";
+
+    FILE* f = nullptr;
+    if (fopen_s(&f, anmbinPath.c_str(), "rb") != 0 || !f)
+    { m_statusMsg = "Cannot open moveset.anmbin"; m_statusOk = false; return; }
+    fseek(f, 0, SEEK_END);
+    size_t fileSize = static_cast<size_t>(ftell(f));
+    fseek(f, 0, SEEK_SET);
+    std::vector<uint8_t> anmbinBytes(fileSize);
+    fread(anmbinBytes.data(), 1, fileSize, f);
+    fclose(f);
+
+    // Collect and sort all (animDataPtr, cat, poolIdx) tuples for size computation
+    struct Entry { uint64_t ptr; int cat; int idx; };
+    std::vector<Entry> entries;
+    for (int c = 0; c < 6; ++c)
+        for (int j = 0; j < (int)m_anmbin.pool[c].size(); ++j)
+            if (m_anmbin.pool[c][j].animDataPtr != 0)
+                entries.push_back({ m_anmbin.pool[c][j].animDataPtr, c, j });
+    std::sort(entries.begin(), entries.end(), [](const Entry& a, const Entry& b){ return a.ptr < b.ptr; });
+
+    int exported = 0;
+    for (int i = 0; i < (int)entries.size(); ++i)
+    {
+        size_t panmSize = (i + 1 < (int)entries.size())
+            ? static_cast<size_t>(entries[i+1].ptr - entries[i].ptr)
+            : fileSize - static_cast<size_t>(entries[i].ptr);
+
+        if (entries[i].ptr + panmSize > fileSize) continue;
+
+        int c   = entries[i].cat;
+        int idx = entries[i].idx;
+
+        // Build output path: <destRoot>/<cat_folder>/<anim_N><ext>
+        std::string catDir = destRoot + AnmbinCategoryFolder(c);
+        CreateDirectoryA(catDir.c_str(), NULL);
+
+        char fname[MAX_PATH];
+        snprintf(fname, sizeof(fname), "%s\\anim_%d%s",
+                 catDir.c_str(), idx, AnmbinCategoryExt(c));
+
+        FILE* out = nullptr;
+        if (fopen_s(&out, fname, "wb") != 0 || !out) continue;
+        fwrite(anmbinBytes.data() + entries[i].ptr, 1, panmSize, out);
+        fclose(out);
+        ++exported;
+    }
+
+    char msg[128];
+    snprintf(msg, sizeof(msg), "Exported %d animations to: %s", exported, destRoot.c_str());
+    m_statusMsg = msg;
+    m_statusOk  = true;
+}
+
+// -------------------------------------------------------------
+//  RenderTabContent  --  left panel list for one category tab
 // -------------------------------------------------------------
 
 void AnimationManagerWindow::RenderTabContent(int cat)
@@ -499,55 +536,40 @@ void AnimationManagerWindow::RenderTabContent(int cat)
     }
 
     int animCount = 0;
-    for (const auto& e : pool)
-        if (e.animDataPtr != 0) ++animCount;
-
+    for (const auto& e : pool) if (e.animDataPtr != 0) ++animCount;
     ImGui::TextDisabled("%d animations", animCount);
     ImGui::Separator();
 
     ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(4.f, 2.f));
-    if (ImGui::BeginTable("##anm_list", 2,
+    if (ImGui::BeginTable("##anm_list", 3,
         ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_RowBg |
         ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingFixedFit,
         ImVec2(0.f, 0.f)))
     {
         ImGui::TableSetupScrollFreeze(0, 1);
-        // Name = filename stem = pool-index name (anim_N / com_N where N = pool index).
-        // These two are identical for extraction-tool-named files.
-        ImGui::TableSetupColumn("Name (= File stem)", ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("Motbin Key",         ImGuiTableColumnFlags_WidthFixed, 100.f);
+        ImGui::TableSetupColumn("Name",     ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("Anim_Key", ImGuiTableColumnFlags_WidthFixed, 110.f);
+        ImGui::TableSetupColumn("Size",     ImGuiTableColumnFlags_WidthFixed,  72.f);
         ImGui::TableHeadersRow();
 
         int& sel      = m_selRow[cat];
         bool doScroll = m_scrollPending[cat];
         m_scrollPending[cat] = false;
 
-        // Helper: get display name for pool entry i.
-        // Priority: (1) DoRefresh filename stem, (2) animNameDB lookup, (3) pool-index fallback.
+        // Helper: display name for pool entry i
         auto getEntryName = [&](int i) -> std::string {
-            // DoRefresh entries have their filename stem stored explicitly.
-            auto fit = m_poolFilenames[cat].find(i);
-            if (fit != m_poolFilenames[cat].end()) return fit->second;
-
             uint32_t hash32 = static_cast<uint32_t>(pool[i].animKey & 0xFFFFFFFF);
-
-            // Look up via motbin key map → animNameDB (original entries).
             auto hit = m_hashToAnimKey.find(hash32);
             if (hit != m_hashToAnimKey.end() && m_animNameDB)
             {
                 std::string n = m_animNameDB->AnimKeyToName(hit->second);
                 if (!n.empty()) return n;
             }
-
-            // Direct animNameDB lookup for saved CRC32-based user animations after reopen.
-            // For these entries, pool[i].animKey (low32) == CRC32 == motbin_key stored in DB.
             if (m_animNameDB)
             {
                 std::string n = m_animNameDB->AnimKeyToName(hash32);
                 if (!n.empty()) return n;
             }
-
-            // Fallback: pool-index name.
             char buf[64];
             bool isCom = (pool[i].animDataPtr == 0);
             if (!m_charaCode.empty() && !isCom)
@@ -557,61 +579,158 @@ void AnimationManagerWindow::RenderTabContent(int cat)
             return buf;
         };
 
-        // Helper: display motbin key for a pool entry.
-        // - DoRefresh sentinels (animDataPtr==1) and saved CRC32 user entries:
-        //   pool[i].animKey (low32) == CRC32 == motbin_key → show CRC32 directly.
-        // - Original game entries: use m_hashToAnimKey lookup.
-        auto showMotbinKey = [&](int i, bool grey) {
-            uint32_t hash32 = static_cast<uint32_t>(pool[i].animKey & 0xFFFFFFFF);
+        // Pre-compute PANM sizes for this category (one file-open for the whole list)
+        // Build sorted ptr list + fileSize once, then map ptr→size per entry
+        std::vector<size_t> panmSizes(pool.size(), 0);
+        {
+            std::vector<uint64_t> allPtrs;
+            for (int c = 0; c < 6; ++c)
+                for (const auto& e : m_anmbin.pool[c])
+                    if (e.animDataPtr != 0) allPtrs.push_back(e.animDataPtr);
+            std::sort(allPtrs.begin(), allPtrs.end());
+            allPtrs.erase(std::unique(allPtrs.begin(), allPtrs.end()), allPtrs.end());
 
-            // DoRefresh sentinel: CRC32 IS the motbin key.
-            if (m_poolFilenames[cat].count(i))
+            size_t fileSize = 0;
             {
-                grey ? ImGui::TextDisabled("0x%08X", hash32) : ImGui::Text("0x%08X", hash32);
-                return;
+                std::string ap = m_folderPath;
+                if (!ap.empty() && ap.back() != '\\' && ap.back() != '/') ap += '\\';
+                ap += "moveset.anmbin";
+                FILE* f = nullptr;
+                fopen_s(&f, ap.c_str(), "rb");
+                if (f) { fseek(f, 0, SEEK_END); fileSize = (size_t)ftell(f); fclose(f); }
             }
 
-            // Original entry: look up via moveList hash mapping.
+            for (int i = 0; i < (int)pool.size(); ++i)
+            {
+                uint64_t ptr = pool[i].animDataPtr;
+                if (ptr == 0) continue;
+                auto it = std::lower_bound(allPtrs.begin(), allPtrs.end(), ptr);
+                if (it == allPtrs.end()) continue;
+                auto nx = std::next(it);
+                panmSizes[i] = (nx != allPtrs.end())
+                    ? (size_t)(*nx - *it)
+                    : fileSize - (size_t)*it;
+            }
+        }
+
+        // Helper: Anim_Key display
+        // For Fullbody (cat==0): show real motbin key; others: "unknown"
+        auto showAnimKey = [&](int i) {
+            if (cat != 0) { ImGui::TextDisabled("unknown"); return; }
+            uint32_t hash32 = static_cast<uint32_t>(pool[i].animKey & 0xFFFFFFFF);
             auto it = m_hashToAnimKey.find(hash32);
             if (it != m_hashToAnimKey.end())
-            {
-                grey ? ImGui::TextDisabled("0x%08X", it->second) : ImGui::Text("0x%08X", it->second);
-                return;
-            }
-
-            // Saved CRC32-based user entry (post-rebuild reopen): animNameDB has the key.
+            { ImGui::Text("0x%08X", it->second); return; }
             if (m_animNameDB && !m_animNameDB->AnimKeyToName(hash32).empty())
-            {
-                grey ? ImGui::TextDisabled("0x%08X", hash32) : ImGui::Text("0x%08X", hash32);
-                return;
-            }
-
-            // No mapping found.
-            ImGui::TextDisabled(grey ? "-" : "(no mapping)");
+            { ImGui::Text("0x%08X", hash32); return; }
+            ImGui::TextDisabled("-");
         };
 
-        // anim_ entries only (animDataPtr != 0); com refs are hidden.
         for (int i = 0; i < (int)pool.size(); ++i)
         {
-            if (pool[i].animDataPtr == 0) continue;
+            if (pool[i].animDataPtr == 0) continue; // skip com refs
+
             bool selected = (sel == i);
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
             std::string entName = getEntryName(i);
             ImGui::PushID(i);
+
             if (ImGui::Selectable(entName.c_str(), selected,
                 ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap,
                 ImVec2(0.f, 0.f)))
                 sel = i;
+
+            // Right-click context menu
+            if (ImGui::BeginPopupContextItem("##row_ctx"))
+            {
+                sel = i;
+                if (ImGui::MenuItem("Extract"))
+                    DoExtract(cat, i);
+                ImGui::Separator();
+                if (ImGui::MenuItem("Remove"))
+                {
+                    m_removeConfirm.showing  = true;
+                    m_removeConfirm.cat      = cat;
+                    m_removeConfirm.poolIdx  = i;
+                    m_removeConfirm.animName = entName;
+                }
+                ImGui::EndPopup();
+            }
+
             if (doScroll && selected) ImGui::SetScrollHereY(0.5f);
+
             ImGui::TableSetColumnIndex(1);
-            showMotbinKey(i, false);
+            showAnimKey(i);
+
+            ImGui::TableSetColumnIndex(2);
+            if (panmSizes[i] > 0)
+            {
+                char szBuf[32];
+                if (panmSizes[i] >= 1024)
+                    snprintf(szBuf, sizeof(szBuf), "%zu KB", panmSizes[i] / 1024);
+                else
+                    snprintf(szBuf, sizeof(szBuf), "%zu B", panmSizes[i]);
+                ImGui::Text("%s", szBuf);
+            }
+            else
+                ImGui::TextDisabled("-");
+
             ImGui::PopID();
         }
 
         ImGui::EndTable();
     }
     ImGui::PopStyleVar();
+}
+
+// -------------------------------------------------------------
+//  RenderPreviewPanel  --  right panel (3D preview placeholder)
+// -------------------------------------------------------------
+
+void AnimationManagerWindow::RenderPreviewPanel()
+{
+    float panelH = ImGui::GetContentRegionAvail().y;
+    float previewH  = panelH * 0.72f;
+    float controlH  = panelH - previewH - ImGui::GetStyle().ItemSpacing.y;
+
+    // 3D preview area
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.07f, 0.07f, 0.07f, 1.f));
+    if (ImGui::BeginChild("##3d_preview", ImVec2(0.f, previewH), true))
+    {
+        float cw = ImGui::GetContentRegionAvail().x;
+        float ch = ImGui::GetContentRegionAvail().y;
+        const char* line1 = "3D Preview";
+        const char* line2 = "not yet implemented";
+        float lh = ImGui::GetTextLineHeightWithSpacing();
+        ImGui::SetCursorPos(ImVec2(
+            (cw - ImGui::CalcTextSize(line1).x) * 0.5f,
+            ch * 0.5f - lh));
+        ImGui::TextDisabled("%s", line1);
+        ImGui::SetCursorPos(ImVec2(
+            (cw - ImGui::CalcTextSize(line2).x) * 0.5f,
+            ch * 0.5f));
+        ImGui::TextDisabled("%s", line2);
+    }
+    ImGui::EndChild();
+    ImGui::PopStyleColor();
+
+    // Control panel
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.10f, 0.10f, 0.10f, 1.f));
+    if (ImGui::BeginChild("##ctrl_panel", ImVec2(0.f, controlH), true))
+    {
+        ImGui::BeginDisabled();
+        if (ImGui::Button("|<")) {} ImGui::SameLine();
+        if (ImGui::Button(" < ")) {} ImGui::SameLine();
+        if (ImGui::Button(" > ")) {} ImGui::SameLine();
+        if (ImGui::Button("> |")) {}
+        float dummy = 0.f;
+        ImGui::SetNextItemWidth(-1.f);
+        ImGui::SliderFloat("##frame_slider", &dummy, 0.f, 100.f, "Frame: 0");
+        ImGui::EndDisabled();
+    }
+    ImGui::EndChild();
+    ImGui::PopStyleColor();
 }
 
 // -------------------------------------------------------------
@@ -625,7 +744,7 @@ bool AnimationManagerWindow::Render()
     TryLoad();
     BuildAnimKeyMap();
 
-    ImGui::SetNextWindowSize(ImVec2(560.f, 500.f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(1200.f, 600.f), ImGuiCond_FirstUseEver);
     ImGuiWindowFlags flags = ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoCollapse;
 
     if (!ImGui::Begin(m_windowId.c_str(), &m_open, flags))
@@ -636,75 +755,135 @@ bool AnimationManagerWindow::Render()
 
     if (!m_anmbin.loaded)
     {
-        ImGui::TextColored(ImVec4(1.f, 0.35f, 0.35f, 1.f),
-                           "%s", m_anmbin.errorMsg.c_str());
+        ImGui::TextColored(ImVec4(1.f, 0.35f, 0.35f, 1.f), "%s", m_anmbin.errorMsg.c_str());
         if (ImGui::SmallButton("Copy"))
             ImGui::SetClipboardText(m_anmbin.errorMsg.c_str());
-        ImGui::TextDisabled("Extract moveset.anmbin first, then re-open.");
+        ImGui::TextDisabled("Extract the moveset first, then re-open.");
         ImGui::End();
         return m_open;
     }
 
-    // --- Toolbar ---
-    if (ImGui::SmallButton("Refresh from disk"))
-        DoRefresh();
+    // ── Toolbar ──────────────────────────────────────────────────────────────
 
-    // --- Rebuild error (set by MovesetEditorWindow if RebuildAnmbin failed) ---
+    // [Add ▾] button
+    if (ImGui::Button("Add"))
+        ImGui::OpenPopup("##add_menu");
+
+    if (ImGui::BeginPopup("##add_menu"))
+    {
+        if (ImGui::MenuItem("Fullbody"))  { DoAdd(0); ImGui::CloseCurrentPopup(); }
+        ImGui::BeginDisabled();
+        ImGui::MenuItem("Hand");
+        ImGui::MenuItem("Facial");
+        ImGui::MenuItem("Swing");
+        ImGui::MenuItem("Camera");
+        ImGui::MenuItem("Extra");
+        ImGui::EndDisabled();
+        ImGui::EndPopup();
+    }
+
+    ImGui::SameLine();
+
+    // [Extract All Animation] button
+    if (ImGui::Button("Extract All Animation"))
+        DoExtractAll();
+
+    // Status message
+    if (!m_statusMsg.empty())
+    {
+        ImGui::SameLine();
+        ImVec4 col = m_statusOk
+            ? ImVec4(0.35f, 1.f, 0.45f, 1.f)
+            : ImVec4(1.f,   0.4f, 0.4f,  1.f);
+        ImGui::TextColored(col, "%s", m_statusMsg.c_str());
+        ImGui::SameLine();
+        if (ImGui::SmallButton("x##clrsts")) m_statusMsg.clear();
+    }
+
+    // Rebuild error
     if (!m_rebuildError.empty())
     {
-        ImGui::Separator();
+        ImGui::SameLine();
         ImGui::TextColored(ImVec4(1.f, 0.4f, 0.4f, 1.f), "Rebuild FAILED: %s", m_rebuildError.c_str());
+        ImGui::SameLine();
         if (ImGui::SmallButton("Dismiss##rberr")) m_rebuildError.clear();
     }
 
-    // --- Refresh result ---
-    if (m_lastRefresh.ran)
-    {
-        ImGui::Separator();
-        if (m_lastRefresh.totalFound > 0)
-            ImGui::TextColored(ImVec4(0.4f, 1.f, 0.4f, 1.f),
-                               "Refresh: %d new animation(s) found. Rebuilding anmbin...",
-                               m_lastRefresh.totalFound);
-        else
-            ImGui::TextDisabled("Refresh: no new files found.");
-
-        if (ImGui::TreeNode("Details##refresh_log"))
-        {
-            ImGui::TextUnformatted(m_lastRefresh.statusLines.c_str());
-            ImGui::TreePop();
-        }
-    }
-    else
-    {
-        ImGui::SameLine();
-        ImGui::TextDisabled("(place .<ext> in anim/<cat>/, then Refresh)");
-    }
-
     ImGui::Separator();
+
+    // ── Tabs + split layout ───────────────────────────────────────────────────
 
     if (ImGui::BeginTabBar("##anm_tabs"))
     {
         for (int cat = 0; cat < 6; ++cat)
         {
-            char tabLabel[40];
             int localCount = 0;
             for (const auto& e : m_anmbin.pool[cat])
                 if (e.animDataPtr != 0) ++localCount;
+
+            char tabLabel[40];
             snprintf(tabLabel, sizeof(tabLabel), "%s (%d)##cat%d",
                      AnmbinCategoryName(cat), localCount, cat);
 
             ImGuiTabItemFlags tabFlags = (m_pendingTab == cat)
-                                         ? ImGuiTabItemFlags_SetSelected
-                                         : ImGuiTabItemFlags_None;
+                ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
 
             if (ImGui::BeginTabItem(tabLabel, nullptr, tabFlags))
             {
                 if (m_pendingTab == cat) m_pendingTab = -1;
-                RenderTabContent(cat);
+
+                float availW = ImGui::GetContentRegionAvail().x;
+                float leftW  = availW * 0.60f;
+                float rightW = availW - leftW - ImGui::GetStyle().ItemSpacing.x;
+
+                if (ImGui::BeginChild("##list_panel", ImVec2(leftW, 0.f), false))
+                    RenderTabContent(cat);
+                ImGui::EndChild();
+
+                ImGui::SameLine();
+
+                if (ImGui::BeginChild("##preview_panel", ImVec2(rightW, 0.f), false))
+                    RenderPreviewPanel();
+                ImGui::EndChild();
+
                 ImGui::EndTabItem();
             }
         }
         ImGui::EndTabBar();
+    }
+
+    // ── Remove confirmation modal ─────────────────────────────────────────────
+
+    if (m_removeConfirm.showing)
+    {
+        ImGui::OpenPopup("Confirm Remove##anmmgr");
+        m_removeConfirm.showing = false;
+    }
+
+    if (ImGui::BeginPopupModal("Confirm Remove##anmmgr", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        ImGui::Text("Remove animation from anmbin?");
+        ImGui::Text("  %s  (pool[%d][%d])",
+                    m_removeConfirm.animName.c_str(),
+                    m_removeConfirm.cat,
+                    m_removeConfirm.poolIdx);
+        ImGui::TextColored(ImVec4(1.f,0.8f,0.3f,1.f),
+            "Moves referencing this animation will have their anim_key cleared.");
+        ImGui::Spacing();
+        if (ImGui::Button("Remove", ImVec2(100.f, 0.f)))
+        {
+            DoRemove(m_removeConfirm.cat, m_removeConfirm.poolIdx);
+            m_removeConfirm = {};
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(100.f, 0.f)))
+        {
+            m_removeConfirm = {};
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
     }
 
     ImGui::End();
