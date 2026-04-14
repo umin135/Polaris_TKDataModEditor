@@ -112,6 +112,7 @@ bool MovesetEditorWindow::Render()
         ImGui::End();
         // Still render overlays so popups survive window collapse/minimize.
         RenderSavePopups();
+        RenderInjectPopup();
         RenderCloseConfirmModal();
         RenderRemoveConfirmModal();
         return m_open;
@@ -166,6 +167,7 @@ bool MovesetEditorWindow::Render()
                            "Failed to load: %s", m_data.errorMsg.c_str());
         ImGui::End();
         RenderSavePopups();
+        RenderInjectPopup();
         RenderCloseConfirmModal();
         RenderRemoveConfirmModal();
         return m_open;
@@ -268,6 +270,7 @@ bool MovesetEditorWindow::Render()
 
     // Overlay-style dialogs rendered LAST so they appear on top of all sub-windows.
     RenderSavePopups();
+    RenderInjectPopup();
     RenderCloseConfirmModal();
     RenderRemoveConfirmModal();
 
@@ -1947,6 +1950,11 @@ void MovesetEditorWindow::RenderMenuBar()
             SaveToFile();
         ImGui::MenuItem("Save As...", nullptr, false, false); // not yet implemented
         ImGui::Separator();
+        bool canInject = m_data.loaded && m_injectState == InjectState::Idle
+                         && m_saveState == SaveState::Idle;
+        if (ImGui::MenuItem("Inject to Game", nullptr, false, canInject))
+            DoInject();
+        ImGui::Separator();
         if (ImGui::MenuItem("Close Editor"))
             RequestClose();
         ImGui::EndMenu();
@@ -2179,6 +2187,72 @@ void MovesetEditorWindow::SaveToFile()
             RebuildAnmbin(m_data.folderPath, m_animNameDB, m_data.moves, anmbinErr);
         }
     });
+}
+
+void MovesetEditorWindow::DoInject()
+{
+    auto result = GameLiveEdit::InjectMoveset(m_data);
+    m_injectSuccess    = result.success;
+    m_injectFirstFrame = true;
+    m_injectState      = InjectState::Done;
+
+    if (result.success)
+    {
+        char buf[64];
+        snprintf(buf, sizeof(buf), "Injected  (%d moves, %d cancels)",
+                 result.patchedMoves, result.patchedCancels);
+        m_injectMsg = buf;
+    }
+    else
+    {
+        m_injectMsg = result.errorMsg.empty() ? "Inject failed" : result.errorMsg;
+    }
+}
+
+void MovesetEditorWindow::RenderInjectPopup()
+{
+    if (m_injectState == InjectState::Idle) return;
+
+    ImGuiViewport* edVp = (m_viewportId != 0) ? ImGui::FindViewportByID(m_viewportId) : nullptr;
+    if (!edVp) edVp = ImGui::GetMainViewport();
+    const ImVec2 vpPos  = edVp->Pos;
+    const ImVec2 vpSize = edVp->Size;
+    const ImVec2 center(vpPos.x + vpSize.x * 0.5f, vpPos.y + vpSize.y * 0.5f);
+
+    constexpr ImGuiWindowFlags kOvFlags =
+        ImGuiWindowFlags_NoTitleBar      | ImGuiWindowFlags_NoResize    |
+        ImGuiWindowFlags_NoMove          | ImGuiWindowFlags_NoDocking   |
+        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar |
+        ImGuiWindowFlags_NoNav           | ImGuiWindowFlags_NoFocusOnAppearing;
+
+    const char* hint    = "(click to close)";
+    const char* msg     = m_injectMsg.c_str();
+    const float pad     = ImGui::GetStyle().WindowPadding.x;
+    const float lineH   = ImGui::GetTextLineHeightWithSpacing();
+    const float wMsg    = ImGui::CalcTextSize(msg).x;
+    const float wHint   = ImGui::CalcTextSize(hint).x;
+    const float boxW    = (wMsg > wHint ? wMsg : wHint) + pad * 2.f + 16.f;
+    const float boxH    = lineH * 2.f + pad * 2.f + 8.f;
+
+    ImGui::SetNextWindowViewport(edVp->ID);
+    ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(boxW, boxH), ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.96f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.f);
+    ImGui::Begin(WinId("##inj_box").c_str(), nullptr, kOvFlags);
+    ImGui::PopStyleVar();
+    ImGui::SetCursorPosY(ImGui::GetStyle().WindowPadding.y + 4.f);
+    if (m_injectSuccess)
+        ImGui::TextColored(ImVec4(0.35f, 1.f, 0.50f, 1.f), "%s", msg);
+    else
+        ImGui::TextColored(ImVec4(1.f, 0.35f, 0.35f, 1.f), "%s", msg);
+    ImGui::TextDisabled("%s", hint);
+    ImGui::End();
+
+    if (m_injectFirstFrame)
+        m_injectFirstFrame = false;
+    else if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+        m_injectState = InjectState::Idle;
 }
 
 void MovesetEditorWindow::RequestClose()

@@ -117,9 +117,11 @@ private:
     void LoadEditorDatas();
     void SaveEditorDatas();
     void SaveToFile();
+    void DoInject();
     void RequestClose();
     void RenderCloseConfirmModal();
     void RenderSavePopups();
+    void RenderInjectPopup();
     void RenderSubWin_Requirements();
     void RenderSubWin_Cancels();
     void RenderSubWin_HitConditions();
@@ -159,6 +161,12 @@ private:
     SaveState          m_saveState        = SaveState::Idle;
     std::future<void>  m_saveFuture;                         // async save task
     bool               m_donePoppedFirst  = false;           // skip first-frame click on Done popup
+
+    enum class InjectState { Idle, Done };
+    InjectState        m_injectState      = InjectState::Idle;
+    bool               m_injectSuccess    = false;
+    bool               m_injectFirstFrame = false;           // skip first-frame click on result popup
+    std::string        m_injectMsg;
     char        m_searchBuf[128] = {};
 
     ReqViewState       m_reqView;
