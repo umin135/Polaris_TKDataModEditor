@@ -3677,8 +3677,8 @@ void MovesetEditorWindow::RenderSubWin_Pushbacks()
             ParsedPushback& p = m_data.pushbackBlock[m_pushbackWin.pushbackSel];
             ImGui::TextDisabled("Pushback #%d", m_pushbackWin.pushbackSel); ImGui::Separator();
             if (BeginPropTable("##pbdt")) {
-                if (RowU16Edit("##pb_val1", PushbackLabel::LinearDisplacement, p.val1, FieldTT::Pushback::LinearDisplacement)) m_dirty = true;
-                if (RowU16Edit("##pb_val2", PushbackLabel::LinearDistance,     p.val2, FieldTT::Pushback::LinearDistance))     m_dirty = true;
+                if (RowU16Edit("##pb_val1", PushbackLabel::LinearDuration, p.val1, FieldTT::Pushback::LinearDuration)) m_dirty = true;
+                if (RowU16Edit("##pb_val2", PushbackLabel::LinearDisplacement,     p.val2, FieldTT::Pushback::LinearDisplacement))     m_dirty = true;
                 if (RowU32Edit("##pb_val3", PushbackLabel::NumOfExtraPushbacks,   p.val3, FieldTT::Pushback::NumOfExtraPushbacks))   m_dirty = true;
                 {
                     bool valid = (p.pushback_extra_idx != 0xFFFFFFFF) && (p.pushback_extra_idx < (uint32_t)pe.size());
