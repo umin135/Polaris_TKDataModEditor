@@ -50,3 +50,5 @@
 121,DEVIL_JIN_2,xxe
 122,TEKKEN_MONK,xxf
 123,SEIRYU,xxg
+# Also Dummy
+128,DUMMY,test
