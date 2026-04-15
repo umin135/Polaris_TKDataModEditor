@@ -9,6 +9,10 @@
 #include <memory>
 #include <future>
 
+// Forward declarations
+struct ID3D11Device;
+struct ID3D11DeviceContext;
+
 class MovesetEditorWindow {
 public:
     // Used by inline req/extradata pop-ups (kept for backward compat)
@@ -84,6 +88,9 @@ public:
                         int uid);
 
     bool Render();
+
+    // Provide D3D11 device/context for the 3D preview in AnimationManagerWindow.
+    void SetD3DContext(ID3D11Device* dev, ID3D11DeviceContext* ctx);
 
     // Called by RenderCancelSection / RenderPropSection (free statics) — must stay public
     void RenderCancelInnerDetail(
@@ -194,6 +201,10 @@ private:
     std::string          m_movesetName;
     int                  m_uid            = 0;
     std::unique_ptr<AnimationManagerWindow> m_animMgr;
+
+    // D3D11 context for the 3D preview (non-owning)
+    ID3D11Device*        m_d3dDev = nullptr;
+    ID3D11DeviceContext* m_d3dCtx = nullptr;
 
     // anim_key InputText state
     char                 m_animKeyBuf[32]    = {};

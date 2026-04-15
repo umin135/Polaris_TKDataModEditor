@@ -147,6 +147,15 @@
     </Link>
   </ItemDefinitionGroup>
   <!-- ════════════════════════════════════════════════════════ -->
+  <!-- Pre-build: regenerate data/preview_meshes.pack          -->
+  <!-- Runs pack_meshes.py before every build (all configs).   -->
+  <!-- ════════════════════════════════════════════════════════ -->
+  <ItemDefinitionGroup>
+    <PreBuildEvent>
+      <Command>cd /d "$(ProjectDir)" &amp;&amp; python _references/moveset_anim/pack_meshes.py</Command>
+    </PreBuildEvent>
+  </ItemDefinitionGroup>
+  <!-- ════════════════════════════════════════════════════════ -->
   <!-- Application source files                                -->
   <!-- ════════════════════════════════════════════════════════ -->
   <ItemGroup>
@@ -163,6 +172,9 @@
     <ClCompile Include="src\moveset\data\AnimNameDB.cpp" />
     <ClCompile Include="src\moveset\data\AnmbinRebuild.cpp" />
     <ClCompile Include="src\moveset\editor\AnimationManagerWindow.cpp" />
+    <ClCompile Include="src\moveset\preview\PanmParser.cpp" />
+    <ClCompile Include="src\moveset\preview\PreviewMesh.cpp" />
+    <ClCompile Include="src\moveset\preview\PreviewRenderer.cpp" />
     <ClCompile Include="src\moveset\live\GameLiveEdit.cpp" />
     <ClCompile Include="src\moveset\labels\LabelDB.cpp" />
     <ClCompile Include="src\moveset\serialize\MotbinSerialize.cpp" />
@@ -206,6 +218,9 @@
     <ClInclude Include="src\moveset\data\AnimNameDB.h" />
     <ClInclude Include="src\moveset\data\AnmbinRebuild.h" />
     <ClInclude Include="src\moveset\editor\AnimationManagerWindow.h" />
+    <ClInclude Include="src\moveset\preview\PanmParser.h" />
+    <ClInclude Include="src\moveset\preview\PreviewMesh.h" />
+    <ClInclude Include="src\moveset\preview\PreviewRenderer.h" />
     <ClInclude Include="src\moveset\live\GameLiveEdit.h" />
     <ClInclude Include="src\moveset\labels\LabelDB.h" />
     <ClInclude Include="src\moveset\data\EditorFieldLabel.h" />

@@ -1,6 +1,8 @@
 // AnimationManagerWindow.cpp
 #include "AnimationManagerWindow.h"
 #include "moveset/data/AnmbinRebuild.h"
+#include "moveset/preview/PreviewRenderer.h"
+#include "moveset/preview/PanmParser.h"
 #include "imgui/imgui.h"
 #include <cstdio>
 #include <cstdlib>
@@ -12,8 +14,10 @@
 #include <shobjidl.h>
 
 // -------------------------------------------------------------
-//  Constructor
+//  Constructor / Destructor
 // -------------------------------------------------------------
+
+AnimationManagerWindow::~AnimationManagerWindow() = default;
 
 AnimationManagerWindow::AnimationManagerWindow(const std::string& folderPath,
                                                const std::string& movesetName,
@@ -176,6 +180,9 @@ void AnimationManagerWindow::NavigateToPool(int cat, int poolIdx)
     m_selRow[cat]        = poolIdx;
     m_pendingTab         = cat;
     m_scrollPending[cat] = true;
+
+    if (m_anmbin.loaded && (cat != m_previewCat || poolIdx != m_previewPoolIdx))
+        LoadSelectedAnim(cat, poolIdx);
 }
 
 void AnimationManagerWindow::NavigateByMotbinKey(int cat, uint32_t motbinAnimKey)
@@ -522,6 +529,76 @@ void AnimationManagerWindow::DoExtractAll()
 }
 
 // -------------------------------------------------------------
+//  LoadSelectedAnim  --  read PANM bytes and parse for preview
+// -------------------------------------------------------------
+
+void AnimationManagerWindow::LoadSelectedAnim(int cat, int poolIdx)
+{
+    // Reset state regardless of success
+    m_animLoaded    = false;
+    m_playing       = false;
+    m_currentFrame  = 0;
+    m_playTime      = 0.f;
+    m_previewCat    = cat;
+    m_previewPoolIdx= poolIdx;
+
+    if (m_preview)
+        m_preview->SetAnim(nullptr, 0);  // show bind pose while loading
+
+    if (cat < 0 || cat >= 6 || poolIdx < 0) return;
+    if (poolIdx >= (int)m_anmbin.pool[cat].size()) return;
+
+    uint64_t animDataPtr = m_anmbin.pool[cat][poolIdx].animDataPtr;
+    if (animDataPtr == 0) return;  // com reference — no local data
+
+    size_t panmSize = ComputePanmSize(cat, poolIdx);
+    if (panmSize == 0) return;
+
+    // Read PANM bytes from anmbin
+    std::string anmbinPath = m_folderPath;
+    if (!anmbinPath.empty() && anmbinPath.back() != '\\' && anmbinPath.back() != '/')
+        anmbinPath += '\\';
+    anmbinPath += "moveset.anmbin";
+
+    FILE* f = nullptr;
+    if (fopen_s(&f, anmbinPath.c_str(), "rb") != 0 || !f) return;
+    fseek(f, static_cast<long>(animDataPtr), SEEK_SET);
+    std::vector<uint8_t> panmBytes(panmSize);
+    fread(panmBytes.data(), 1, panmSize, f);
+    fclose(f);
+
+    // Parse
+    std::string err;
+    m_currentAnim = {};
+    if (!ParsePanm(panmBytes, m_currentAnim, err)) return;
+
+    m_animLoaded = true;
+    if (m_preview)
+        m_preview->SetAnim(&m_currentAnim, 0);
+}
+
+// -------------------------------------------------------------
+//  SetD3DContext  --  initialise 3D preview renderer
+// -------------------------------------------------------------
+
+void AnimationManagerWindow::SetD3DContext(ID3D11Device* dev, ID3D11DeviceContext* ctx)
+{
+    m_d3dDev = dev;
+    m_d3dCtx = ctx;
+    if (dev && ctx) {
+        m_preview = std::make_unique<PreviewRenderer>();
+        if (!m_preview->Init(dev, ctx)) {
+            m_preview.reset();
+            return;
+        }
+        // Load part meshes from the reference folder.
+        // Path is relative to the working directory (project root during development).
+        // TODO: make this configurable via Config or a per-character folder.
+        m_preview->LoadMeshes("_references/moveset_anim/Meshes");
+    }
+}
+
+// -------------------------------------------------------------
 //  RenderTabContent  --  left panel list for one category tab
 // -------------------------------------------------------------
 
@@ -639,7 +716,11 @@ void AnimationManagerWindow::RenderTabContent(int cat)
             if (ImGui::Selectable(entName.c_str(), selected,
                 ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap,
                 ImVec2(0.f, 0.f)))
+            {
                 sel = i;
+                if (cat != m_previewCat || i != m_previewPoolIdx)
+                    LoadSelectedAnim(cat, i);
+            }
 
             // Right-click context menu
             if (ImGui::BeginPopupContextItem("##row_ctx"))
@@ -685,49 +766,169 @@ void AnimationManagerWindow::RenderTabContent(int cat)
 }
 
 // -------------------------------------------------------------
-//  RenderPreviewPanel  --  right panel (3D preview placeholder)
+//  RenderPreviewPanel  --  right panel (3D preview)
 // -------------------------------------------------------------
 
 void AnimationManagerWindow::RenderPreviewPanel()
 {
-    float panelH = ImGui::GetContentRegionAvail().y;
-    float previewH  = panelH * 0.72f;
-    float controlH  = panelH - previewH - ImGui::GetStyle().ItemSpacing.y;
+    float panelH   = ImGui::GetContentRegionAvail().y;
+    float previewH = panelH * 0.72f;
+    float controlH = panelH - previewH - ImGui::GetStyle().ItemSpacing.y;
 
-    // 3D preview area
+    // 3D preview area ────────────────────────────────────────────
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.07f, 0.07f, 0.07f, 1.f));
     if (ImGui::BeginChild("##3d_preview", ImVec2(0.f, previewH), true))
     {
-        float cw = ImGui::GetContentRegionAvail().x;
-        float ch = ImGui::GetContentRegionAvail().y;
-        const char* line1 = "3D Preview";
-        const char* line2 = "not yet implemented";
-        float lh = ImGui::GetTextLineHeightWithSpacing();
-        ImGui::SetCursorPos(ImVec2(
-            (cw - ImGui::CalcTextSize(line1).x) * 0.5f,
-            ch * 0.5f - lh));
-        ImGui::TextDisabled("%s", line1);
-        ImGui::SetCursorPos(ImVec2(
-            (cw - ImGui::CalcTextSize(line2).x) * 0.5f,
-            ch * 0.5f));
-        ImGui::TextDisabled("%s", line2);
+        ImVec2 avail = ImGui::GetContentRegionAvail();
+        int    pw    = (int)avail.x;
+        int    ph    = (int)avail.y;
+
+        // Resize must be called before IsReady() — it creates the SRV (m_srv).
+        // IsReady() = shadersOk && m_srv != nullptr, so the order matters.
+        if (m_preview && pw > 0 && ph > 0)
+            m_preview->Resize(pw, ph);
+
+        if (m_preview && m_preview->IsReady())
+        {
+            // InvisibleButton claims the full preview area so ImGui marks it
+            // as the active item — this prevents the parent window from
+            // intercepting left-drag and moving itself.
+            ImVec2 origin = ImGui::GetCursorScreenPos();
+            ImGui::InvisibleButton("##3d_interact", avail,
+                ImGuiButtonFlags_MouseButtonLeft  |
+                ImGuiButtonFlags_MouseButtonRight |
+                ImGuiButtonFlags_MouseButtonMiddle);
+
+            // Mouse input via IsItem* (reliable: only fires when this item owns focus)
+            if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+            {
+                ImVec2 delta = ImGui::GetMouseDragDelta(ImGuiMouseButton_Left, 0.f);
+                m_preview->OrbitDrag(delta.x * 0.005f, -delta.y * 0.005f);
+                ImGui::ResetMouseDragDelta(ImGuiMouseButton_Left);
+            }
+            if (ImGui::IsItemHovered())
+            {
+                float wheel = ImGui::GetIO().MouseWheel;
+                if (wheel != 0.f)
+                    m_preview->Zoom(-wheel * 12.f);
+            }
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Right))
+                m_preview->ResetCamera();
+
+            // Render to offscreen RT, draw the SRV over the invisible button area.
+            m_preview->Render();
+            ImGui::GetWindowDrawList()->AddImage(
+                (ImTextureID)(intptr_t)m_preview->GetSRV(),
+                origin,
+                ImVec2(origin.x + avail.x, origin.y + avail.y));
+
+            // Mesh diagnostic overlay (top-left corner)
+            {
+                int  n      = m_preview->GetMeshPartCount();
+                bool texOk  = m_preview->GetMeshTexLoaded();
+                char buf[128];
+                if (n > 0)
+                    snprintf(buf, sizeof(buf), "Meshes: %d parts | Tex: %s",
+                             n, texOk ? "OK" : "fallback (white) - check Diffuse.png");
+                else
+                    snprintf(buf, sizeof(buf), "Meshes: not loaded");
+                ImGui::SetCursorScreenPos(ImVec2(origin.x + 6.f, origin.y + 4.f));
+                ImGui::TextDisabled("%s", buf);
+            }
+        }
+        else
+        {
+            // Fallback placeholder while renderer is not available
+            float       cw   = avail.x;
+            float       ch   = avail.y;
+            const char* l1   = "3D Preview";
+            const char* l2   = m_preview ? "Init failed" : "(no D3D context)";
+            float       lh   = ImGui::GetTextLineHeightWithSpacing();
+            ImGui::SetCursorPos(ImVec2((cw - ImGui::CalcTextSize(l1).x) * 0.5f, ch * 0.5f - lh));
+            ImGui::TextDisabled("%s", l1);
+            ImGui::SetCursorPos(ImVec2((cw - ImGui::CalcTextSize(l2).x) * 0.5f, ch * 0.5f));
+            ImGui::TextDisabled("%s", l2);
+        }
     }
     ImGui::EndChild();
     ImGui::PopStyleColor();
 
-    // Control panel
+    // Control panel ──────────────────────────────────────────────
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.10f, 0.10f, 0.10f, 1.f));
     if (ImGui::BeginChild("##ctrl_panel", ImVec2(0.f, controlH), true))
     {
-        ImGui::BeginDisabled();
-        if (ImGui::Button("|<")) {} ImGui::SameLine();
-        if (ImGui::Button(" < ")) {} ImGui::SameLine();
-        if (ImGui::Button(" > ")) {} ImGui::SameLine();
-        if (ImGui::Button("> |")) {}
-        float dummy = 0.f;
+        const bool hasAnim = m_animLoaded && m_currentAnim.totalFrames > 0;
+        const int  maxFrame = hasAnim ? (int)m_currentAnim.totalFrames - 1 : 0;
+
+        // ── Advance frame when playing ──────────────────────────
+        if (hasAnim && m_playing)
+        {
+            m_playTime += ImGui::GetIO().DeltaTime;
+            const float kFrameDuration = 1.f / 60.f;
+            while (m_playTime >= kFrameDuration)
+            {
+                m_playTime -= kFrameDuration;
+                ++m_currentFrame;
+                if (m_currentFrame > maxFrame)
+                    m_currentFrame = 0;  // loop
+            }
+            if (m_preview)
+                m_preview->SetAnim(&m_currentAnim, (uint32_t)m_currentFrame);
+        }
+
+        // ── Transport buttons ───────────────────────────────────
+        ImGui::BeginDisabled(!hasAnim);
+
+        if (ImGui::Button("|<##bof"))
+        {
+            m_currentFrame = 0;  m_playing = false;  m_playTime = 0.f;
+            if (m_preview) m_preview->SetAnim(&m_currentAnim, 0);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button(" < ##prev"))
+        {
+            m_playing = false;
+            m_currentFrame = (m_currentFrame > 0) ? m_currentFrame - 1 : maxFrame;
+            if (m_preview) m_preview->SetAnim(&m_currentAnim, (uint32_t)m_currentFrame);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button(m_playing ? " || ##play" : " >  ##play"))
+        {
+            m_playing  = !m_playing;
+            m_playTime = 0.f;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button(" > ##next"))
+        {
+            m_playing = false;
+            m_currentFrame = (m_currentFrame < maxFrame) ? m_currentFrame + 1 : 0;
+            if (m_preview) m_preview->SetAnim(&m_currentAnim, (uint32_t)m_currentFrame);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button(">|##eof"))
+        {
+            m_currentFrame = maxFrame;  m_playing = false;
+            if (m_preview) m_preview->SetAnim(&m_currentAnim, (uint32_t)m_currentFrame);
+        }
+
+        // ── Frame slider ────────────────────────────────────────
+        char sliderLabel[48];
+        snprintf(sliderLabel, sizeof(sliderLabel), "%d / %d", m_currentFrame, maxFrame);
         ImGui::SetNextItemWidth(-1.f);
-        ImGui::SliderFloat("##frame_slider", &dummy, 0.f, 100.f, "Frame: 0");
+        if (ImGui::SliderInt("##frame_slider", &m_currentFrame, 0, maxFrame > 0 ? maxFrame : 1,
+                             sliderLabel))
+        {
+            m_playing  = false;
+            m_playTime = 0.f;
+            if (m_preview) m_preview->SetAnim(&m_currentAnim, (uint32_t)m_currentFrame);
+        }
+
         ImGui::EndDisabled();
+
+        // ── Skeleton overlay toggle ─────────────────────────────
+        ImGui::Separator();
+        if (ImGui::Checkbox("Skeleton (X-ray)", &m_showSkeleton))
+            if (m_preview) m_preview->SetShowSkeleton(m_showSkeleton);
     }
     ImGui::EndChild();
     ImGui::PopStyleColor();

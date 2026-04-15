@@ -2,15 +2,23 @@
 #include "moveset/data/AnmbinData.h"
 #include "moveset/data/AnimNameDB.h"
 #include "moveset/data/MotbinData.h"
+#include "moveset/preview/PanmParser.h"
 #include <string>
 #include <vector>
 #include <functional>
 #include <unordered_map>
+#include <memory>
+
+// Forward declarations — keep d3d11.h out of the header chain.
+struct ID3D11Device;
+struct ID3D11DeviceContext;
+class  PreviewRenderer;
 
 // AnimationManagerWindow -- sub-window for viewing and managing anmbin animation lists
 class AnimationManagerWindow {
 public:
     AnimationManagerWindow(const std::string& folderPath, const std::string& movesetName, int uid);
+    ~AnimationManagerWindow();  // defined in .cpp (PreviewRenderer complete type required)
 
     // Returns false when the window has been closed.
     bool Render();
@@ -42,6 +50,10 @@ public:
     // Provide the character code (e.g. "grf") for fallback animation naming.
     void SetCharaCode(const std::string& code) { m_charaCode = code; }
 
+    // Provide D3D11 device/context for the 3D preview renderer.
+    // Must be called before the first Render() for the preview to be active.
+    void SetD3DContext(ID3D11Device* dev, ID3D11DeviceContext* ctx);
+
     bool IsLoaded() const { return m_loaded && m_anmbin.loaded; }
 
     std::string AnimKeyToName(uint32_t motbinAnimKey, int cat = 0);
@@ -63,6 +75,7 @@ private:
     void BuildAnimKeyMap();
     void RenderTabContent(int cat);
     void RenderPreviewPanel();
+    void LoadSelectedAnim(int cat, int poolIdx);
 
     // Action handlers
     void DoAdd(int cat);
@@ -111,4 +124,19 @@ private:
     };
     RemoveConfirm m_removeConfirm;
 
+    // 3D preview renderer (created lazily via SetD3DContext)
+    std::unique_ptr<PreviewRenderer> m_preview;
+    ID3D11Device*        m_d3dDev = nullptr;
+    ID3D11DeviceContext* m_d3dCtx = nullptr;
+
+    // Animation playback state
+    ParsedAnim  m_currentAnim;          // currently loaded PANM data
+    bool        m_animLoaded    = false;
+    bool        m_playing       = false;
+    float       m_playTime      = 0.f;  // accumulated time within current frame (seconds)
+    int         m_currentFrame  = 0;
+    int         m_previewCat    = -1;   // cat of the last loaded animation
+    int         m_previewPoolIdx= -1;   // poolIdx of the last loaded animation
+    bool        m_showSkeleton  = false; // x-ray skeleton overlay toggle
 };
+

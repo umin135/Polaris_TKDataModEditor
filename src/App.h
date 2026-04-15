@@ -15,6 +15,7 @@
 
 // Forward declarations to avoid pulling d3d11.h into all translation units
 struct ID3D11Device;
+struct ID3D11DeviceContext;
 struct ID3D11ShaderResourceView;
 
 // Main application class
@@ -22,7 +23,7 @@ struct ID3D11ShaderResourceView;
 class App
 {
 public:
-    explicit App(ID3D11Device* device);
+    App(ID3D11Device* device, ID3D11DeviceContext* ctx);
     ~App();
 
     // Called every frame to render all UI
@@ -75,6 +76,10 @@ private:
     FbsDevView      m_fbsDevView;
     MotbinDiffView  m_motbinDiffView;
 #endif
+
+    // D3D11 device / context (non-owning, for preview renderers)
+    ID3D11Device*        m_d3dDev = nullptr;
+    ID3D11DeviceContext* m_d3dCtx = nullptr;
 
     // Home screen logo texture (loaded from res/Home_Logo.png)
     ID3D11ShaderResourceView* m_logoTex  = nullptr;

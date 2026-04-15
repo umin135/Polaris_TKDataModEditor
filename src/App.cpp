@@ -173,7 +173,8 @@ static std::string BrowseForFolder()
     return result;
 }
 
-App::App(ID3D11Device* device)
+App::App(ID3D11Device* device, ID3D11DeviceContext* ctx)
+    : m_d3dDev(device), m_d3dCtx(ctx)
 {
     ApplyStyle();
     Config::Get().Load();
@@ -381,6 +382,7 @@ void App::Render()
         m_pendingEditor.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
     {
         m_editorWindows.push_back(m_pendingEditor.get());
+        m_editorWindows.back().SetD3DContext(m_d3dDev, m_d3dCtx);
         m_loadingActive = false;
     }
 

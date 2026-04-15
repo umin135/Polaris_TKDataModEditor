@@ -67,6 +67,18 @@ MovesetEditorWindow::MovesetEditorWindow(const std::string& folderPath,
 }
 
 // -------------------------------------------------------------
+//  SetD3DContext
+// -------------------------------------------------------------
+
+void MovesetEditorWindow::SetD3DContext(ID3D11Device* dev, ID3D11DeviceContext* ctx)
+{
+    m_d3dDev = dev;
+    m_d3dCtx = ctx;
+    if (m_animMgr && dev && ctx)
+        m_animMgr->SetD3DContext(dev, ctx);
+}
+
+// -------------------------------------------------------------
 //  Main render
 // -------------------------------------------------------------
 
@@ -1471,6 +1483,8 @@ void MovesetEditorWindow::RenderSection_Overview(ParsedMove& m, bool& dirty)
                             if (mv.anim_key == removedHash) mv.anim_key = 0;
                         m_dirty = true;
                     });
+                    if (m_d3dDev && m_d3dCtx)
+                        m_animMgr->SetD3DContext(m_d3dDev, m_d3dCtx);
                 }
                 if (m_selectedIdx >= 0 && m_selectedIdx < (int)m_data.moves.size())
                     m_animMgr->NavigateByMotbinKey(0, m_data.moves[m_selectedIdx].anim_key);
@@ -1980,6 +1994,8 @@ void MovesetEditorWindow::RenderMenuBar()
                         if (mv.anim_key == removedHash) mv.anim_key = 0;
                     m_dirty = true;
                 });
+                if (m_d3dDev && m_d3dCtx)
+                    m_animMgr->SetD3DContext(m_d3dDev, m_d3dCtx);
             }
             else
                 m_animMgr.reset();

@@ -247,6 +247,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
     io.IniFilename = "imgui.ini";
+    io.ConfigWindowsMoveFromTitleBarOnly = true;
 
     ImGui::StyleColorsDark();
 
@@ -293,8 +294,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
     ImGui_ImplWin32_Init(hwnd);
     ImGui_ImplDX11_Init(g_pd3dDevice, g_pd3dDeviceContext);
 
-    // Create application instance -- pass DX11 device for texture loading
-    App app(g_pd3dDevice);
+    // Create application instance -- pass DX11 device + context for rendering
+    App app(g_pd3dDevice, g_pd3dDeviceContext);
 
     // When viewports are enabled, platform windows must have no rounding
     // and a fully opaque background (DWM handles transparency separately)
