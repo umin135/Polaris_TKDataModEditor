@@ -929,6 +929,40 @@ void AnimationManagerWindow::RenderPreviewPanel()
         ImGui::Separator();
         if (ImGui::Checkbox("Skeleton (X-ray)", &m_showSkeleton))
             if (m_preview) m_preview->SetShowSkeleton(m_showSkeleton);
+
+        // ── Debug: bone matrix dump ──────────────────────────────
+        ImGui::SameLine();
+        static char s_dumpStatus[256] = "";
+        if (ImGui::Button("Dump Frame##bonedump"))
+        {
+            if (!m_preview) {
+                snprintf(s_dumpStatus, sizeof(s_dumpStatus), "FAIL: no renderer");
+            } else {
+                // Try relative path first, then absolute fallback
+                const char* paths[] = {
+                    "_references/moveset_anim/bone_dump_cpp.json",
+                    "A:/Z_GitProjects/Polaris_TKDataEditor/_references/moveset_anim/bone_dump_cpp.json",
+                    "bone_dump_cpp.json",   // last resort: current directory
+                };
+                bool ok = false;
+                const char* usedPath = nullptr;
+                for (const char* p : paths) {
+                    if (m_preview->DumpBoneMatrices(p, (uint32_t)m_currentFrame)) {
+                        ok = true; usedPath = p; break;
+                    }
+                }
+                if (ok) {
+                    snprintf(s_dumpStatus, sizeof(s_dumpStatus), "OK: %s", usedPath);
+                    ImGui::SetClipboardText(usedPath);
+                    OutputDebugStringA(("[BoneDump] OK: " + std::string(usedPath) + "\n").c_str());
+                } else {
+                    snprintf(s_dumpStatus, sizeof(s_dumpStatus), "FAIL: mesh not loaded or empty");
+                    OutputDebugStringA("[BoneDump] FAIL: mesh not loaded or m_lastAnimWorld empty\n");
+                }
+            }
+        }
+        if (s_dumpStatus[0])
+            ImGui::TextUnformatted(s_dumpStatus);
     }
     ImGui::EndChild();
     ImGui::PopStyleColor();

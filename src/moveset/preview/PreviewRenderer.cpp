@@ -59,18 +59,20 @@ static std::vector<Vtx> BuildGeometry()
     // Y = up  (green)
     v.push_back({   0,   0,   0,   0.20f, 0.85f, 0.20f });
     v.push_back({   0, 100,   0,   0.20f, 0.85f, 0.20f });
-    // Z = depth  (blue)
+    // Z = forward  (blue) — 캐릭터 정면(-Z) 방향
     v.push_back({   0,   0,   0,   0.20f, 0.50f, 0.90f });
-    v.push_back({   0,   0, 100,   0.20f, 0.50f, 0.90f });
+    v.push_back({   0,   0,-100,   0.20f, 0.50f, 0.90f });
 
-    // Ground grid at Y=0, 20-unit spacing, extends ±200 in X and Z.
+    // Ground grid at Y=0, 20-unit spacing, extends ±120 in X and Z.
+    // ±200 범위는 eye(-Z≈213)에서 근거리 끝(z=-200)이 13유닛 → 극단적 원근 왜곡.
+    // ±120으로 축소하면 근거리 끝(z=-120)이 eye에서 약 93유닛으로 적절.
     constexpr float gc = 0.22f;
-    for (int i = -10; i <= 10; ++i) {
+    for (int i = -6; i <= 6; ++i) {
         float p = (float)i * 20.f;
-        v.push_back({    p, 0.f, -200.f,  gc, gc, gc });
-        v.push_back({    p, 0.f,  200.f,  gc, gc, gc });
-        v.push_back({ -200.f, 0.f,    p,  gc, gc, gc });
-        v.push_back({  200.f, 0.f,    p,  gc, gc, gc });
+        v.push_back({    p, 0.f, -120.f,  gc, gc, gc });
+        v.push_back({    p, 0.f,  120.f,  gc, gc, gc });
+        v.push_back({ -120.f, 0.f,    p,  gc, gc, gc });
+        v.push_back({  120.f, 0.f,    p,  gc, gc, gc });
     }
     return v;
 }
@@ -368,7 +370,7 @@ void PreviewRenderer::Zoom(float delta)
 
 void PreviewRenderer::ResetCamera()
 {
-    m_yaw   = XM_PI - 0.5f;   // 캐릭터 정면(Z-)에서 약간 우측 각도 (Z+이면 등 뒤 → 좌우 반전)
+    m_yaw   = XM_PI - 0.5f;  // eye at -Z (캐릭터 정면 방향), 살짝 우측
     m_pitch = 0.25f;
     m_dist  = 250.f;
 }
@@ -401,6 +403,11 @@ int PreviewRenderer::GetMeshPartCount() const
 bool PreviewRenderer::GetMeshTexLoaded() const
 {
     return m_mesh && m_mesh->IsTextureLoaded();
+}
+
+bool PreviewRenderer::DumpBoneMatrices(const std::string& path, uint32_t frame) const
+{
+    return m_mesh && m_mesh->DumpBoneMatrices(path, frame);
 }
 
 // ─── DrawSkeletonLines ────────────────────────────────────────────────────────

@@ -68,6 +68,11 @@ public:
     int  GetMeshPartCount()    const;
     bool GetMeshTexLoaded()    const;  // false = white fallback in use
 
+    // Debug: dump current frame's bone world matrices to a JSON file.
+    // Call after Render() so m_lastAnimWorld is populated.
+    // Returns false if no mesh is loaded or draw hasn't happened yet.
+    bool DumpBoneMatrices(const std::string& path, uint32_t frame) const;
+
 private:
     void ReleaseRT();
     bool CreateRT(int width, int height);
@@ -103,7 +108,7 @@ private:
     int  m_geoCount  = 0;
 
     // Orbit camera (spherical coordinates around look-target)
-    float m_yaw   =  0.5f;    // radians, horizontal rotation
+    float m_yaw   = 2.6416f;  // ≈ π-0.5; eye at -Z (캐릭터 정면 방향), 살짝 우측
     float m_pitch =  0.25f;   // radians, elevation
     float m_dist  = 250.f;    // distance in scene units (cm)
 

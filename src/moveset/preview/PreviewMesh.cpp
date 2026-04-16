@@ -432,17 +432,96 @@ static std::vector<PackEntry> ReadPack(const uint8_t* buf, size_t size)
     return entries;
 }
 
-// ─── P matrix (Y↔Z basis swap) ───────────────────────────────────────────────
-// TK8 Z-up → D3D11 Y-up.  P is self-inverse: P * P = I.
-//
-// Animation (Method B):
-//   local_d3d11 = P * TRS_row(Y↔Z swapped components) * P
-//   animWorld[i] = local_d3d11[i] * animWorld[parent[i]]
-//
-// skeleton.json world_matrix는 이미 D3D11 공간이므로 BuildSkeleton에서
-// P 변환을 별도로 적용하지 않는다.
+// ─── Per-bone animation correction profiles ──────────────────────────────────
+// Mirrors Blender addon's profiles_tk8.py FULLBODY_GROUPS.
+// _process_frame() applies:
+//   1. anim_quat = raw_quat * offset_quat
+//   2. M_blender = C_mat @ TRS(anim_quat) @ C_inv
+//   3. b_rot = decompose(M_blender)
+//   4. b_rot = apose_quat * b_rot   (left-multiply, A-pose correction)
+//   5. b_rot = b_rot * post_rot     (right-multiply)
 
-// scale_div 역수 조회: 모든 본 1.0 (PANM 단위 = cm = 씬 단위)
+struct BoneAnimProfile {
+    float basisX, basisY, basisZ;    // XYZ Euler degrees → C_mat
+    float offsetX, offsetY, offsetZ; // XYZ Euler degrees → offset_quat
+    float postX,   postY,   postZ;   // XYZ Euler degrees → post_rot_quat
+    float aposeX,  aposeY,  aposeZ;  // XYZ Euler degrees → apose_quat
+};
+
+static const BoneAnimProfile kDefaultProfile = {
+    0.f, 0.f, 90.f,   // basis
+    0.f, 0.f, 0.f,    // offset
+    0.f, 0.f, 0.f,    // post_rot
+    0.f, 0.f, 0.f,    // apose
+};
+
+static BoneAnimProfile GetBoneAnimProfile(const std::string& name)
+{
+    // A-pose offsets (left-multiply after C_mat decompose)
+    // Source: APOSE_OFFSETS in profiles_tk8.py
+    static const std::unordered_map<std::string, std::array<float,3>> kApose = {
+        { "L_Shoulder",  { -10.f,       0.f,       0.f } },
+        { "R_Shoulder",  {  10.f,       0.f,       0.f } },
+        { "L_UpperArm",  { -35.f,       0.f,       0.f } },
+        { "R_UpperArm",  {  35.f,       0.f,       0.f } },
+        { "L_LowerArm",  {   0.f,       0.f, -15.f     } },
+        { "R_LowerArm",  {   0.f,       0.f, -15.f     } },
+        { "L_UpperLeg",  {  -5.99981f,  0.f,       0.f } },
+        { "R_UpperLeg",  {   5.99981f,  0.f,       0.f } },
+        { "L_Foot",      {   5.99909f,  0.f,       0.f } },
+        { "R_Foot",      {  -5.99909f,  0.f,       0.f } },
+    };
+
+    BoneAnimProfile p = kDefaultProfile;
+
+    // Non-default basis/offset/post_rot
+    if      (name == "Hip")
+        p = { 0.f,-90.f, 0.f,  0.f,-90.f,-90.f,  0.f,0.f,0.f,  0.f,0.f,0.f };
+    else if (name == "R_Shoulder")
+        p = { 0.f,-90.f,90.f,  0.f,-90.f,  0.f,  0.f,0.f,0.f,  0.f,0.f,0.f };
+    else if (name == "L_Shoulder")
+        p = { 0.f, 90.f,90.f,  0.f, 90.f,  0.f,  0.f,0.f,0.f,  0.f,0.f,0.f };
+    else if (name == "R_Hand")
+        p = { 90.f,0.f,90.f,  90.f,0.f,0.f,       0.f,0.f,0.f,  0.f,0.f,0.f };
+    else if (name == "L_Hand")
+        p = {-90.f,0.f,90.f, -90.f,0.f,0.f,       0.f,0.f,0.f,  0.f,0.f,0.f };
+    else if (name == "R_UpperLeg")
+        p = { 0.f,0.f,-90.f,  0.f,0.f,180.f,      0.f,0.f,0.f,  0.f,0.f,0.f };
+    else if (name == "L_UpperLeg")
+        p = { 0.f,0.f,-90.f,  0.f,0.f,180.f,      0.f,0.f,0.f,  0.f,0.f,0.f };
+    else if (name == "R_Toe")
+        p = { 90.f,0.f,0.f,   0.f,0.f, 90.f,      0.f,0.f,0.f,  0.f,0.f,0.f };
+    else if (name == "L_Toe")
+        p = { 90.f,0.f,0.f,   0.f,0.f, 90.f,      0.f,0.f,0.f,  0.f,0.f,0.f };
+    else if (name == "HARA_ROT1")
+        p = { 0.f,0.f,90.f,   0.f,0.f,  0.f,      0.f,0.f,180.f,0.f,0.f,0.f };
+
+    // Apply A-pose correction
+    auto it = kApose.find(name);
+    if (it != kApose.end()) {
+        p.aposeX = it->second[0];
+        p.aposeY = it->second[1];
+        p.aposeZ = it->second[2];
+    }
+
+    return p;
+}
+
+// XYZ Euler (degrees) → rotation matrix (D3D11 row-major = XMMATRIX default)
+static XMMATRIX EulerXYZDegToMatrix(float x, float y, float z)
+{
+    return XMMatrixRotationX(XMConvertToRadians(x))
+         * XMMatrixRotationY(XMConvertToRadians(y))
+         * XMMatrixRotationZ(XMConvertToRadians(z));
+}
+
+// XYZ Euler (degrees) → quaternion (x,y,z,w stored as XMVECTOR)
+static XMVECTOR EulerXYZDegToQuat(float x, float y, float z)
+{
+    return XMQuaternionRotationMatrix(EulerXYZDegToMatrix(x, y, z));
+}
+
+// scale_div 역수 조회: 모든 본 1.0 (PANM 단위 = 씬 단위)
 static float GetScaleDivInv(const std::string& /*name*/)
 {
     return 1.0f;
@@ -518,8 +597,42 @@ static bool BuildSkeleton(
         }
         memcpy(bn.bindLocal, &bindLocal, 64);
 
-        // scale_div 역수 (Trans/Top/Rot=1.0, 나머지=0.01)
         bn.scaleDivInv = GetScaleDivInv(bn.name);
+
+        // Per-bone animation correction (from FULLBODY profiles, mirrors profiles_tk8.py)
+        BoneAnimProfile prof = GetBoneAnimProfile(bn.name);
+
+        // Blender profiles define Euler angles in Blender Z-up space.
+        // skeleton.json (Method C) is already D3D11 Y-up (via P @ M @ P in export_skeleton.py).
+        // Apply the same Y↔Z swap to all correction matrices so they live in D3D11 Y-up:
+        //   C_d3d = P * C_bl * P   (P^T = P, same formula for both col/row conventions)
+        //
+        // P = Y↔Z swap: [1,0,0,0 | 0,0,1,0 | 0,1,0,0 | 0,0,0,1]  (D3D11 row-major)
+        static const XMMATRIX kP = XMMatrixSet(
+            1.f,0.f,0.f,0.f,
+            0.f,0.f,1.f,0.f,
+            0.f,1.f,0.f,0.f,
+            0.f,0.f,0.f,1.f);
+
+        auto ToD3D11Basis = [&](float ex, float ey, float ez) -> XMMATRIX {
+            XMMATRIX M = EulerXYZDegToMatrix(ex, ey, ez);
+            return XMMatrixMultiply(XMMatrixMultiply(kP, M), kP);
+        };
+
+        XMMATRIX C  = ToD3D11Basis(prof.basisX, prof.basisY, prof.basisZ);
+        XMMATRIX Ci = XMMatrixInverse(nullptr, C);
+        memcpy(bn.cMat, &C,  64);
+        memcpy(bn.cInv, &Ci, 64);
+
+        // ToD3D11Basis produces a Blender column-vector matrix stored at row-major address.
+        // XMQuaternionRotationMatrix interprets it as row-major → extracts the INVERSE quat.
+        // Fix: conjugate each result so the stored quaternion is physically correct.
+        XMVECTOR offQ  = XMQuaternionConjugate(XMQuaternionRotationMatrix(ToD3D11Basis(prof.offsetX, prof.offsetY, prof.offsetZ)));
+        XMVECTOR posQ  = XMQuaternionConjugate(XMQuaternionRotationMatrix(ToD3D11Basis(prof.postX,   prof.postY,   prof.postZ)));
+        XMVECTOR apoQ  = XMQuaternionConjugate(XMQuaternionRotationMatrix(ToD3D11Basis(prof.aposeX,  prof.aposeY,  prof.aposeZ)));
+        XMStoreFloat4(reinterpret_cast<XMFLOAT4*>(bn.offsetQuat),  offQ);
+        XMStoreFloat4(reinterpret_cast<XMFLOAT4*>(bn.postRotQuat), posQ);
+        XMStoreFloat4(reinterpret_cast<XMFLOAT4*>(bn.aposeQuat),   apoQ);
     }
 
     // ── Pass 3: create MeshPart for each bone that has an OBJ ────────────────
@@ -656,15 +769,26 @@ cleanup:
 // ─── PreviewMesh::Draw ────────────────────────────────────────────────────────
 //
 // Animation hierarchy:
-//   PANM stores LOCAL (parent-relative) transforms in game Z-up space.
 //   We traverse m_skeleton in topological order (parent always before child)
 //   and accumulate world transforms:
 //
-//     panm_local_d3d11[i]  = P * C_col * TRS_engine_row * C_inv_col * P
-//     animWorld[i]         = panm_local_d3d11[i] * animWorld[parent[i]]     (root: just local)
+//     local[i]     = R(d3d_quat[i]) * bindLocal[i]          (non-root-motion bones)
+//     local[i]     = R(d3d_quat[i]) * bindLocal[i] + T_local (Trans/Top root motion)
+//     animWorld[i] = local[i] * animWorld[parent[i]]         (root: just local)
 //
-//   C_col / C_inv_col = per-bone basis correction matrices (precomputed in BuildSkeleton).
-//   Each MeshPart is drawn with animWorld[part->boneNodeIdx] as its model matrix.
+//   Rotation pipeline (mirrors core_tk8.py _process_frame, Blender col-major convention):
+//     animQ   = rawQ * offsetQ
+//     Meng    = R(animQ)                                     (rotation only)
+//     Mbl_T   = Ci * Meng * C                               (= M_bl^T where M_bl = C_col @ R_col @ Ci_col)
+//     q_bl    = QFromMat(Mbl_T)                             (Blender quaternion)
+//     q_bl    = apoQ * q_bl * postRotQ
+//     d3d_quat = pswap(q_bl) = (-q_bl.x, -q_bl.z, -q_bl.y, q_bl.w)
+//
+//   Root motion translation (Trans / Top only):
+//     PANM position = world-space D3D11 displacement.
+//     local_disp = panm_pos * inv(parent_world_rot)          (parent-local frame)
+//     local[3,:3] += local_disp
+//
 //   Bones with no PANM track fall back to their stored bindLocal matrix.
 
 void PreviewMesh::Draw(ID3D11DeviceContext* ctx, ID3D11Buffer* cbuf,
@@ -699,28 +823,64 @@ void PreviewMesh::Draw(ID3D11DeviceContext* ctx, ID3D11Buffer* cbuf,
                              ? frame : (uint32_t)track->frames.size() - 1;
                 const BoneSample& s = track->frames[f];
 
-                // 위치: root motion 본(Trans/Top/Rot)만 PANM 위치 사용.
-                // 나머지 본은 Blender Armature rest pose에서 나온 bindLocal 위치 사용.
-                // (Blender 애드온 logic: non-root bone은 rotation만 적용)
-                float px, py, pz;
-                const bool isRootMotion = (bn.name == "Trans" ||
-                                           bn.name == "Top"   ||
-                                           bn.name == "Rot");
-                if (isRootMotion) {
-                    float sdi = bn.scaleDivInv;
-                    px = s.position[0] * sdi;
-                    py = s.position[1] * sdi;
-                    pz = s.position[2] * sdi;
-                } else {
-                    px = bn.bindLocal[12];
-                    py = bn.bindLocal[13];
-                    pz = bn.bindLocal[14];
-                }
+                // Per-bone correction (see Draw() header comment for full pipeline).
 
-                XMVECTOR quat = XMVectorSet(s.rotation[0], s.rotation[1], s.rotation[2], s.rotation[3]);
-                XMVECTOR pos  = XMVectorSet(px, py, pz, 0.f);
-                local = XMMatrixAffineTransformation(
-                    XMVectorSet(1.f,1.f,1.f,0.f), XMVectorZero(), quat, pos);
+                XMVECTOR rawQ  = XMVectorSet(s.rotation[0], s.rotation[1], s.rotation[2], s.rotation[3]);
+                XMVECTOR offQ  = XMLoadFloat4(reinterpret_cast<const XMFLOAT4*>(bn.offsetQuat));
+                XMVECTOR animQ = XMQuaternionMultiply(rawQ, offQ);
+
+                XMMATRIX C    = XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(bn.cMat));
+                XMMATRIX Ci   = XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(bn.cInv));
+
+                bool isRootMotion = (bn.name == "Trans" || bn.name == "Top");
+
+                // Rotation-only engine matrix; root motion translation handled separately.
+                XMMATRIX Meng = XMMatrixRotationQuaternion(animQ);
+
+                // Blender col-major sandwich: Ci * Meng * C
+                // (cMat = Rx*Ry*Rz in D3D11 = C_bl^T numerically;
+                //  cInv = C_bl stored row-major = its transpose)
+                // Gives M_bl^T; XMQuaternionRotationMatrix extracts the Blender quat q_bl.
+                XMMATRIX Mbl_T = XMMatrixMultiply(XMMatrixMultiply(Ci, Meng), C);
+
+                XMVECTOR q_bl = XMQuaternionNormalize(XMQuaternionRotationMatrix(Mbl_T));
+
+                // A-pose (left-multiply) then post_rot (right-multiply) in Blender quat space
+                XMVECTOR apoQ  = XMLoadFloat4(reinterpret_cast<const XMFLOAT4*>(bn.aposeQuat));
+                q_bl = XMQuaternionMultiply(apoQ, q_bl);
+                XMVECTOR posQ  = XMLoadFloat4(reinterpret_cast<const XMFLOAT4*>(bn.postRotQuat));
+                q_bl = XMQuaternionNormalize(XMQuaternionMultiply(q_bl, posQ));
+
+                // pswap: Blender quat → D3D11 quat = (-x, -z, -y, w)
+                // Full P-sandwich in quaternion space (Y↔Z swap + negate imaginary parts).
+                XMFLOAT4 q_f; XMStoreFloat4(&q_f, q_bl);
+                XMVECTOR d3d_quat = XMQuaternionNormalize(
+                    XMVectorSet(-q_f.x, -q_f.z, -q_f.y, q_f.w));
+
+                XMMATRIX bindL;
+                memcpy(&bindL, bn.bindLocal, 64);
+
+                if (isRootMotion) {
+                    // PANM position is world-space D3D11 displacement (already Y-up).
+                    // Convert to parent-local frame: panm_pos @ inv(parent_world_rot).
+                    XMVECTOR panmPos = XMVectorSet(
+                        s.position[0], s.position[1], s.position[2], 0.f);
+                    XMVECTOR localDisp;
+                    if (bn.parentIdx >= 0) {
+                        // Rotation is orthogonal → inverse = transpose (upper 3x3 only)
+                        XMMATRIX parInvRot = XMMatrixTranspose(animWorld[bn.parentIdx]);
+                        localDisp = XMVector3TransformNormal(panmPos, parInvRot);
+                    } else {
+                        localDisp = panmPos;
+                    }
+                    local = XMMatrixMultiply(XMMatrixRotationQuaternion(d3d_quat), bindL);
+                    XMFLOAT4X4 lf; XMStoreFloat4x4(&lf, local);
+                    XMFLOAT4 ld;   XMStoreFloat4(&ld, localDisp);
+                    lf._41 += ld.x; lf._42 += ld.y; lf._43 += ld.z;
+                    local = XMLoadFloat4x4(&lf);
+                } else {
+                    local = XMMatrixMultiply(XMMatrixRotationQuaternion(d3d_quat), bindL);
+                }
             } else {
                 // No PANM track → stay at bind-local pose
                 memcpy(&local, bn.bindLocal, 64);
@@ -755,15 +915,24 @@ void PreviewMesh::Draw(ID3D11DeviceContext* ctx, ID3D11Buffer* cbuf,
                        ? frame : (uint32_t)track->frames.size() - 1;
             const BoneSample& s    = track->frames[f];
             const BoneNode&   gbn  = m_skeleton[i];
-            // HARA_ROT1은 root motion 본이 아님 → 위치는 항상 bindLocal
-            float gx = gbn.bindLocal[12];
-            float gy = gbn.bindLocal[13];
-            float gz = gbn.bindLocal[14];
-            XMVECTOR quat = XMVectorSet(s.rotation[0], s.rotation[1],
-                                        s.rotation[2], s.rotation[3]);
-            XMVECTOR pos  = XMVectorSet(gx, gy, gz, 0.f);
-            XMMATRIX animLocal = XMMatrixAffineTransformation(
-                XMVectorSet(1.f,1.f,1.f,0.f), XMVectorZero(), quat, pos);
+            // HARA_ROT1은 root motion 본이 아님 → 위치는 항상 bindLocal (gizmo only)
+            XMVECTOR gRawQ  = XMVectorSet(s.rotation[0], s.rotation[1], s.rotation[2], s.rotation[3]);
+            XMVECTOR gOffQ  = XMLoadFloat4(reinterpret_cast<const XMFLOAT4*>(gbn.offsetQuat));
+            XMVECTOR gAnimQ = XMQuaternionMultiply(gRawQ, gOffQ);
+            XMMATRIX gC     = XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(gbn.cMat));
+            XMMATRIX gCi    = XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(gbn.cInv));
+            XMMATRIX gMeng  = XMMatrixRotationQuaternion(gAnimQ);
+            // Same Ci * M * C pipeline + pswap as normal bones
+            XMMATRIX gMbl_T = XMMatrixMultiply(XMMatrixMultiply(gCi, gMeng), gC);
+            XMVECTOR g_bl   = XMQuaternionNormalize(XMQuaternionRotationMatrix(gMbl_T));
+            XMVECTOR gPosQ  = XMLoadFloat4(reinterpret_cast<const XMFLOAT4*>(gbn.postRotQuat));
+            g_bl = XMQuaternionNormalize(XMQuaternionMultiply(g_bl, gPosQ));
+            // pswap: Blender → D3D11
+            XMFLOAT4 gqf; XMStoreFloat4(&gqf, g_bl);
+            XMVECTOR g_rot = XMQuaternionNormalize(XMVectorSet(-gqf.x, -gqf.z, -gqf.y, gqf.w));
+            XMMATRIX gBindL;
+            memcpy(&gBindL, gbn.bindLocal, 64);
+            XMMATRIX animLocal = XMMatrixMultiply(XMMatrixRotationQuaternion(g_rot), gBindL);
             XMMATRIX animWrld = (m_skeleton[i].parentIdx >= 0)
                 ? XMMatrixMultiply(animLocal, animWorld[m_skeleton[i].parentIdx])
                 : animLocal;
@@ -833,4 +1002,46 @@ void PreviewMesh::GetBonePoses(std::vector<BonePoseInfo>& out) const
             out[i].fwd[2] = m_lastAnimWorld[i][10];
         }
     }
+}
+
+// ─── PreviewMesh::DumpBoneMatrices ────────────────────────────────────────────
+// Debug helper: write m_lastAnimWorld (D3D11 Y-up row-major) to a JSON file
+// that can be compared with blender_dump.py output using compare_dumps.py.
+
+bool PreviewMesh::DumpBoneMatrices(const std::string& path, uint32_t frame) const
+{
+    const int n = (int)m_skeleton.size();
+    if ((int)m_lastAnimWorld.size() != n || n == 0) return false;
+
+    std::ofstream f(path);
+    if (!f) return false;
+
+    f << "{\n";
+    f << "  \"frame\": " << frame << ",\n";
+    f << "  \"bones\": [\n";
+    for (int i = 0; i < n; ++i) {
+        const auto& w = m_lastAnimWorld[i];
+        f << "    {\n";
+        f << "      \"name\": \"" << m_skeleton[i].name << "\",\n";
+        // Row-major 4x4: rows 0..3, each 4 floats
+        f << "      \"world_matrix\": [\n";
+        for (int r = 0; r < 4; ++r) {
+            f << "        [";
+            for (int c = 0; c < 4; ++c) {
+                f << w[r * 4 + c];
+                if (c < 3) f << ", ";
+            }
+            f << "]";
+            if (r < 3) f << ",";
+            f << "\n";
+        }
+        f << "      ],\n";
+        f << "      \"pos_d3d11\": [" << w[12] << ", " << w[13] << ", " << w[14] << "]\n";
+        f << "    }";
+        if (i < n - 1) f << ",";
+        f << "\n";
+    }
+    f << "  ]\n";
+    f << "}\n";
+    return true;
 }

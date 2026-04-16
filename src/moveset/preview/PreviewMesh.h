@@ -66,14 +66,20 @@ public:
     // Fills 'out' with one entry per bone. Empty if Draw() has not yet been called.
     void GetBonePoses(std::vector<BonePoseInfo>& out) const;
 
+    // Debug: write bone world matrices (D3D11 Y-up row-major) to a JSON file.
+    // Writes the data from the last Draw() call. Returns false if nothing was drawn yet.
+    bool DumpBoneMatrices(const std::string& path, uint32_t frame) const;
+
     // Both structs are public so the file-local BuildSkeleton helper can reference them.
     struct MeshPart;
 
     // One entry per bone (ALL bones, including virtual ones with no mesh geometry).
     // Bones are stored in topological order (parent index always < child index).
     //
-    // Method B: skeleton.json world_matrix is already in D3D11 Y-up row-major space.
-    // Animation uses P * TRS_row(Y↔Z swapped) * P directly — no C_mat chain needed.
+    // Method C: skeleton.json = Blender Armature rest pose, D3D11 Y-up row-major.
+    // Animation correction mirrors core_tk8.py _process_frame():
+    //   corrected_rot = C_inv * TRS(raw_quat * offsetQuat) * C  (decomposed)
+    //   then left-multiply aposeQuat, right-multiply postRotQuat
     struct BoneNode {
         std::string name;
         int         parentIdx   = -1;    // index in m_skeleton; -1 = root
@@ -82,11 +88,14 @@ public:
         float       bindLocal[16] = {};  // D3D11 row-major bind-pose local matrix
                                          // (= bindWorld for roots;
                                          //  = bindWorld * inv(parent.bindWorld) otherwise)
+        float       scaleDivInv = 1.0f;  // 1.0 for all bones (positions in game units)
 
-        // Position scale factor: 1.0f / scale_div.
-        //   Trans / Top / Rot = 1.0f  (game units, no conversion)
-        //   All other bones   = 0.01f (cm → m)
-        float   scaleDivInv = 0.01f;
+        // Per-bone animation correction (precomputed in BuildSkeleton from FULLBODY profiles)
+        float cMat[16]       = {};  // C_mat: basis rotation matrix, D3D11 row-major
+        float cInv[16]       = {};  // C_mat inverse
+        float offsetQuat[4]  = {};  // offset quaternion (x,y,z,w) — applied before C_mat
+        float postRotQuat[4] = {};  // post_rot quaternion (x,y,z,w) — right-multiply after
+        float aposeQuat[4]   = {};  // A-pose correction (x,y,z,w) — left-multiply after C_mat
     };
 
 private:
