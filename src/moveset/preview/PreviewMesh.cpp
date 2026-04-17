@@ -602,34 +602,20 @@ static bool BuildSkeleton(
         // Per-bone animation correction (from FULLBODY profiles, mirrors profiles_tk8.py)
         BoneAnimProfile prof = GetBoneAnimProfile(bn.name);
 
-        // Blender profiles define Euler angles in Blender Z-up space.
-        // skeleton.json (Method C) is already D3D11 Y-up (via P @ M @ P in export_skeleton.py).
-        // Apply the same Y↔Z swap to all correction matrices so they live in D3D11 Y-up:
-        //   C_d3d = P * C_bl * P   (P^T = P, same formula for both col/row conventions)
-        //
-        // P = Y↔Z swap: [1,0,0,0 | 0,0,1,0 | 0,1,0,0 | 0,0,0,1]  (D3D11 row-major)
-        static const XMMATRIX kP = XMMatrixSet(
-            1.f,0.f,0.f,0.f,
-            0.f,0.f,1.f,0.f,
-            0.f,1.f,0.f,0.f,
-            0.f,0.f,0.f,1.f);
-
-        auto ToD3D11Basis = [&](float ex, float ey, float ez) -> XMMATRIX {
-            XMMATRIX M = EulerXYZDegToMatrix(ex, ey, ez);
-            return XMMatrixMultiply(XMMatrixMultiply(kP, M), kP);
-        };
-
-        XMMATRIX C  = ToD3D11Basis(prof.basisX, prof.basisY, prof.basisZ);
+        // Draw() uses Blender col-major sandwich: Ci * Meng * C
+        // where cMat = EulerXYZDegToMatrix(basis) = C_bl^T numerically (D3D11 Rx*Ry*Rz)
+        //       cInv = cMat^{-1} = cMat^T = C_bl numerically
+        // No P-sandwich here — the pswap in Draw() handles the Blender→D3D11 conversion.
+        XMMATRIX C  = EulerXYZDegToMatrix(prof.basisX, prof.basisY, prof.basisZ);
         XMMATRIX Ci = XMMatrixInverse(nullptr, C);
         memcpy(bn.cMat, &C,  64);
         memcpy(bn.cInv, &Ci, 64);
 
-        // ToD3D11Basis produces a Blender column-vector matrix stored at row-major address.
-        // XMQuaternionRotationMatrix interprets it as row-major → extracts the INVERSE quat.
-        // Fix: conjugate each result so the stored quaternion is physically correct.
-        XMVECTOR offQ  = XMQuaternionConjugate(XMQuaternionRotationMatrix(ToD3D11Basis(prof.offsetX, prof.offsetY, prof.offsetZ)));
-        XMVECTOR posQ  = XMQuaternionConjugate(XMQuaternionRotationMatrix(ToD3D11Basis(prof.postX,   prof.postY,   prof.postZ)));
-        XMVECTOR apoQ  = XMQuaternionConjugate(XMQuaternionRotationMatrix(ToD3D11Basis(prof.aposeX,  prof.aposeY,  prof.aposeZ)));
+        // Blender quaternions: EulerXYZDegToQuat = bl_quat(x,y,z) in Python.
+        // Applied in Blender quat space in Draw() before pswap converts to D3D11.
+        XMVECTOR offQ  = EulerXYZDegToQuat(prof.offsetX, prof.offsetY, prof.offsetZ);
+        XMVECTOR posQ  = EulerXYZDegToQuat(prof.postX,   prof.postY,   prof.postZ);
+        XMVECTOR apoQ  = EulerXYZDegToQuat(prof.aposeX,  prof.aposeY,  prof.aposeZ);
         XMStoreFloat4(reinterpret_cast<XMFLOAT4*>(bn.offsetQuat),  offQ);
         XMStoreFloat4(reinterpret_cast<XMFLOAT4*>(bn.postRotQuat), posQ);
         XMStoreFloat4(reinterpret_cast<XMFLOAT4*>(bn.aposeQuat),   apoQ);
@@ -827,7 +813,9 @@ void PreviewMesh::Draw(ID3D11DeviceContext* ctx, ID3D11Buffer* cbuf,
 
                 XMVECTOR rawQ  = XMVectorSet(s.rotation[0], s.rotation[1], s.rotation[2], s.rotation[3]);
                 XMVECTOR offQ  = XMLoadFloat4(reinterpret_cast<const XMFLOAT4*>(bn.offsetQuat));
-                XMVECTOR animQ = XMQuaternionMultiply(rawQ, offQ);
+                // NOTE: XMQuaternionMultiply(A,B) = B*A in Hamilton convention.
+                // Python: animQ = qmul(rawQ, offQ) = rawQ*offQ → XMQMul(offQ, rawQ).
+                XMVECTOR animQ = XMQuaternionMultiply(offQ, rawQ);
 
                 XMMATRIX C    = XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(bn.cMat));
                 XMMATRIX Ci   = XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(bn.cInv));
@@ -845,11 +833,12 @@ void PreviewMesh::Draw(ID3D11DeviceContext* ctx, ID3D11Buffer* cbuf,
 
                 XMVECTOR q_bl = XMQuaternionNormalize(XMQuaternionRotationMatrix(Mbl_T));
 
-                // A-pose (left-multiply) then post_rot (right-multiply) in Blender quat space
+                // A-pose: left-multiply in Blender quat space → XMQMul(q_bl, apoQ) = apoQ*q_bl.
+                // post_rot: right-multiply → XMQMul(posQ, q_bl) = q_bl*posQ.
                 XMVECTOR apoQ  = XMLoadFloat4(reinterpret_cast<const XMFLOAT4*>(bn.aposeQuat));
-                q_bl = XMQuaternionMultiply(apoQ, q_bl);
+                q_bl = XMQuaternionMultiply(q_bl, apoQ);
                 XMVECTOR posQ  = XMLoadFloat4(reinterpret_cast<const XMFLOAT4*>(bn.postRotQuat));
-                q_bl = XMQuaternionNormalize(XMQuaternionMultiply(q_bl, posQ));
+                q_bl = XMQuaternionNormalize(XMQuaternionMultiply(posQ, q_bl));
 
                 // pswap: Blender quat → D3D11 quat = (-x, -z, -y, w)
                 // Full P-sandwich in quaternion space (Y↔Z swap + negate imaginary parts).
@@ -863,8 +852,10 @@ void PreviewMesh::Draw(ID3D11DeviceContext* ctx, ID3D11Buffer* cbuf,
                 if (isRootMotion) {
                     // PANM position is world-space D3D11 displacement (already Y-up).
                     // Convert to parent-local frame: panm_pos @ inv(parent_world_rot).
+                    // PANM position is stored in TK8 right-handed Y-up space;
+                    // negate Z to convert to D3D11 left-handed Y-up.
                     XMVECTOR panmPos = XMVectorSet(
-                        s.position[0], s.position[1], s.position[2], 0.f);
+                        s.position[0], s.position[1], -s.position[2], 0.f);
                     XMVECTOR localDisp;
                     if (bn.parentIdx >= 0) {
                         // Rotation is orthogonal → inverse = transpose (upper 3x3 only)
@@ -918,7 +909,7 @@ void PreviewMesh::Draw(ID3D11DeviceContext* ctx, ID3D11Buffer* cbuf,
             // HARA_ROT1은 root motion 본이 아님 → 위치는 항상 bindLocal (gizmo only)
             XMVECTOR gRawQ  = XMVectorSet(s.rotation[0], s.rotation[1], s.rotation[2], s.rotation[3]);
             XMVECTOR gOffQ  = XMLoadFloat4(reinterpret_cast<const XMFLOAT4*>(gbn.offsetQuat));
-            XMVECTOR gAnimQ = XMQuaternionMultiply(gRawQ, gOffQ);
+            XMVECTOR gAnimQ = XMQuaternionMultiply(gOffQ, gRawQ);  // gRawQ*gOffQ in Hamilton
             XMMATRIX gC     = XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(gbn.cMat));
             XMMATRIX gCi    = XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(gbn.cInv));
             XMMATRIX gMeng  = XMMatrixRotationQuaternion(gAnimQ);
@@ -926,7 +917,7 @@ void PreviewMesh::Draw(ID3D11DeviceContext* ctx, ID3D11Buffer* cbuf,
             XMMATRIX gMbl_T = XMMatrixMultiply(XMMatrixMultiply(gCi, gMeng), gC);
             XMVECTOR g_bl   = XMQuaternionNormalize(XMQuaternionRotationMatrix(gMbl_T));
             XMVECTOR gPosQ  = XMLoadFloat4(reinterpret_cast<const XMFLOAT4*>(gbn.postRotQuat));
-            g_bl = XMQuaternionNormalize(XMQuaternionMultiply(g_bl, gPosQ));
+            g_bl = XMQuaternionNormalize(XMQuaternionMultiply(gPosQ, g_bl));  // g_bl*gPosQ in Hamilton
             // pswap: Blender → D3D11
             XMFLOAT4 gqf; XMStoreFloat4(&gqf, g_bl);
             XMVECTOR g_rot = XMQuaternionNormalize(XMVectorSet(-gqf.x, -gqf.z, -gqf.y, gqf.w));
