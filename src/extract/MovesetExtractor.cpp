@@ -898,6 +898,7 @@ bool MovesetExtractor::ExtractToFile(int slotIndex,
     // motbinAnimKeys: moves[i].anim_key — collected here, passed to BakeCharAnmbin
     // for AnimNameDB::BuildAndSave after the bake.
     std::vector<uint32_t> motbinAnimKeys;
+    std::vector<uint32_t> motbinNameKeys; // for Original_Moves.json
 
     // Header string fields (char_name_addr at 0x10/0x18/0x20/0x28) are
     // "no longer used" in TK8 and always point to "?" in game memory.
@@ -945,6 +946,7 @@ bool MovesetExtractor::ExtractToFile(int slotIndex,
                 entry.anim = aStr ? aStr : "";
                 names.moves.push_back(std::move(entry));
                 motbinAnimKeys.push_back(ak);
+                motbinNameKeys.push_back(nk);
             }
         }
     }
@@ -960,6 +962,24 @@ bool MovesetExtractor::ExtractToFile(int slotIndex,
         charFolder += '\\';
     charFolder += "TK8_";
     charFolder += slot.charaName;
+
+    // Write .tkedit/Original_Moves.json — records which name_keys belong to original game moves.
+    // LoadMotbin reads this to set ParsedMove::isNew=false on matching moves; all others are new.
+    {
+        std::string tkeditDir = charFolder + "\\.tkedit";
+        CreateDirectoryA(tkeditDir.c_str(), nullptr);
+        std::string jsonPath = tkeditDir + "\\Original_Moves.json";
+        FILE* jf = nullptr;
+        if (fopen_s(&jf, jsonPath.c_str(), "w") == 0 && jf) {
+            fprintf(jf, "{\"name_keys\":[");
+            for (size_t i = 0; i < motbinNameKeys.size(); ++i) {
+                if (i > 0) fprintf(jf, ",");
+                fprintf(jf, "%u", motbinNameKeys[i]);
+            }
+            fprintf(jf, "]}");
+            fclose(jf);
+        }
+    }
 
     // Extract companion files from tkdata.bin: {charaCode}.anmbin, com.anmbin, stllstb, mvl
     const char* charaCode = LabelDB::Get().CharaCode(slot.charaId);

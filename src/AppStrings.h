@@ -8,7 +8,7 @@
 namespace AppStr
 {
     // ── Tool version (shown bottom-left of sidebar) ───────────────────────────
-    static constexpr const char* Version       = "v0.0.3b";
+    static constexpr const char* Version       = "v0.1.0b";
 
     // ── Sidebar layout ────────────────────────────────────────────────────────
     static constexpr float       SidebarWidth  = 200.0f;

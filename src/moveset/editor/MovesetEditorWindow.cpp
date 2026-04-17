@@ -8,6 +8,7 @@
 #include "moveset/data/EditorFieldLabel.h"
 #include "moveset/labels/FieldTooltips.h"
 #include "moveset/live/GameLiveEdit.h"
+#include "moveset/data/KamuiHash.h"
 #include "imgui/imgui.h"
 #include "imgui/imgui_internal.h"
 #include <cstdio>
@@ -503,6 +504,58 @@ static void DrawMoveRowSelected()
 }
 
 // -------------------------------------------------------------
+//  ImGui char-filter callback: blocks characters invalid in move names.
+//  Blocks: space, !, ?, and Windows-filename-invalid chars: \ / : * " < > |
+// -------------------------------------------------------------
+static int MoveNameCharFilter(ImGuiInputTextCallbackData* data)
+{
+    ImWchar c = data->EventChar;
+    // Block space and special chars
+    static const ImWchar kBlocked[] = {
+        ' ', '!', '?', '\\', '/', ':', '*', '"', '<', '>', '|', 0
+    };
+    for (int i = 0; kBlocked[i]; ++i)
+        if (c == kBlocked[i]) return 1; // reject
+    return 0;
+}
+
+// Generate a unique new move name that doesn't collide with existing displayNames.
+// Pattern: baseName + "_NNNN" where NNNN increments until unique.
+static std::string MakeUniqueName(const std::vector<ParsedMove>& moves, const std::string& baseName)
+{
+    // Check if baseName itself is free
+    bool taken = false;
+    for (const auto& mv : moves)
+        if (mv.displayName == baseName) { taken = true; break; }
+    if (!taken) return baseName;
+
+    for (int n = 1; n < 9999; ++n)
+    {
+        char candidate[256];
+        snprintf(candidate, sizeof(candidate), "%s_%04d", baseName.c_str(), n);
+        taken = false;
+        for (const auto& mv : moves)
+            if (mv.displayName == candidate) { taken = true; break; }
+        if (!taken) return candidate;
+    }
+    return baseName; // fallback (shouldn't reach here)
+}
+
+// Compute name_key and ordinal_id for a new move and write them into m.
+// ordinal_id = KamuiHash(UPPER(charaCode) + "_" + name)
+// name_key   = KamuiHash(name)
+static void ApplyKamuiHashes(ParsedMove& m, const std::string& moveName, const std::string& charaCode)
+{
+    m.name_key = (uint32_t)KamuiHash::Compute(moveName);
+
+    // Build "CHARCODE_MoveName" string (charaCode uppercased)
+    std::string prefix = charaCode;
+    for (char& c : prefix) c = (char)toupper((unsigned char)c);
+    std::string ordStr = prefix + "_" + moveName;
+    m.ordinal_id2 = (uint32_t)KamuiHash::Compute(ordStr);
+}
+
+// -------------------------------------------------------------
 //  Left panel -- move list
 // -------------------------------------------------------------
 
@@ -523,14 +576,20 @@ void MovesetEditorWindow::RenderMoveList()
             empty.extra_prop_idx    = 0xFFFFFFFF;
             empty.start_prop_idx    = 0xFFFFFFFF;
             empty.end_prop_idx      = 0xFFFFFFFF;
-            empty.displayName = "move_" + std::to_string(m_data.moves.size());
+            empty.isNew = true;
+            { char base[32]; snprintf(base, sizeof(base), "NewMove_%04d", (int)m_data.moves.size());
+              empty.displayName = MakeUniqueName(m_data.moves, base); }
+            ApplyKamuiHashes(empty, empty.displayName, m_data.charaCode);
             m_data.moves.push_back(empty);
             m_dirty = true;
         }
         if (ImGui::MenuItem("Duplicate Current Move")) {
             if (m_selectedIdx >= 0 && m_selectedIdx < (int)m_data.moves.size()) {
                 ParsedMove dup = m_data.moves[m_selectedIdx];
-                dup.displayName = dup.displayName + "_copy";
+                dup.isNew = true;
+                std::string baseName = dup.displayName + "_copy";
+                dup.displayName = MakeUniqueName(m_data.moves, baseName);
+                ApplyKamuiHashes(dup, dup.displayName, m_data.charaCode);
                 m_data.moves.push_back(dup);
                 m_dirty = true;
             }
@@ -1393,13 +1452,41 @@ void MovesetEditorWindow::RenderSection_Overview(ParsedMove& m, bool& dirty)
         {
             char nameBuf[256]; snprintf(nameBuf, sizeof(nameBuf), "%s", m.displayName.c_str());
             ImGui::SetNextItemWidth(-1.0f);
-            ImGui::InputText("##move_name", nameBuf, sizeof(nameBuf));
+
+            // Check for duplicate name among other moves (warn-only)
+            bool isDupeName = false;
+            for (int di = 0; di < (int)m_data.moves.size(); ++di) {
+                if (di != m_selectedIdx && m_data.moves[di].displayName == m.displayName) {
+                    isDupeName = true; break;
+                }
+            }
+            if (isDupeName)
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.3f, 0.3f, 1.0f));
+
+            // For new moves: filter out invalid chars; for original moves: allow free editing
+            ImGuiInputTextFlags nameFlags = ImGuiInputTextFlags_None;
+            if (m.isNew)
+                nameFlags |= ImGuiInputTextFlags_CallbackCharFilter;
+
+            ImGui::InputText("##move_name", nameBuf, sizeof(nameBuf), nameFlags,
+                             m.isNew ? MoveNameCharFilter : nullptr);
+
+            if (isDupeName) {
+                ImGui::PopStyleColor();
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+                    ImGui::SetTooltip("Duplicate name — another move already uses this name.");
+            }
+
             if (ImGui::IsItemDeactivatedAfterEdit())
             {
                 m.displayName = nameBuf;
+                // For new moves: recompute name_key and ordinal_id from the new name
+                if (m.isNew && nameBuf[0] != '\0')
+                    ApplyKamuiHashes(m, m.displayName, m_data.charaCode);
                 if (nameBuf[0] != '\0') m_customNames[m_selectedIdx] = m.displayName;
                 else                    m_customNames.erase(m_selectedIdx);
                 SaveEditorDatas();
+                dirty = true;
             }
         }
 
@@ -1599,12 +1686,7 @@ void MovesetEditorWindow::RenderSection_Overview(ParsedMove& m, bool& dirty)
         FieldRow(TCharId, FieldTT::Move::TCharId);
         { char buf[14]; snprintf(buf, sizeof(buf), "0x%08X", m.ordinal_id2);
           ImGui::SetNextItemWidth(-1.0f);
-          ImGui::InputText("##t_char_id", buf, sizeof(buf));
-          if (ImGui::IsItemDeactivatedAfterEdit())
-          {
-              const char* p = buf; if (p[0]=='0' && (p[1]=='x'||p[1]=='X')) p += 2;
-              m.ordinal_id2 = (uint32_t)strtoul(p, nullptr, 16); dirty = true;
-          } }
+          ImGui::InputText("##t_char_id", buf, sizeof(buf), ImGuiInputTextFlags_ReadOnly); }
 
         // 17. ordinal_id
         FieldRow(OrdinalId, FieldTT::Move::OrdinalId);

@@ -10,6 +10,7 @@
 #include <cstring>
 #include <string>
 #include <functional>
+#include <unordered_set>
 
 // -------------------------------------------------------------
 //  Helpers
@@ -1027,6 +1028,54 @@ MotbinData LoadMotbin(const std::string& folderPath)
             m.displayName = "move_" + std::to_string(static_cast<uint64_t>(i));
 
         result.moves.push_back(std::move(m));
+    }
+
+    // Read .tkedit/Original_Moves.json to mark which moves are truly original game moves.
+    // Moves whose name_key is NOT in this list have isNew = true (user-created/duplicated).
+    // If the file is absent (manually placed movesets), all moves stay isNew = false.
+    {
+        std::string jsonPath = folderPath;
+        if (!jsonPath.empty() && jsonPath.back() != '\\' && jsonPath.back() != '/') jsonPath += '\\';
+        jsonPath += ".tkedit\\Original_Moves.json";
+
+        FILE* jf = nullptr;
+        if (fopen_s(&jf, jsonPath.c_str(), "r") == 0 && jf)
+        {
+            // Parse {"name_keys":[n,n,...]} — minimal hand-rolled parser
+            std::string content;
+            char buf[256];
+            while (fgets(buf, sizeof(buf), jf))
+                content += buf;
+            fclose(jf);
+
+            // Collect known name_keys into an unordered_set
+            std::unordered_set<uint32_t> originalKeys;
+            const char* p = content.c_str();
+            // Scan past "name_keys":[
+            const char* arr = strstr(p, "[");
+            if (arr) {
+                ++arr;
+                while (*arr && *arr != ']') {
+                    while (*arr == ' ' || *arr == ',') ++arr;
+                    if (*arr == ']' || *arr == '\0') break;
+                    char* end = nullptr;
+                    unsigned long v = strtoul(arr, &end, 10);
+                    if (end && end != arr) {
+                        originalKeys.insert((uint32_t)v);
+                        arr = end;
+                    } else {
+                        break;
+                    }
+                }
+            }
+
+            if (!originalKeys.empty()) {
+                for (auto& mv : result.moves) {
+                    if (originalKeys.find(mv.name_key) == originalKeys.end())
+                        mv.isNew = true;
+                }
+            }
+        }
     }
 
     result.loaded = true;

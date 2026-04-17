@@ -310,6 +310,7 @@ struct ParsedMove {
     uint32_t anim_key          = 0;   // decrypted anim index
     uint32_t ordinal_id2       = 0;   // decrypted ordinal_id2 (0xD0)
     std::string displayName;
+    bool isNew                 = false; // true for moves created/duplicated in editor (not extracted)
 
     // -- Block indexes (into MotbinData global blocks) ----------
     uint32_t cancel_idx        = 0xFFFFFFFF;  // first Cancel entry for this move
