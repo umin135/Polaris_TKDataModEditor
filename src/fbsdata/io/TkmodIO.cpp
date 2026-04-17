@@ -385,6 +385,30 @@ static bool ParseFloat(const char* p, const char* end, float& out)
     return ep != p;
 }
 
+static bool IsNonEmptyText(const char* s)
+{
+    return s && s[0] != '\0';
+}
+
+static bool IsValidCustomizeItemCommonEntry(const CustomizeItemCommonEntry& e)
+{
+    return e.item_id != 0
+        && IsNonEmptyText(e.item_code)
+        && IsNonEmptyText(e.text_key)
+        && IsNonEmptyText(e.package_id)
+        && IsNonEmptyText(e.package_sub_id);
+}
+
+static bool IsValidCustomizeItemUniqueEntry(const CustomizeItemUniqueEntry& e)
+{
+    return e.char_item_id != 0 && IsNonEmptyText(e.asset_name);
+}
+
+static bool IsValidCustomizeItemUniqueBodyEntry(const CustomizeItemUniqueBodyEntry& e)
+{
+    return e.char_item_id != 0 && IsNonEmptyText(e.asset_name);
+}
+
 static bool ParseCustomizeItemCommonEntry(const char* start, const char* end,
                                           CustomizeItemCommonEntry& e)
 {
@@ -433,7 +457,8 @@ static bool ParseCustomizeItemCommonJson(const std::string& json, ContentsBinDat
 
             CustomizeItemCommonEntry entry;
             ParseCustomizeItemCommonEntry(arr, objEnd, entry);
-            bin.commonEntries.push_back(entry);
+            if (IsValidCustomizeItemCommonEntry(entry))
+                bin.commonEntries.push_back(entry);
             arr = objEnd;
         }
         // Skip commas and whitespace between entries
@@ -637,8 +662,8 @@ static void ParseExclusiveArray(const char* json, const char* arrayKey,
             const char* objEnd = SkipObject(arr);
             if (!objEnd) break;
             TEntry entry{};
-            parseFn(arr, objEnd, entry);
-            out.push_back(entry);
+            if (parseFn(arr, objEnd, entry))
+                out.push_back(entry);
             arr = objEnd;
         }
         while (*arr == ',' || *arr == ' ' || *arr == '\n' || *arr == '\r' || *arr == '\t')
@@ -1390,15 +1415,15 @@ static bool ParseCustomizeItemUniqueListJson(const std::string& json, ContentsBi
             { auto* fp = FindField(s, e, "id_19"); ParseUInt32(fp, e, entry.unk_19); }
             { auto* fp = FindField(s, e, "id_20"); ParseUInt32(fp, e, entry.unk_20); }
             { auto* fp = FindField(s, e, "id_21"); ParseUInt32(fp, e, entry.unk_21); }
-            return true;
+            return IsValidCustomizeItemUniqueEntry(entry);
         });
     ParseExclusiveArray(p, "\"id_1\"", bin.customizeItemUniqueBodyEntries,
         [](const char* s, const char* e, CustomizeItemUniqueBodyEntry& entry) -> bool {
             { auto* fp = FindField(s, e, "id_0"); ParseString(fp, e, entry.asset_name, sizeof(entry.asset_name)); }
             { auto* fp = FindField(s, e, "id_1"); ParseUInt32(fp, e, entry.char_item_id); }
-            return true;
+            return IsValidCustomizeItemUniqueBodyEntry(entry);
         });
-    return true;
+    return !bin.customizeItemUniqueEntries.empty() || !bin.customizeItemUniqueBodyEntries.empty();
 }
 
 // -----------------------------------------------------------------------------
@@ -2545,9 +2570,11 @@ namespace TkmodIO
                 ContentsBinData bin;
                 bin.type = BinType::CustomizeItemUniqueList;
                 bin.name = binName;
-                ParseCustomizeItemUniqueListJson(jsonStr, bin);
-                loaded.selectedIndex = static_cast<int>(loaded.contents.size());
-                loaded.contents.push_back(std::move(bin));
+                if (ParseCustomizeItemUniqueListJson(jsonStr, bin))
+                {
+                    loaded.selectedIndex = static_cast<int>(loaded.contents.size());
+                    loaded.contents.push_back(std::move(bin));
+                }
             }
             else if (binName == "character_select_list.bin")
             {
