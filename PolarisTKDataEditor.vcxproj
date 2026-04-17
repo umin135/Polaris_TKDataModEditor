@@ -147,12 +147,12 @@
     </Link>
   </ItemDefinitionGroup>
   <!-- ════════════════════════════════════════════════════════ -->
-  <!-- Pre-build: regenerate data/preview_meshes.pack          -->
+  <!-- Pre-build: regenerate data/Meshes/preview_meshes.pack   -->
   <!-- Runs pack_meshes.py before every build (all configs).   -->
   <!-- ════════════════════════════════════════════════════════ -->
   <ItemDefinitionGroup>
     <PreBuildEvent>
-      <Command>cd /d "$(ProjectDir)" &amp;&amp; python _references/moveset_anim/pack_meshes.py</Command>
+      <Command>cd /d "$(ProjectDir)" &amp;&amp; python BuildEvent/pack_meshes.py</Command>
     </PreBuildEvent>
   </ItemDefinitionGroup>
   <!-- ════════════════════════════════════════════════════════ -->

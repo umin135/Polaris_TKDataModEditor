@@ -980,6 +980,7 @@ void PreviewMesh::GetBonePoses(std::vector<BonePoseInfo>& out) const
         out[i].pos[1]    = m_lastAnimWorld[i][13];
         out[i].pos[2]    = m_lastAnimWorld[i][14];
         out[i].parentIdx = m_skeleton[i].parentIdx;
+        out[i].name      = m_skeleton[i].name;
         out[i].fwd[0]    = 0.f;
         out[i].fwd[1]    = 0.f;
         out[i].fwd[2]    = 0.f;

@@ -64,6 +64,15 @@ public:
     void SetShowSkeleton(bool v) { m_showSkeleton = v; }
     bool GetShowSkeleton()  const { return m_showSkeleton; }
 
+    // Floor / camera Y offset.  Affects grid height and camera look-target only;
+    // has no effect on character animation.  Default = 115 (game floor height in cm).
+    void  SetFloorHeight(float h);
+    float GetFloorHeight() const { return m_floorHeight; }
+
+    // Current animation category (0=Fullbody, 1=Hand, …).
+    // Controls which bones are shown in the x-ray skeleton overlay.
+    void SetAnimCategory(int cat) { m_animCat = cat; }
+
     // Diagnostics
     int  GetMeshPartCount()    const;
     bool GetMeshTexLoaded()    const;  // false = white fallback in use
@@ -106,6 +115,11 @@ private:
     int  m_width     = 0;
     int  m_height    = 0;
     int  m_geoCount  = 0;
+
+    // Floor / camera Y offset (scene units, cm).  Default = game floor height.
+    float m_floorHeight = 115.f;
+    // Current animation category — drives skeleton bone filter.
+    int   m_animCat     = 0;
 
     // Orbit camera (spherical coordinates around look-target)
     float m_yaw   = 2.6416f;  // ≈ π-0.5; eye at -Z (캐릭터 정면 방향), 살짝 우측

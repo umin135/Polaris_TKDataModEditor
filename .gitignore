@@ -3,6 +3,7 @@
 /.vs
 /.claude
 /x64
+/data/Meshes
 
 build.bat
 CLAUD.md

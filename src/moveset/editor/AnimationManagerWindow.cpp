@@ -79,7 +79,7 @@ void AnimationManagerWindow::BuildAnimKeyMap()
     for (int cat = 0; cat < 6; ++cat)
         m_animKeyToPoolIdx[cat].clear();
 
-    // Pass A: Map anmbin moveList hashes â†’ motbin anim_keys (original animations).
+    // Pass A: Map anmbin moveList hashes ??motbin anim_keys (original animations).
     if (!m_motbinAnimKeys.empty())
     {
         for (int cat = 0; cat < 6; ++cat)
@@ -358,9 +358,35 @@ void AnimationManagerWindow::DoExtract(int cat, int poolIdx)
     if (panmSize == 0)
     { m_statusMsg = "Cannot determine animation size"; m_statusOk = false; return; }
 
-    // Build default save filename
+    // Build default save filename using the same display name as the list.
     char defName[MAX_PATH] = {};
-    snprintf(defName, sizeof(defName), "anim_%d%s", poolIdx, AnmbinCategoryExt(cat));
+    {
+        const char* ext = AnmbinCategoryExt(cat);
+        // Check AnimNameDB for a resolved name (same logic as getEntryName in RenderTabContent).
+        bool named = false;
+        uint32_t hash32 = static_cast<uint32_t>(m_anmbin.pool[cat][poolIdx].animKey & 0xFFFFFFFF);
+        if (m_animNameDB)
+        {
+            auto hit = m_hashToAnimKey.find(hash32);
+            if (hit != m_hashToAnimKey.end())
+            {
+                std::string n = m_animNameDB->AnimKeyToName(hit->second);
+                if (!n.empty()) { snprintf(defName, sizeof(defName), "%s%s", n.c_str(), ext); named = true; }
+            }
+            if (!named)
+            {
+                std::string n = m_animNameDB->AnimKeyToName(hash32);
+                if (!n.empty()) { snprintf(defName, sizeof(defName), "%s%s", n.c_str(), ext); named = true; }
+            }
+        }
+        if (!named)
+        {
+            if (cat == 0 && !m_charaCode.empty())
+                snprintf(defName, sizeof(defName), "anim_%s_%d%s", m_charaCode.c_str(), poolIdx, ext);
+            else
+                snprintf(defName, sizeof(defName), "anim_%d%s", poolIdx, ext);
+        }
+    }
 
     OPENFILENAMEA ofn = {};
     ofn.lStructSize = sizeof(ofn);
@@ -549,7 +575,7 @@ void AnimationManagerWindow::LoadSelectedAnim(int cat, int poolIdx)
     if (poolIdx >= (int)m_anmbin.pool[cat].size()) return;
 
     uint64_t animDataPtr = m_anmbin.pool[cat][poolIdx].animDataPtr;
-    if (animDataPtr == 0) return;  // com reference â€” no local data
+    if (animDataPtr == 0) return;  // com reference ??no local data
 
     size_t panmSize = ComputePanmSize(cat, poolIdx);
     if (panmSize == 0) return;
@@ -573,8 +599,10 @@ void AnimationManagerWindow::LoadSelectedAnim(int cat, int poolIdx)
     if (!ParsePanm(panmBytes, m_currentAnim, err)) return;
 
     m_animLoaded = true;
-    if (m_preview)
+    if (m_preview) {
+        m_preview->SetAnimCategory(cat);
         m_preview->SetAnim(&m_currentAnim, 0);
+    }
 }
 
 // -------------------------------------------------------------
@@ -617,15 +645,17 @@ void AnimationManagerWindow::RenderTabContent(int cat)
     ImGui::TextDisabled("%d animations", animCount);
     ImGui::Separator();
 
+    const bool isFullbody = (cat == 0);
     ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(4.f, 2.f));
-    if (ImGui::BeginTable("##anm_list", 3,
+    if (ImGui::BeginTable("##anm_list", isFullbody ? 3 : 2,
         ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_RowBg |
         ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingFixedFit,
         ImVec2(0.f, 0.f)))
     {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("Name",     ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("Anim_Key", ImGuiTableColumnFlags_WidthFixed, 110.f);
+        if (isFullbody)
+            ImGui::TableSetupColumn("Anim_Key", ImGuiTableColumnFlags_WidthFixed, 110.f);
         ImGui::TableSetupColumn("Size",     ImGuiTableColumnFlags_WidthFixed,  72.f);
         ImGui::TableHeadersRow();
 
@@ -657,7 +687,7 @@ void AnimationManagerWindow::RenderTabContent(int cat)
         };
 
         // Pre-compute PANM sizes for this category (one file-open for the whole list)
-        // Build sorted ptr list + fileSize once, then map ptrâ†’size per entry
+        // Build sorted ptr list + fileSize once, then map ptr?’size per entry
         std::vector<size_t> panmSizes(pool.size(), 0);
         {
             std::vector<uint64_t> allPtrs;
@@ -741,10 +771,12 @@ void AnimationManagerWindow::RenderTabContent(int cat)
 
             if (doScroll && selected) ImGui::SetScrollHereY(0.5f);
 
-            ImGui::TableSetColumnIndex(1);
-            showAnimKey(i);
+            if (isFullbody) {
+                ImGui::TableSetColumnIndex(1);
+                showAnimKey(i);
+            }
 
-            ImGui::TableSetColumnIndex(2);
+            ImGui::TableSetColumnIndex(isFullbody ? 2 : 1);
             if (panmSizes[i] > 0)
             {
                 char szBuf[32];
@@ -769,13 +801,23 @@ void AnimationManagerWindow::RenderTabContent(int cat)
 //  RenderPreviewPanel  --  right panel (3D preview)
 // -------------------------------------------------------------
 
-void AnimationManagerWindow::RenderPreviewPanel()
+void AnimationManagerWindow::RenderPreviewPanel(int cat)
 {
+    // Non-Fullbody categories: 3D preview is not yet supported.
+    if (cat != 0)
+    {
+        float avail = ImGui::GetContentRegionAvail().x;
+        const char* msg = "Not supported for preview";
+        ImGui::SetCursorPosX((avail - ImGui::CalcTextSize(msg).x) * 0.5f);
+        ImGui::TextDisabled("%s", msg);
+        return;
+    }
+
     float panelH   = ImGui::GetContentRegionAvail().y;
     float previewH = panelH * 0.72f;
     float controlH = panelH - previewH - ImGui::GetStyle().ItemSpacing.y;
 
-    // 3D preview area â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // 3D preview area ?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.07f, 0.07f, 0.07f, 1.f));
     if (ImGui::BeginChild("##3d_preview", ImVec2(0.f, previewH), true))
     {
@@ -783,7 +825,7 @@ void AnimationManagerWindow::RenderPreviewPanel()
         int    pw    = (int)avail.x;
         int    ph    = (int)avail.y;
 
-        // Resize must be called before IsReady() â€” it creates the SRV (m_srv).
+        // Resize must be called before IsReady() ??it creates the SRV (m_srv).
         // IsReady() = shadersOk && m_srv != nullptr, so the order matters.
         if (m_preview && pw > 0 && ph > 0)
             m_preview->Resize(pw, ph);
@@ -791,7 +833,7 @@ void AnimationManagerWindow::RenderPreviewPanel()
         if (m_preview && m_preview->IsReady())
         {
             // InvisibleButton claims the full preview area so ImGui marks it
-            // as the active item â€” this prevents the parent window from
+            // as the active item ??this prevents the parent window from
             // intercepting left-drag and moving itself.
             ImVec2 origin = ImGui::GetCursorScreenPos();
             ImGui::InvisibleButton("##3d_interact", avail,
@@ -853,14 +895,14 @@ void AnimationManagerWindow::RenderPreviewPanel()
     ImGui::EndChild();
     ImGui::PopStyleColor();
 
-    // Control panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // Control panel ?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.10f, 0.10f, 0.10f, 1.f));
     if (ImGui::BeginChild("##ctrl_panel", ImVec2(0.f, controlH), true))
     {
         const bool hasAnim = m_animLoaded && m_currentAnim.totalFrames > 0;
         const int  maxFrame = hasAnim ? (int)m_currentAnim.totalFrames - 1 : 0;
 
-        // â”€â”€ Advance frame when playing â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // ?€?€ Advance frame when playing ?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€
         if (hasAnim && m_playing)
         {
             m_playTime += ImGui::GetIO().DeltaTime;
@@ -876,7 +918,7 @@ void AnimationManagerWindow::RenderPreviewPanel()
                 m_preview->SetAnim(&m_currentAnim, (uint32_t)m_currentFrame);
         }
 
-        // â”€â”€ Transport buttons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // ?€?€ Transport buttons ?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€
         ImGui::BeginDisabled(!hasAnim);
 
         if (ImGui::Button("|<##bof"))
@@ -911,7 +953,7 @@ void AnimationManagerWindow::RenderPreviewPanel()
             if (m_preview) m_preview->SetAnim(&m_currentAnim, (uint32_t)m_currentFrame);
         }
 
-        // â”€â”€ Frame slider â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // ?€?€ Frame slider ?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€
         char sliderLabel[48];
         snprintf(sliderLabel, sizeof(sliderLabel), "%d / %d", m_currentFrame, maxFrame);
         ImGui::SetNextItemWidth(-1.f);
@@ -925,44 +967,51 @@ void AnimationManagerWindow::RenderPreviewPanel()
 
         ImGui::EndDisabled();
 
-        // â”€â”€ Skeleton overlay toggle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // ?€?€ Controls grid (left column / right column) ?€?€?€?€?€?€?€?€?€?€?€
         ImGui::Separator();
-        if (ImGui::Checkbox("Skeleton (X-ray)", &m_showSkeleton))
-            if (m_preview) m_preview->SetShowSkeleton(m_showSkeleton);
-
-        // â”€â”€ Debug: bone matrix dump â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-        ImGui::SameLine();
-        static char s_dumpStatus[256] = "";
-        if (ImGui::Button("Dump Frame##bonedump"))
+        float colW = ImGui::GetContentRegionAvail().x * 0.5f;
+        if (ImGui::BeginTable("##ctrl_cols", 2, ImGuiTableFlags_None))
         {
-            if (!m_preview) {
-                snprintf(s_dumpStatus, sizeof(s_dumpStatus), "FAIL: no renderer");
-            } else {
-                // Try relative path first, then absolute fallback
-                const char* paths[] = {
-                    "_references/moveset_anim/bone_dump_cpp.json",
-                    "A:/Z_GitProjects/Polaris_TKDataEditor/_references/moveset_anim/bone_dump_cpp.json",
-                    "bone_dump_cpp.json",   // last resort: current directory
-                };
-                bool ok = false;
-                const char* usedPath = nullptr;
-                for (const char* p : paths) {
-                    if (m_preview->DumpBoneMatrices(p, (uint32_t)m_currentFrame)) {
-                        ok = true; usedPath = p; break;
-                    }
-                }
-                if (ok) {
-                    snprintf(s_dumpStatus, sizeof(s_dumpStatus), "OK: %s", usedPath);
-                    ImGui::SetClipboardText(usedPath);
-                    OutputDebugStringA(("[BoneDump] OK: " + std::string(usedPath) + "\n").c_str());
-                } else {
-                    snprintf(s_dumpStatus, sizeof(s_dumpStatus), "FAIL: mesh not loaded or empty");
-                    OutputDebugStringA("[BoneDump] FAIL: mesh not loaded or m_lastAnimWorld empty\n");
-                }
-            }
+            ImGui::TableSetupColumn("##left",  ImGuiTableColumnFlags_WidthFixed, colW);
+            ImGui::TableSetupColumn("##right", ImGuiTableColumnFlags_WidthStretch);
+
+            ImGui::TableNextRow();
+
+            // ?€?€ Left column ?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€
+            ImGui::TableSetColumnIndex(0);
+
+            constexpr float kLabelW = 90.f;  // field name column width
+
+            // Row 1: Skeleton View [checkbox]
+            ImGui::Text("Skeleton View");
+            ImGui::SameLine(kLabelW);
+            if (ImGui::Checkbox("##skel", &m_showSkeleton))
+                if (m_preview) m_preview->SetShowSkeleton(m_showSkeleton);
+
+            // Row 2: Floor Y [input] [Set]
+            ImGui::Text("Floor Y");
+            ImGui::SameLine(kLabelW);
+            ImGui::SetNextItemWidth(60.f);
+            ImGui::InputFloat("##floorH", &m_floorHeightInput, 0.f, 0.f, "%.0f");
+            ImGui::SameLine();
+            if (ImGui::Button("Set##floorH") && m_preview)
+                m_preview->SetFloorHeight(m_floorHeightInput);
+
+            // ?€?€ Right column ?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€
+            ImGui::TableSetColumnIndex(1);
+            // (reserved for future controls)
+
+            ImGui::EndTable();
         }
-        if (s_dumpStatus[0])
-            ImGui::TextUnformatted(s_dumpStatus);
+
+        // [REMOVED] Dump Frame button was here.
+        // Bone pose dump logic (for future animation category analysis):
+        //   - Iterates all bones in the skeleton, retrieves world-space transform.
+        //   - Writes bone name + 4x4 world matrix as JSON via DumpBoneMatrices().
+        //   - Intended use: compare C++ bone world positions against Blender reference
+        //     to validate animation conversion for non-Fullbody categories (Hand, Facial, etc.)
+        //   - The implementation lives in PreviewRenderer::DumpBoneMatrices() (PreviewRenderer.cpp).
+        //   - If needed again, see git history for the "Dump Frame##bonedump" button block.
     }
     ImGui::EndChild();
     ImGui::PopStyleColor();
@@ -998,9 +1047,9 @@ bool AnimationManagerWindow::Render()
         return m_open;
     }
 
-    // â”€â”€ Toolbar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ?€?€ Toolbar ?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€
 
-    // [Add â–¾] button
+    // [Add ?? button
     if (ImGui::Button("Add"))
         ImGui::OpenPopup("##add_menu");
 
@@ -1046,7 +1095,7 @@ bool AnimationManagerWindow::Render()
 
     ImGui::Separator();
 
-    // â”€â”€ Tabs + split layout â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ?€?€ Tabs + split layout ?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€
 
     if (ImGui::BeginTabBar("##anm_tabs"))
     {
@@ -1078,7 +1127,7 @@ bool AnimationManagerWindow::Render()
                 ImGui::SameLine();
 
                 if (ImGui::BeginChild("##preview_panel", ImVec2(rightW, 0.f), false))
-                    RenderPreviewPanel();
+                    RenderPreviewPanel(cat);
                 ImGui::EndChild();
 
                 ImGui::EndTabItem();
@@ -1087,7 +1136,7 @@ bool AnimationManagerWindow::Render()
         ImGui::EndTabBar();
     }
 
-    // â”€â”€ Remove confirmation modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ?€?€ Remove confirmation modal ?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€?€
 
     if (m_removeConfirm.showing)
     {

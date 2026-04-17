@@ -4,11 +4,13 @@
 
 #include "PreviewRenderer.h"
 #include "PreviewMesh.h"
+#include "SkeletonBoneFilter.h"
 
 #include <d3d11.h>
 #include <d3dcompiler.h>
 #include <DirectXMath.h>
 #include <vector>
+#include <unordered_set>
 #include <cstring>
 #include <cmath>
 
@@ -48,31 +50,32 @@ float4 PS_main(VSOut v) : SV_TARGET
 struct Vtx { float x, y, z, r, g, b; };
 
 // Builds axis lines (Y-up viewer space) and a ground grid.
-static std::vector<Vtx> BuildGeometry()
+// floorHeight: Y coordinate for the ground grid (default = game floor, 115 cm).
+static std::vector<Vtx> BuildGeometry(float floorHeight)
 {
     std::vector<Vtx> v;
 
-    // Axis lines: 100-unit length from origin, Y-up convention.
+    // Axis lines: 100-unit length, origin at floor level so they align with the grid.
     // X = right  (red)
-    v.push_back({   0,   0,   0,   0.90f, 0.20f, 0.20f });
-    v.push_back({ 100,   0,   0,   0.90f, 0.20f, 0.20f });
+    v.push_back({   0,         floorHeight,   0,   0.90f, 0.20f, 0.20f });
+    v.push_back({ 100,         floorHeight,   0,   0.90f, 0.20f, 0.20f });
     // Y = up  (green)
-    v.push_back({   0,   0,   0,   0.20f, 0.85f, 0.20f });
-    v.push_back({   0, 100,   0,   0.20f, 0.85f, 0.20f });
+    v.push_back({   0,         floorHeight,   0,   0.20f, 0.85f, 0.20f });
+    v.push_back({   0, floorHeight + 100.f,   0,   0.20f, 0.85f, 0.20f });
     // Z = forward  (blue) — 캐릭터 정면(-Z) 방향
-    v.push_back({   0,   0,   0,   0.20f, 0.50f, 0.90f });
-    v.push_back({   0,   0,-100,   0.20f, 0.50f, 0.90f });
+    v.push_back({   0,         floorHeight,    0,  0.20f, 0.50f, 0.90f });
+    v.push_back({   0,         floorHeight, -100,  0.20f, 0.50f, 0.90f });
 
-    // Ground grid at Y=0, 20-unit spacing, extends ±120 in X and Z.
+    // Ground grid at Y=floorHeight, 20-unit spacing, extends ±120 in X and Z.
     // ±200 범위는 eye(-Z≈213)에서 근거리 끝(z=-200)이 13유닛 → 극단적 원근 왜곡.
     // ±120으로 축소하면 근거리 끝(z=-120)이 eye에서 약 93유닛으로 적절.
     constexpr float gc = 0.22f;
     for (int i = -6; i <= 6; ++i) {
         float p = (float)i * 20.f;
-        v.push_back({    p, 0.f, -120.f,  gc, gc, gc });
-        v.push_back({    p, 0.f,  120.f,  gc, gc, gc });
-        v.push_back({ -120.f, 0.f,    p,  gc, gc, gc });
-        v.push_back({  120.f, 0.f,    p,  gc, gc, gc });
+        v.push_back({    p, floorHeight, -120.f,  gc, gc, gc });
+        v.push_back({    p, floorHeight,  120.f,  gc, gc, gc });
+        v.push_back({ -120.f, floorHeight,    p,  gc, gc, gc });
+        v.push_back({  120.f, floorHeight,    p,  gc, gc, gc });
     }
     return v;
 }
@@ -168,7 +171,7 @@ bool PreviewRenderer::Init(ID3D11Device* dev, ID3D11DeviceContext* ctx)
 
     // ── Geometry vertex buffer ─────────────────────────────────────
     {
-        std::vector<Vtx> verts = BuildGeometry();
+        std::vector<Vtx> verts = BuildGeometry(m_floorHeight);
         m_geoCount = (int)verts.size();
 
         D3D11_BUFFER_DESC bd = {};
@@ -293,8 +296,8 @@ void PreviewRenderer::Render()
     m_ctx->RSSetViewports(1, &vp);
 
     // ── Camera ────────────────────────────────────────────────────
-    // Look-target: (0, 100, 0) — mid-character in viewer Y-up space.
-    XMVECTOR target = XMVectorSet(0.f, 100.f, 0.f, 0.f);
+    // Look-target: 100 units above floor height — mid-character in viewer Y-up space.
+    XMVECTOR target = XMVectorSet(0.f, m_floorHeight + 100.f, 0.f, 0.f);
     XMVECTOR up     = XMVectorSet(0.f,   1.f, 0.f, 0.f);
 
     // Prevent gimbal lock near straight-up / straight-down
@@ -375,6 +378,25 @@ void PreviewRenderer::ResetCamera()
     m_dist  = 250.f;
 }
 
+void PreviewRenderer::SetFloorHeight(float h)
+{
+    m_floorHeight = h;
+
+    // Rebuild grid geometry VB with new Y offset.
+    if (!m_dev) return;
+    if (m_geoVB) { m_geoVB->Release(); m_geoVB = nullptr; }
+
+    std::vector<Vtx> verts = BuildGeometry(m_floorHeight);
+    m_geoCount = (int)verts.size();
+
+    D3D11_BUFFER_DESC bd = {};
+    bd.ByteWidth = (UINT)(m_geoCount * sizeof(Vtx));
+    bd.Usage     = D3D11_USAGE_IMMUTABLE;
+    bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+    D3D11_SUBRESOURCE_DATA sd = { verts.data() };
+    m_dev->CreateBuffer(&bd, &sd, &m_geoVB);
+}
+
 // ─── Mesh helpers ─────────────────────────────────────────────────────────────
 
 void PreviewRenderer::LoadMeshes(const std::string& meshFolder)
@@ -419,20 +441,31 @@ void PreviewRenderer::DrawSkeletonLines(const float viewProj[16])
     m_mesh->GetBonePoses(poses);
     if (poses.empty()) return;
 
+    // Build allowed-bone set from the active category filter.
+    // If the filter list is empty (unimplemented categories) draw nothing.
+    const std::vector<std::string>& filterList = SkeletonBoneFilter::GetList(m_animCat);
+    if (filterList.empty()) return;
+
+    std::unordered_set<std::string> allowed(filterList.begin(), filterList.end());
+
     struct SkelVtx { float x, y, z, r, g, b; };
     std::vector<SkelVtx> verts;
     verts.reserve(poses.size() * 6);
 
-    // Bone lines: parent → child (yellow)
+    // Bone lines: parent → child (yellow).
+    // Draw only when the child bone is in the allowed set.
     for (auto& p : poses) {
+        if (allowed.find(p.name) == allowed.end()) continue;
         if (p.parentIdx < 0 || p.parentIdx >= (int)poses.size()) continue;
         auto& par = poses[p.parentIdx];
         verts.push_back({ par.pos[0], par.pos[1], par.pos[2], 1.f, 0.80f, 0.10f });
         verts.push_back({ p.pos[0],   p.pos[1],   p.pos[2],   1.f, 0.80f, 0.10f });
     }
-    // Joint markers: cross (cyan), 3-unit arm
+    // Joint markers: cross (cyan), 3-unit arm.
+    // Draw only for bones in the allowed set.
     const float ks = 3.f;
     for (auto& p : poses) {
+        if (allowed.find(p.name) == allowed.end()) continue;
         verts.push_back({ p.pos[0]-ks, p.pos[1],    p.pos[2],    0.2f, 1.f, 0.8f });
         verts.push_back({ p.pos[0]+ks, p.pos[1],    p.pos[2],    0.2f, 1.f, 0.8f });
         verts.push_back({ p.pos[0],    p.pos[1]-ks, p.pos[2],    0.2f, 1.f, 0.8f });

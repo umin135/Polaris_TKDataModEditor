@@ -74,7 +74,7 @@ private:
     void TryLoad();
     void BuildAnimKeyMap();
     void RenderTabContent(int cat);
-    void RenderPreviewPanel();
+    void RenderPreviewPanel(int cat);
     void LoadSelectedAnim(int cat, int poolIdx);
 
     // Action handlers
@@ -138,5 +138,6 @@ private:
     int         m_previewCat    = -1;   // cat of the last loaded animation
     int         m_previewPoolIdx= -1;   // poolIdx of the last loaded animation
     bool        m_showSkeleton  = false; // x-ray skeleton overlay toggle
+    float       m_floorHeightInput = 115.f; // UI input value for floor/camera Y offset
 };
 

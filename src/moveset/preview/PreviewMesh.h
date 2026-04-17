@@ -58,10 +58,11 @@ public:
     // Per-bone world-space info cached from the last Draw() call.
     // Used by PreviewRenderer to draw skeleton lines.
     struct BonePoseInfo {
-        float pos[3];       // world-space origin of this bone
-        float fwd[3];       // local +Z axis in world space (non-zero for HARA_ROT1 only,
-                            //   filled with ANIMATED world to drive the gizmo arrow)
-        int   parentIdx;
+        float       pos[3];       // world-space origin of this bone
+        float       fwd[3];       // local +Z axis in world space (non-zero for HARA_ROT1 only,
+                                  //   filled with ANIMATED world to drive the gizmo arrow)
+        int         parentIdx;
+        std::string name;         // bone name — used for skeleton filter lookup
     };
     // Fills 'out' with one entry per bone. Empty if Draw() has not yet been called.
     void GetBonePoses(std::vector<BonePoseInfo>& out) const;
