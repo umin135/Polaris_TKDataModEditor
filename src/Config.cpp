@@ -10,7 +10,7 @@ Config& Config::Get()
     return s_instance;
 }
 
-// Returns the path to "config.ini" in the same directory as the exe.
+// Returns the path to "res/config.ini" relative to the exe directory.
 std::string Config::GetConfigPath()
 {
     wchar_t exePath[MAX_PATH] = {};
@@ -25,7 +25,9 @@ std::string Config::GetConfigPath()
     std::string dir(len > 1 ? len - 1 : 0, '\0');
     WideCharToMultiByte(CP_UTF8, 0, exePath, -1, &dir[0], len, nullptr, nullptr);
 
-    return dir + "config.ini";
+    std::string resDir = dir + "res";
+    CreateDirectoryA(resDir.c_str(), nullptr);
+    return resDir + "\\config.ini";
 }
 
 // -------------------------------------------------------------

@@ -26,7 +26,9 @@ std::string GameStatic::GetIniPath()
     std::string dir(len > 1 ? len - 1 : 0, '\0');
     WideCharToMultiByte(CP_UTF8, 0, exePath, -1, &dir[0], len, nullptr, nullptr);
 
-    return dir + "GameStatic.ini";
+    std::string resDir = dir + "res";
+    CreateDirectoryA(resDir.c_str(), nullptr);
+    return resDir + "\\GameStatic.ini";
 }
 
 // -------------------------------------------------------------

@@ -349,7 +349,7 @@ void App::Render()
         ImGuiDockNodeFlags_NoDockingSplit;                  // prevent creating new splits
     ImGui::DockSpace(dockspaceId, ImVec2(0.0f, 0.0f), dockspaceFlags);
 
-    // Build the default layout once -- only when no .ini state has been loaded
+    // Build the default layout once per run (imgui.ini is disabled, so always fresh)
     static bool layoutReady = false;
     if (!layoutReady)
     {
