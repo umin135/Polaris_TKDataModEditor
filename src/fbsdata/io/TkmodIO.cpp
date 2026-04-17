@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 #include <cstdint>
+#include <unordered_set>
 
 #pragma comment(lib, "comdlg32.lib")
 
@@ -2338,12 +2339,101 @@ static std::string OpenLoadDialog()
     return WideToUtf8(szFile);
 }
 
-// ???????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????//  Public API
-// ???????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
+// ==========================================================
+//  Entry validation
+// ==========================================================
+
+static const uint32_t kMinCustomItemId = 20000000;
+
+namespace TkmodIO
+{
+    std::vector<std::string> Validate(const ModData& data)
+    {
+        std::vector<std::string> errors;
+
+        for (size_t bi = 0; bi < data.contents.size(); ++bi)
+        {
+            const auto& bin = data.contents[bi];
+            std::string ctx = bin.name.empty() ? ("bin[" + std::to_string(bi) + "]") : bin.name;
+
+            if (bin.type == BinType::CustomizeItemCommonList)
+            {
+                std::unordered_set<uint32_t> ids;
+                for (size_t i = 0; i < bin.commonEntries.size(); ++i)
+                {
+                    const auto& e = bin.commonEntries[i];
+                    std::string loc = ctx + " entry[" + std::to_string(i) + "]";
+
+                    if (e.item_id == 0)
+                        errors.push_back(loc + ": item_id is 0");
+                    else if (e.item_id < kMinCustomItemId)
+                        errors.push_back(loc + " (item_id=" + std::to_string(e.item_id)
+                            + "): below custom range (" + std::to_string(kMinCustomItemId)
+                            + "); will corrupt save data if equipped and mod is removed");
+                    if (e.item_code[0] == '\0')
+                        errors.push_back(loc + ": item_code is empty");
+                    if (e.package_id[0] == '\0')
+                        errors.push_back(loc + ": package_id is empty");
+                    if (!ids.insert(e.item_id).second)
+                        errors.push_back(loc + ": duplicate item_id=" + std::to_string(e.item_id));
+                }
+            }
+            else if (bin.type == BinType::CharacterList)
+            {
+                for (size_t i = 0; i < bin.characterEntries.size(); ++i)
+                {
+                    const auto& e = bin.characterEntries[i];
+                    std::string loc = ctx + " entry[" + std::to_string(i) + "]";
+
+                    if (e.character_code[0] == '\0')
+                        errors.push_back(loc + ": character_code is empty");
+                    if (e.name_hash == 0)
+                        errors.push_back(loc + ": name_hash is 0");
+                }
+            }
+            else if (bin.type == BinType::CustomizeItemUniqueList)
+            {
+                for (size_t i = 0; i < bin.customizeItemUniqueEntries.size(); ++i)
+                {
+                    const auto& e = bin.customizeItemUniqueEntries[i];
+                    std::string loc = ctx + " unique_entry[" + std::to_string(i) + "]";
+
+                    if (e.char_item_id == 0)
+                        errors.push_back(loc + ": char_item_id is 0");
+                    if (e.asset_name[0] == '\0')
+                        errors.push_back(loc + ": asset_name is empty");
+                    if (e.character_hash == 0)
+                        errors.push_back(loc + ": character_hash is 0");
+                }
+            }
+        }
+        return errors;
+    }
+}
+
+// ==========================================================
+//  Public API
+// ==========================================================
 namespace TkmodIO
 {
     bool SaveDialog(const ModData& data)
     {
+        // Validate before save
+        auto errors = Validate(data);
+        if (!errors.empty())
+        {
+            std::string msg = "The following issues were found:\n\n";
+            for (size_t i = 0; i < errors.size() && i < 10; ++i)
+                msg += "- " + errors[i] + "\n";
+            if (errors.size() > 10)
+                msg += "\n... and " + std::to_string(errors.size() - 10) + " more.\n";
+            msg += "\nSaving a malformed .tkmod can corrupt game save data.\n"
+                   "Save anyway?";
+            int result = MessageBoxA(nullptr, msg.c_str(), "TkMod Validation Warning",
+                                     MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2);
+            if (result != IDYES) return false;
+        }
+
         const std::string path = OpenSaveDialog();
         if (path.empty()) return false;
 
