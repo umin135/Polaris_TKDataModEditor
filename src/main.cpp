@@ -208,10 +208,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
     const std::string startupFile = ParseStartupFilePath();
 
     // Register window class
+    HICON hIconBig   = LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_APPICON));
+    HICON hIconSmall = (HICON)LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_APPICON),
+                                         IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR);
     WNDCLASSEXW wc = {
         sizeof(wc), CS_CLASSDC, WndProc, 0L, 0L,
-        GetModuleHandle(nullptr), nullptr, nullptr, nullptr, nullptr,
-        L"PolarisTKDataEditor", nullptr
+        GetModuleHandle(nullptr), hIconBig, nullptr, nullptr, nullptr,
+        L"PolarisTKDataEditor", hIconSmall
     };
     ::RegisterClassExW(&wc);
 
@@ -222,6 +225,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
         100, 100, 1280, 720,
         nullptr, nullptr, wc.hInstance, nullptr
     );
+
+    // Explicitly set taskbar / title-bar icons (covers secondary viewports too)
+    ::SendMessageW(hwnd, WM_SETICON, ICON_BIG,   (LPARAM)hIconBig);
+    ::SendMessageW(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)hIconSmall);
 
     if (!CreateDeviceD3D(hwnd))
     {

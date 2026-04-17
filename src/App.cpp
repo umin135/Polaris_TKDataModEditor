@@ -465,13 +465,13 @@ void App::RenderSidebar(float sidebarWidth)
     // -- App logo / short title --
     ImGui::SetCursorPosY(14.0f);
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.82f, 1.00f, 1.00f));
-    const char* logoText = "PolarisTK";
+    const char* logoText = AppStr::SidebarLogoText;
     ImGui::SetCursorPosX((sidebarWidth - ImGui::CalcTextSize(logoText).x) * 0.5f);
     ImGui::Text("%s", logoText);
     ImGui::PopStyleColor();
 
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.38f, 0.38f, 0.50f, 1.00f));
-    const char* subText = "Data Editor";
+    const char* subText = AppStr::SidebarSubText;
     ImGui::SetCursorPosX((sidebarWidth - ImGui::CalcTextSize(subText).x) * 0.5f);
     ImGui::Text("%s", subText);
     ImGui::PopStyleColor();

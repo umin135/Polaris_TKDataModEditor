@@ -10,6 +10,10 @@ namespace AppStr
     // ── Tool version (shown bottom-left of sidebar) ───────────────────────────
     static constexpr const char* Version       = "v0.1.0b";
 
+    // ── Sidebar header text (top of the sidebar) ─────────────────────────────
+    static constexpr const char* SidebarLogoText = "TEKKEN8";
+    static constexpr const char* SidebarSubText  = "TKData Mod Editor";
+
     // ── Sidebar layout ────────────────────────────────────────────────────────
     static constexpr float       SidebarWidth  = 200.0f;
 
@@ -25,7 +29,7 @@ namespace AppStr
     static constexpr const char* BtnMotbinDiff = "MOTBIN DIFF";
 
     // ── Home view — title / subtitle (shown when logo texture is unavailable) ─
-    static constexpr const char* AppTitle      = "Polaris TKData Editor";
+    static constexpr const char* AppTitle      = "TEKKEN8 TKData Mod Editor";
     static constexpr const char* AppSubtitle   = "TEKKEN8 TKData Mod Editor";
 
     // ── Home view — Supported Modules table ──────────────────────────────────

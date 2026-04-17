@@ -4,6 +4,7 @@
 /.claude
 /x64
 /data/Meshes
+/res-wip
 
 build.bat
 CLAUD.md

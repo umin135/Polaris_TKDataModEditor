@@ -2,7 +2,8 @@
 
 #include "resource.h"
 
-IDI_TKMOD_FILE    ICON   "res\\tkmod_256.ico"
+IDI_APPICON       ICON   "res\\icons\\icon_editor.ico"
+IDI_TKMOD_FILE    ICON   "res\\icons\\icon_tkmod.ico"
 IDR_HOME_LOGO_PNG RCDATA "res\\Home_Logo.png"
 IDR_FONT_REGULAR  RCDATA "res\\fonts\\en\\NotoSans-Regular.ttf"
 IDR_FONT_BOLD     RCDATA "res\\fonts\\en\\NotoSans-Bold.ttf"
