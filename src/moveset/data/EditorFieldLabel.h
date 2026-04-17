@@ -160,8 +160,8 @@ namespace ReactionLabel {
 //  Pushback fields  (tk_pushback)
 // -----------------------------------------------------------------------
 namespace PushbackLabel {
-    static constexpr const char* NonLinearDisplacement = "non_linear_displacement";
-    static constexpr const char* NonLinearDistance     = "non_linear_distance";
+    static constexpr const char* LinearDuration        = "linear_duration";
+    static constexpr const char* LinearDisplacement    = "linear_displacement";
     static constexpr const char* NumOfExtraPushbacks   = "num_of_extra_pushbacks";
     static constexpr const char* PushbackExtradata     = "pushback_extradata";
 } // namespace PushbackLabel
