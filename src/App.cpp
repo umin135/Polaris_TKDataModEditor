@@ -2,6 +2,7 @@
 #include "App.h"
 #include "Config.h"
 #include "GameStatic.h"
+#include "KamuiDictUpdater.h"
 #include "moveset/labels/LabelDB.h"
 #include "imgui/imgui.h"
 #include "imgui/imgui_internal.h"  // DockBuilder API
@@ -220,6 +221,38 @@ App::App(ID3D11Device* device, ID3D11DeviceContext* ctx)
         {
             // Disk files not found -- fall back to embedded RCDATA resources
             LabelDB::Get().LoadFromResources();
+        }
+
+        // Kamui hash dictionary (move/anim/voiceclip name recovery).
+        // Always loaded from res/kamui-hashes/data.json next to the exe.
+        // The build event copies data/kamui-hashes/ to $(OutDir)res/kamui-hashes/.
+        // On startup, the remote version is checked and data.json is updated if newer.
+        {
+            const std::string resCandidates[] = {
+                exeDir + "\\res",
+                exeDir + "\\..\\res",
+                exeDir + "\\..\\..\\res",
+                exeDir + "\\..\\..\\..\\res",
+            };
+            std::string kamuiDataPath;
+            for (const auto& res : resCandidates)
+            {
+                std::string p = res + "\\kamui-hashes\\data.json";
+                FILE* f = nullptr; fopen_s(&f, p.c_str(), "rb");
+                if (f) { fclose(f); kamuiDataPath = p; break; }
+            }
+
+            // Check remote for a newer version and update if available.
+            // Uses the first candidate res/ dir that contained data.json.
+            if (!kamuiDataPath.empty())
+            {
+                std::string resDir = kamuiDataPath.substr(0, kamuiDataPath.rfind("\\kamui-hashes"));
+                if (KamuiDictCheckAndUpdate(resDir))
+                {
+                    // data.json was updated; reload from the same path
+                }
+                LabelDB::Get().AddNames(kamuiDataPath);
+            }
         }
     }
 

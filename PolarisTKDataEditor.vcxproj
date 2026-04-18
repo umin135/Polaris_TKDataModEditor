@@ -154,12 +154,18 @@
     <PreBuildEvent>
       <Command>cd /d "$(ProjectDir)" &amp;&amp; python BuildEvent/pack_meshes.py</Command>
     </PreBuildEvent>
+    <PostBuildEvent>
+      <Command>if not exist "$(OutDir)res\kamui-hashes\" mkdir "$(OutDir)res\kamui-hashes\"
+xcopy /Y /Q "$(ProjectDir)data\kamui-hashes\version.json" "$(OutDir)res\kamui-hashes\"
+xcopy /Y /Q "$(ProjectDir)data\kamui-hashes\data.json"    "$(OutDir)res\kamui-hashes\"</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <!-- ════════════════════════════════════════════════════════ -->
   <!-- Application source files                                -->
   <!-- ════════════════════════════════════════════════════════ -->
   <ItemGroup>
     <ClCompile Include="src\GameStatic.cpp" />
+    <ClCompile Include="src\KamuiDictUpdater.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\App.cpp" />
     <ClCompile Include="src\Config.cpp" />

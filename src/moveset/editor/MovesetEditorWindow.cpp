@@ -1499,10 +1499,13 @@ void MovesetEditorWindow::RenderSection_Overview(ParsedMove& m, bool& dirty)
         // 3. anim_key
         {
             const bool db = m_animNameDB.IsLoaded();
+            const char* kamuiAnimName = LabelDB::Get().GetMoveName(m.anim_key);
             if (m_animKeyBufIdx != m_selectedIdx)
             {
                 m_animKeyBufIdx = m_selectedIdx;
-                if (db)
+                if (kamuiAnimName)
+                    snprintf(m_animKeyBuf, sizeof(m_animKeyBuf), "%s", kamuiAnimName);
+                else if (db)
                 {
                     std::string animName = m_animNameDB.AnimKeyToName(m.anim_key);
                     if (!animName.empty())
@@ -1515,11 +1518,12 @@ void MovesetEditorWindow::RenderSection_Overview(ParsedMove& m, bool& dirty)
             }
             uint32_t resolvedKey = 0;
             const bool animValid = db && m_animNameDB.NameToAnimKey(m_animKeyBuf, resolvedKey);
-            const bool isComRef  = db && !animValid
+            const bool hasKamui  = (kamuiAnimName != nullptr);
+            const bool isComRef  = !hasKamui && db && !animValid
                                  && m_animKeyBuf[0] == '0'
                                  && (m_animKeyBuf[1] == 'x' || m_animKeyBuf[1] == 'X');
             static constexpr ImVec4 kYellow = {1.00f, 0.85f, 0.30f, 1.0f};
-            const ImVec4& lblCol = !db ? kGray : (animValid ? kGreen : (isComRef ? kYellow : kPink));
+            const ImVec4& lblCol = (hasKamui || animValid) ? kGreen : (!db ? kGray : (isComRef ? kYellow : kPink));
 
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
@@ -1536,10 +1540,16 @@ void MovesetEditorWindow::RenderSection_Overview(ParsedMove& m, bool& dirty)
                     uint32_t newKey = 0;
                     if (m_animNameDB.NameToAnimKey(m_animKeyBuf, newKey)) {
                         m.anim_key = newKey; dirty = true;
-                    } else if (m_animKeyBuf[0]=='0' && (m_animKeyBuf[1]=='x'||m_animKeyBuf[1]=='X')) {
-                        char* end;
-                        uint32_t v = (uint32_t)strtoul(m_animKeyBuf + 2, &end, 16);
-                        if (end != m_animKeyBuf + 2) { m.anim_key = v; dirty = true; }
+                    } else {
+                        // Try KamuiHash reverse lookup (kamui dict name typed directly)
+                        uint32_t kh = (uint32_t)KamuiHash::Compute(m_animKeyBuf);
+                        if (LabelDB::Get().GetMoveName(kh) != nullptr) {
+                            m.anim_key = kh; dirty = true;
+                        } else if (m_animKeyBuf[0]=='0' && (m_animKeyBuf[1]=='x'||m_animKeyBuf[1]=='X')) {
+                            char* end;
+                            uint32_t v = (uint32_t)strtoul(m_animKeyBuf + 2, &end, 16);
+                            if (end != m_animKeyBuf + 2) { m.anim_key = v; dirty = true; }
+                        }
                     }
                 }
             }
@@ -4921,6 +4931,14 @@ void MovesetEditorWindow::RenderSubWin_ParryableMoves()
     auto mkPmGroups = [&]{ return ComputeGroups(block, isPmEnd); };
     auto groups = mkPmGroups();
 
+    // Resolve ordinal_id hash → move displayName for labeling.
+    auto ordinalToName = [&](uint32_t ordinal) -> const char* {
+        for (const auto& mv : m_data.moves)
+            if (mv.ordinal_id2 == ordinal && !mv.displayName.empty())
+                return mv.displayName.c_str();
+        return nullptr;
+    };
+
     float colW = ImGui::GetContentRegionAvail().x / 3.0f - ImGui::GetStyle().ItemSpacing.x;
 
     // Outer list
@@ -5019,9 +5037,14 @@ void MovesetEditorWindow::RenderSubWin_ParryableMoves()
                 if (idx >= (uint32_t)block.size()) break;
                 const ParsedParryableMove& pm = block[idx];
                 const bool isEnd = isPmEnd(pm);
-                char lbl[48];
-                if (isEnd) snprintf(lbl, sizeof(lbl), "#%u  [END]##pmi%u", k, idx);
-                else        snprintf(lbl, sizeof(lbl), "#%u  0x%X##pmi%u", k, pm.value, idx);
+                char lbl[128];
+                if (isEnd) {
+                    snprintf(lbl, sizeof(lbl), "#%u  [END]##pmi%u", k, idx);
+                } else {
+                    const char* mvName = ordinalToName(pm.value);
+                    if (mvName) snprintf(lbl, sizeof(lbl), "#%u  %s##pmi%u", k, mvName, idx);
+                    else        snprintf(lbl, sizeof(lbl), "#%u  0x%X##pmi%u", k, pm.value, idx);
+                }
                 bool sel = (m_parryWinSel.inner == (int)k);
                 if (isEnd) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
                 if (ImGui::Selectable(lbl, sel)) m_parryWinSel.inner = (int)k;
@@ -5044,8 +5067,15 @@ void MovesetEditorWindow::RenderSubWin_ParryableMoves()
         {
             ParsedParryableMove& pm = m_data.parryableMoveBlock[idx];
             const bool isEnd = (pm.value == 0);
-            ImGui::TextDisabled("parryable_move #%u  (block[%u])%s",
-                m_parryWinSel.inner, idx, isEnd ? "  [END]" : "");
+            {
+                const char* mvName = (!isEnd) ? ordinalToName(pm.value) : nullptr;
+                if (mvName)
+                    ImGui::TextDisabled("parryable_move #%u  (block[%u])  →  %s",
+                        m_parryWinSel.inner, idx, mvName);
+                else
+                    ImGui::TextDisabled("parryable_move #%u  (block[%u])%s",
+                        m_parryWinSel.inner, idx, isEnd ? "  [END]" : "");
+            }
             ImGui::Separator();
             if (BeginPropTable("##pmdt"))
             {
@@ -5104,8 +5134,10 @@ void MovesetEditorWindow::RenderSubWin_Dialogues()
         ImGui::BeginChild("##dlg_list_sl", ImVec2(0, 0), false);
         for (int i = 0; i < total; ++i) {
             const ParsedDialogue& d = block[i];
-            char lbl[48];
-            snprintf(lbl, sizeof(lbl), "#%d  t:%u id:%u##dlgi%d", i, d.type, d.id, i);
+            char lbl[128];
+            const char* vcName = LabelDB::Get().GetMoveName(d.voiceclip_key);
+            if (vcName) snprintf(lbl, sizeof(lbl), "#%d  %s##dlgi%d", i, vcName, i);
+            else        snprintf(lbl, sizeof(lbl), "#%d  t:%u id:%u##dlgi%d", i, d.type, d.id, i);
             bool sel = (m_dialogueSel == i);
             if (ImGui::Selectable(lbl, sel)) m_dialogueSel = i;
         }
@@ -5140,6 +5172,14 @@ void MovesetEditorWindow::RenderSubWin_Dialogues()
                 }
             }
             if (RowU32Edit("##dlg_vckey", DialogueLabel::VoiceclipKey, d.voiceclip_key,   FieldTT::Dialogue::VoiceclipKey))  m_dirty = true;
+            {
+                const char* vcName = LabelDB::Get().GetMoveName(d.voiceclip_key);
+                if (vcName) {
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(1);
+                    ImGui::TextDisabled("%s", vcName);
+                }
+            }
             if (RowU32Edit("##dlg_fanim", DialogueLabel::FacialAnimIdx, d.facial_anim_idx, FieldTT::Dialogue::FacialAnimIdx)) m_dirty = true;
             ImGui::EndTable();
         }
