@@ -1882,18 +1882,33 @@ void FbsDataView::RenderCustomizeItemUniqueListEditor(ContentsBinData& bin)
         if (ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
             bin.customizeItemUniqueEntries.push_back(CustomizeItemUniqueEntry{});
 
-        // cols: #, char_item_id, asset_name, character_hash, text_key, price, hash_2, hash_3
-        if (ImGui::BeginTable("##CIUTable", 9, tFlags, ImGui::GetContentRegionAvail()))
+        // cols: # + all 22 schema fields (id 0..21)
+        if (ImGui::BeginTable("##CIUTable", 23, tFlags, ImGui::GetContentRegionAvail()))
         {
             ImGui::TableSetupScrollFreeze(1, 1);
-            ImGui::TableSetupColumn("#",                                  ImGuiTableColumnFlags_WidthFixed, 52.0f);
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[0],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[1],   ImGuiTableColumnFlags_WidthFixed, 200.0f);
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[2],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[4],   ImGuiTableColumnFlags_WidthFixed, 200.0f);
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[11],  ImGuiTableColumnFlags_WidthFixed, 80.0f);
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[14],  ImGuiTableColumnFlags_WidthFixed, 95.0f);
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[17],  ImGuiTableColumnFlags_WidthFixed, 95.0f);
+            ImGui::TableSetupColumn("#",                                   ImGuiTableColumnFlags_WidthFixed,  52.0f);
+            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[0],    ImGuiTableColumnFlags_WidthFixed,  95.0f);  // char_item_id
+            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[1],    ImGuiTableColumnFlags_WidthFixed, 200.0f);  // asset_name
+            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[2],    ImGuiTableColumnFlags_WidthFixed,  95.0f);  // character_hash
+            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[3],    ImGuiTableColumnFlags_WidthFixed,  95.0f);  // hash_1
+            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[4],    ImGuiTableColumnFlags_WidthFixed, 200.0f);  // text_key
+            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[5],    ImGuiTableColumnFlags_WidthFixed, 200.0f);  // extra_text_key_1
+            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[6],    ImGuiTableColumnFlags_WidthFixed, 200.0f);  // extra_text_key_2
+            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[7],    ImGuiTableColumnFlags_WidthFixed,  60.0f);  // flag_7
+            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[8],    ImGuiTableColumnFlags_WidthFixed,  80.0f);  // unk_8
+            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[9],    ImGuiTableColumnFlags_WidthFixed,  60.0f);  // flag_9
+            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[10],   ImGuiTableColumnFlags_WidthFixed,  80.0f);  // unk_10
+            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[11],   ImGuiTableColumnFlags_WidthFixed,  80.0f);  // price
+            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[12],   ImGuiTableColumnFlags_WidthFixed,  80.0f);  // unk_12
+            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[13],   ImGuiTableColumnFlags_WidthFixed,  80.0f);  // unk_13
+            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[14],   ImGuiTableColumnFlags_WidthFixed,  95.0f);  // hash_2
+            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[15],   ImGuiTableColumnFlags_WidthFixed,  60.0f);  // flag_15
+            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[16],   ImGuiTableColumnFlags_WidthFixed,  80.0f);  // unk_16
+            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[17],   ImGuiTableColumnFlags_WidthFixed,  95.0f);  // hash_3
+            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[18],   ImGuiTableColumnFlags_WidthFixed,  80.0f);  // unk_18
+            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[19],   ImGuiTableColumnFlags_WidthFixed,  80.0f);  // unk_19
+            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[20],   ImGuiTableColumnFlags_WidthFixed,  80.0f);  // unk_20
+            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[21],   ImGuiTableColumnFlags_WidthFixed,  80.0f);  // unk_21
             ImGui::TableHeadersRow();
 
             int deleteIdx = -1;
@@ -1926,14 +1941,33 @@ void FbsDataView::RenderCustomizeItemUniqueListEditor(ContentsBinData& bin)
                         ImGui::SetNextItemWidth(-FLT_MIN);
                         ImGui::InputText(id, buf, sz);
                     };
+                    auto BoolCell = [](const char* id, bool& v) {
+                        ImGui::SetNextItemWidth(-FLT_MIN);
+                        ImGui::Checkbox(id, &v);
+                    };
 
-                    ImGui::TableSetColumnIndex(1); U32Cell("##cid", e.char_item_id);
-                    ImGui::TableSetColumnIndex(2); StrCell("##an",  e.asset_name,      sizeof(e.asset_name));
-                    ImGui::TableSetColumnIndex(3); U32Cell("##ch",  e.character_hash);
-                    ImGui::TableSetColumnIndex(4); StrCell("##tk",  e.text_key,        sizeof(e.text_key));
-                    ImGui::TableSetColumnIndex(5); U32Cell("##prc", e.price);
-                    ImGui::TableSetColumnIndex(6); U32Cell("##h2",  e.hash_2);
-                    ImGui::TableSetColumnIndex(7); U32Cell("##h3",  e.hash_3);
+                    ImGui::TableSetColumnIndex( 1); U32Cell ("##cid",  e.char_item_id);
+                    ImGui::TableSetColumnIndex( 2); StrCell ("##an",   e.asset_name,        sizeof(e.asset_name));
+                    ImGui::TableSetColumnIndex( 3); U32Cell ("##ch",   e.character_hash);
+                    ImGui::TableSetColumnIndex( 4); U32Cell ("##h1",   e.hash_1);
+                    ImGui::TableSetColumnIndex( 5); StrCell ("##tk",   e.text_key,          sizeof(e.text_key));
+                    ImGui::TableSetColumnIndex( 6); StrCell ("##ek1",  e.extra_text_key_1,  sizeof(e.extra_text_key_1));
+                    ImGui::TableSetColumnIndex( 7); StrCell ("##ek2",  e.extra_text_key_2,  sizeof(e.extra_text_key_2));
+                    ImGui::TableSetColumnIndex( 8); BoolCell("##f7",   e.flag_7);
+                    ImGui::TableSetColumnIndex( 9); U32Cell ("##u8",   e.unk_8);
+                    ImGui::TableSetColumnIndex(10); BoolCell("##f9",   e.flag_9);
+                    ImGui::TableSetColumnIndex(11); U32Cell ("##u10",  e.unk_10);
+                    ImGui::TableSetColumnIndex(12); U32Cell ("##prc",  e.price);
+                    ImGui::TableSetColumnIndex(13); U32Cell ("##u12",  e.unk_12);
+                    ImGui::TableSetColumnIndex(14); U32Cell ("##u13",  e.unk_13);
+                    ImGui::TableSetColumnIndex(15); U32Cell ("##h2",   e.hash_2);
+                    ImGui::TableSetColumnIndex(16); BoolCell("##f15",  e.flag_15);
+                    ImGui::TableSetColumnIndex(17); U32Cell ("##u16",  e.unk_16);
+                    ImGui::TableSetColumnIndex(18); U32Cell ("##h3",   e.hash_3);
+                    ImGui::TableSetColumnIndex(19); U32Cell ("##u18",  e.unk_18);
+                    ImGui::TableSetColumnIndex(20); U32Cell ("##u19",  e.unk_19);
+                    ImGui::TableSetColumnIndex(21); U32Cell ("##u20",  e.unk_20);
+                    ImGui::TableSetColumnIndex(22); U32Cell ("##u21",  e.unk_21);
 
                     ImGui::PopID();
                 }

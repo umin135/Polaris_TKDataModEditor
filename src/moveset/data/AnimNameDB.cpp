@@ -160,7 +160,7 @@ bool AnimNameDB::BuildAndSave(const std::string&            folderPath,
 
     if (!anmbin.loaded || motbinAnimKeys.empty()) return false;
 
-    // Step 1: anmbin hash → motbin_key
+    // Step 1: anmbin hash ??motbin_key
     //   moveList[0][i] = hash for move i
     //   motbinAnimKeys[i] = anim_key for move i
     std::unordered_map<uint32_t, uint32_t> hashToKey;
@@ -169,17 +169,17 @@ bool AnimNameDB::BuildAndSave(const std::string&            folderPath,
     for (size_t i = 0; i < n; ++i)
         hashToKey.emplace(ml[i], motbinAnimKeys[i]);
 
-    // Step 2: pool[0][j] → name → motbin_key
+    // Step 2: pool[0][j] ??name ??motbin_key
     //   j = pool index (used directly as the name number)
-    //   animDataPtr == 0  →  "com_j"  (animation lives in com.anmbin)
-    //   animDataPtr != 0  →  "anim_j" (animation embedded in this anmbin)
+    //   animDataPtr == 0  ?? "com_j"  (animation lives in com.anmbin)
+    //   animDataPtr != 0  ?? "anim_j" (animation embedded in this anmbin)
     //
     // Using pool index directly ensures the name matches the filename convention
-    // used by extraction tools (e.g., pool entry 500 → file "anim_500.bin").
+    // used by extraction tools (e.g., pool entry 500 ??file "anim_500.bin").
     const auto& pool = anmbin.pool[0];
     for (int j = 0; j < (int)pool.size(); ++j)
     {
-        if (pool[j].animDataPtr == 0) continue; // com.anmbin ref — referenced by raw key, not named
+        if (pool[j].animDataPtr == 0) continue; // com.anmbin ref ??referenced by raw key, not named
 
         uint32_t hash32 = static_cast<uint32_t>(pool[j].animKey & 0xFFFFFFFF);
         auto it = hashToKey.find(hash32);
@@ -241,7 +241,7 @@ std::string AnimNameDB::AnimKeyToName(uint32_t animKey) const
 
 bool AnimNameDB::NameToAnimKey(const std::string& name, uint32_t& outKey) const
 {
-    // com_ entries are no longer named — caller should pass raw hex for com refs
+    // com_ entries are no longer named ??caller should pass raw hex for com refs
     if (name.rfind("com_", 0) == 0) return false;
     auto it = m_nameToKey.find(name);
     if (it == m_nameToKey.end()) return false;
