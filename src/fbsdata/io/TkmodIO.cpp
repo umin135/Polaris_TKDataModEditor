@@ -2343,7 +2343,9 @@ static std::string OpenLoadDialog()
 //  Entry validation
 // ==========================================================
 
-static const uint32_t kMinCustomItemId = 20000000;
+// item_id ranges: common items start with 2 (20000000+), unique items start with 1 (10000000+)
+static const uint32_t kMinCustomCommonItemId = 20000000;
+static const uint32_t kMinCustomUniqueItemId = 10000000;
 
 namespace TkmodIO
 {
@@ -2366,15 +2368,15 @@ namespace TkmodIO
 
                     if (e.item_id == 0)
                         errors.push_back(loc + ": item_id is 0");
-                    else if (e.item_id < kMinCustomItemId)
+                    else if (e.item_id < kMinCustomCommonItemId)
                         errors.push_back(loc + " (item_id=" + std::to_string(e.item_id)
-                            + "): below custom range (" + std::to_string(kMinCustomItemId)
+                            + "): below custom range (" + std::to_string(kMinCustomCommonItemId)
                             + "); will corrupt save data if equipped and mod is removed");
                     if (e.item_code[0] == '\0')
                         errors.push_back(loc + ": item_code is empty");
                     if (e.package_id[0] == '\0')
                         errors.push_back(loc + ": package_id is empty");
-                    if (!ids.insert(e.item_id).second)
+                    if (e.item_id != 0 && !ids.insert(e.item_id).second)
                         errors.push_back(loc + ": duplicate item_id=" + std::to_string(e.item_id));
                 }
             }
@@ -2393,6 +2395,7 @@ namespace TkmodIO
             }
             else if (bin.type == BinType::CustomizeItemUniqueList)
             {
+                std::unordered_set<uint32_t> ids;
                 for (size_t i = 0; i < bin.customizeItemUniqueEntries.size(); ++i)
                 {
                     const auto& e = bin.customizeItemUniqueEntries[i];
@@ -2400,6 +2403,11 @@ namespace TkmodIO
 
                     if (e.char_item_id == 0)
                         errors.push_back(loc + ": char_item_id is 0");
+                    else if (e.char_item_id < kMinCustomUniqueItemId)
+                        errors.push_back(loc + " (char_item_id=" + std::to_string(e.char_item_id)
+                            + "): below custom range (" + std::to_string(kMinCustomUniqueItemId) + ")");
+                    if (e.char_item_id != 0 && !ids.insert(e.char_item_id).second)
+                        errors.push_back(loc + ": duplicate char_item_id=" + std::to_string(e.char_item_id));
                     if (e.asset_name[0] == '\0')
                         errors.push_back(loc + ": asset_name is empty");
                     if (e.character_hash == 0)
