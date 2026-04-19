@@ -2635,14 +2635,26 @@ void MovesetEditorWindow::RenderSubWin_Requirements()
                 const ParsedRequirement& r = blk[idx];
                 bool isTerm = (r.req == reqEnd);
                 char lbl[192];
+                char reqBuf[32];
+                if (r.req > 0x8000) {
+                    snprintf(reqBuf, sizeof(reqBuf), "0x%.4X", r.req);
+                } else {
+                    snprintf(reqBuf, sizeof(reqBuf), "%u", r.req);
+                }
                 if (isTerm) {
                     snprintf(lbl, sizeof(lbl), "#%u  [END]##ri%u", k, idx);
                 } else {
                     const MovesetDataDict::ReqEntry* de = MovesetDataDict::Get().GetReq(r.req);
-                    if (de && !de->condition.empty())
-                        snprintf(lbl, sizeof(lbl), "#%u  %s##ri%u", k, de->condition.c_str(), idx);
-                    else
-                        snprintf(lbl, sizeof(lbl), "#%u  req=%u##ri%u", k, r.req, idx);
+                    if (de && !de->condition.empty()) {
+                        snprintf(lbl, sizeof(lbl), "#%u  %s: %s##ri%u",
+                                k, reqBuf, de->condition.c_str(), idx);
+                    } else {
+                        snprintf(lbl, sizeof(lbl), "#%u  %s=%s##ri%u",
+                                k,
+                                (r.req > 0x8000) ? "prop" : "req",
+                                reqBuf,
+                                idx);
+                    }
                 }
                 if (isTerm) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f,0.5f,0.5f,1.0f));
                 bool sel = (m_reqWinSel.inner == (int)k);
