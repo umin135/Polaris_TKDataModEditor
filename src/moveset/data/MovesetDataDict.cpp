@@ -133,6 +133,108 @@ void MovesetDataDict::Load(const std::string& path)
         }
     }
 
+    // ── cancel_extras section ────────────────────────────────────────────
+    // Format: {"VALUE": "description", ...}  (flat string values, not objects)
+    m_cancelExtras.clear();
+
+    size_t cePos = json.find("\"cancel_extras\"");
+    if (cePos != std::string::npos)
+    {
+        size_t ceOpen = json.find('{', cePos + 15);
+        if (ceOpen != std::string::npos)
+        {
+            size_t ceClose = MatchingBrace(json, ceOpen);
+            if (ceClose == std::string::npos) ceClose = json.size();
+
+            size_t pos = ceOpen + 1;
+            while (pos < ceClose)
+            {
+                // Key
+                size_t q1 = json.find('"', pos);
+                if (q1 == std::string::npos || q1 >= ceClose) break;
+                size_t q2 = json.find('"', q1 + 1);
+                if (q2 == std::string::npos || q2 >= ceClose) break;
+                std::string keyStr = json.substr(q1 + 1, q2 - q1 - 1);
+
+                // Colon + string value
+                size_t colon = json.find(':', q2 + 1);
+                if (colon == std::string::npos || colon >= ceClose) break;
+                size_t vq1 = json.find('"', colon + 1);
+                if (vq1 == std::string::npos || vq1 >= ceClose) break;
+
+                // Walk to closing quote (escape-aware)
+                size_t vq2 = vq1 + 1;
+                while (vq2 < ceClose) {
+                    if (json[vq2] == '\\') { vq2 += 2; continue; }
+                    if (json[vq2] == '"')  break;
+                    ++vq2;
+                }
+                if (vq2 >= ceClose) break;
+
+                // Unescape value
+                std::string raw = json.substr(vq1 + 1, vq2 - vq1 - 1);
+                std::string desc;
+                desc.reserve(raw.size());
+                for (size_t i = 0; i < raw.size(); ++i) {
+                    if (raw[i] == '\\' && i + 1 < raw.size()) {
+                        char c = raw[++i];
+                        if      (c == 'n')  desc += '\n';
+                        else if (c == 't')  desc += '\t';
+                        else if (c == '"')  desc += '"';
+                        else if (c == '\\') desc += '\\';
+                        else { desc += '\\'; desc += c; }
+                    } else {
+                        desc += raw[i];
+                    }
+                }
+
+                uint32_t ceVal = static_cast<uint32_t>(std::atoi(keyStr.c_str()));
+                m_cancelExtras[ceVal] = std::move(desc);
+
+                pos = vq2 + 1;
+            }
+        }
+    }
+
+    // ── properties section ──────────────────────────────────────────────
+    m_props.clear();
+
+    size_t prPos = json.find("\"properties\"");
+    if (prPos != std::string::npos)
+    {
+        size_t prOpen = json.find('{', prPos + 12);
+        if (prOpen != std::string::npos)
+        {
+            size_t prClose = MatchingBrace(json, prOpen);
+            if (prClose == std::string::npos) prClose = json.size();
+
+            size_t pos = prOpen + 1;
+            while (pos < prClose)
+            {
+                size_t q1 = json.find('"', pos);
+                if (q1 == std::string::npos || q1 >= prClose) break;
+                size_t q2 = json.find('"', q1 + 1);
+                if (q2 == std::string::npos || q2 >= prClose) break;
+
+                std::string keyStr = json.substr(q1 + 1, q2 - q1 - 1);
+
+                size_t entOpen = json.find('{', q2 + 1);
+                if (entOpen == std::string::npos || entOpen >= prClose) break;
+                size_t entClose = MatchingBrace(json, entOpen);
+                if (entClose == std::string::npos || entClose > prClose) break;
+
+                uint32_t propVal = static_cast<uint32_t>(std::atoi(keyStr.c_str()));
+                PropEntry entry;
+                entry.param    = JsString(json, "param",    entOpen, entClose);
+                entry.function = JsString(json, "Function", entOpen, entClose);
+                entry.tooltip  = JsString(json, "ToolTip",  entOpen, entClose);
+                m_props[propVal] = std::move(entry);
+
+                pos = entClose + 1;
+            }
+        }
+    }
+
     m_loaded = true;
 }
 
@@ -144,4 +246,16 @@ const MovesetDataDict::ReqEntry* MovesetDataDict::GetReq(uint32_t req) const
 {
     auto it = m_req.find(req);
     return (it != m_req.end()) ? &it->second : nullptr;
+}
+
+const char* MovesetDataDict::GetCancelExtra(uint32_t val) const
+{
+    auto it = m_cancelExtras.find(val);
+    return (it != m_cancelExtras.end()) ? it->second.c_str() : nullptr;
+}
+
+const MovesetDataDict::PropEntry* MovesetDataDict::GetPropEntry(uint32_t val) const
+{
+    auto it = m_props.find(val);
+    return (it != m_props.end()) ? &it->second : nullptr;
 }

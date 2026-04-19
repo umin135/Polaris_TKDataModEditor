@@ -2000,9 +2000,9 @@ static void Render2LevelOuterList(
     for (int gi = 0; gi < (int)groups.size(); ++gi)
     {
         uint32_t count = groups[gi].second;
-        uint32_t items = (count > 0) ? count - 1 : 0; // exclude terminator from count
+        uint32_t items = count;
         char lbl[48];
-        snprintf(lbl, sizeof(lbl), "[%u]  (%u)##g%d", groups[gi].first, items, gi);
+        snprintf(lbl, sizeof(lbl), "#%u  %u items##g%d", groups[gi].first, items, gi);
         bool sel_ = (sel.outer == gi);
         if (ImGui::Selectable(lbl, sel_))
         {
@@ -3014,7 +3014,7 @@ static void RenderCancelSection(
         ImGui::BeginChild((std::string(outerChildId) + "_sl").c_str(), ImVec2(0, 0), false);
         for (int gi = 0; gi < (int)groups.size(); ++gi) {
             uint32_t count = groups[gi].second;
-            uint32_t items = count > 0 ? count - 1 : 0;
+            uint32_t items = count;
             char lbl[48]; snprintf(lbl, sizeof(lbl), "#%u  %u items##g%d", groups[gi].first, items, gi);
             bool s = (sel.outer == gi);
             if (ImGui::Selectable(lbl, s)) { sel.outer = gi; sel.inner = 0; }
@@ -3127,7 +3127,7 @@ void MovesetEditorWindow::RenderSubWin_Cancels()
     if (!m_cancelsWin.open) return;
     const bool cancelsBringFront = m_cancelsWin.pendingFocus;
     if (cancelsBringFront) m_cancelsWin.pendingFocus = false;
-    ImGui::SetNextWindowSize(ImVec2(700.0f, 400.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(960.0f, 600.0f), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin(WinId("Cancels##blkwin").c_str(), &m_cancelsWin.open, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking))
     { ImGui::End(); return; }
     if (cancelsBringFront) ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());
@@ -3138,7 +3138,7 @@ void MovesetEditorWindow::RenderSubWin_Cancels()
     auto cancelGroups      = ComputeGroups(m_data.cancelBlock,      isCancelTerm);
     auto groupCancelGroups = ComputeGroups(m_data.groupCancelBlock, isGroupCancelTerm);
 
-    static constexpr float   kCexW   = 180.0f;
+    static constexpr float   kCexW   = 260.0f;
     static constexpr ImVec4  kBlockBg = {0.14f, 0.14f, 0.18f, 1.00f};
     static constexpr ImVec4  kSelBg   = {0.22f, 0.22f, 0.30f, 1.00f};
     static constexpr ImVec4  kTTCol   = {0.40f, 0.75f, 1.00f, 1.00f};
@@ -3250,8 +3250,21 @@ void MovesetEditorWindow::RenderSubWin_Cancels()
                     ImGui::EndTable();
                 }
 
-                // Tooltip placeholder
-                ImGui::TextColored(kTTCol, " ");
+                // Cancel-extra description from MovesetDataDict
+                {
+                    static constexpr ImVec4 kGreen = { 0.30f, 0.88f, 0.42f, 1.00f };
+                    static constexpr ImVec4 kRed   = { 0.90f, 0.30f, 0.30f, 1.00f };
+                    const char* desc = MovesetDataDict::Get().GetCancelExtra(cexBlk[i]);
+                    if (desc && desc[0] != '\0') {
+                        ImGui::PushStyleColor(ImGuiCol_Text, kGreen);
+                        ImGui::TextUnformatted(desc);
+                        ImGui::PopStyleColor();
+                    } else {
+                        ImGui::PushStyleColor(ImGuiCol_Text, kRed);
+                        ImGui::TextUnformatted("Unknown");
+                        ImGui::PopStyleColor();
+                    }
+                }
             }
             ImGui::EndChild();
             // 카드가 ##cex_scroll의 last item이 된 시점에서 스크롤 적용
@@ -3350,7 +3363,7 @@ void MovesetEditorWindow::RenderSubWin_HitConditions()
 
         ImGui::BeginChild("##hc_outer_sl", ImVec2(0, 0), false);
         for (int gi = 0; gi < (int)groups.size(); ++gi) {
-            uint32_t items = groups[gi].second > 0 ? groups[gi].second - 1 : 0;
+            uint32_t items = groups[gi].second;
             char lbl[48]; snprintf(lbl, sizeof(lbl), "#%u  %u items##hcg%d", groups[gi].first, items, gi);
             bool s = (m_hitCondWinSel.outer == gi);
             if (ImGui::Selectable(lbl, s)) { m_hitCondWinSel.outer = gi; m_hitCondWinSel.inner = 0; }
@@ -4028,10 +4041,10 @@ static void RenderPropSection(
     auto mkGroups = [&]{ return ComputeGroups(block, isPropEnd); };
     auto groups = mkGroups();
 
-    float colW = ImGui::GetContentRegionAvail().x / 3.0f - ImGui::GetStyle().ItemSpacing.x;
+    static constexpr float kListW = 200.0f;
 
     // ---- Outer list ----
-    ImGui::BeginChild(outerChildId, ImVec2(colW, 0.0f), true);
+    ImGui::BeginChild(outerChildId, ImVec2(kListW, 0.0f), true);
     {
         bool hasOuter = (sel.outer < (int)groups.size());
         char outerMenuId[80]; snprintf(outerMenuId, sizeof(outerMenuId), "##pop%s", outerChildId);
@@ -4074,8 +4087,8 @@ static void RenderPropSection(
 
         ImGui::BeginChild((std::string(outerChildId) + "_sl").c_str(), ImVec2(0, 0), false);
         for (int gi = 0; gi < (int)groups.size(); ++gi) {
-            uint32_t items = groups[gi].second > 0 ? groups[gi].second - 1 : 0;
-            char lbl[48]; snprintf(lbl, sizeof(lbl), "[%u]  (%u)##pg%d", groups[gi].first, items, gi);
+            uint32_t items = groups[gi].second;
+            char lbl[48]; snprintf(lbl, sizeof(lbl), "#%u  %u items##pg%d", groups[gi].first, items, gi);
             bool s = (sel.outer == gi);
             if (ImGui::Selectable(lbl, s)) { sel.outer = gi; sel.inner = 0; }
             if (s && sel.scrollOuter) { ImGui::SetScrollHereY(0.5f); sel.scrollOuter = false; }
@@ -4088,7 +4101,7 @@ static void RenderPropSection(
     groups = mkGroups();
 
     // ---- Inner list ----
-    ImGui::BeginChild(innerChildId, ImVec2(colW, 0.0f), true);
+    ImGui::BeginChild(innerChildId, ImVec2(kListW, 0.0f), true);
     {
         bool hasOuter = (sel.outer < (int)groups.size());
         bool isEndSel = false;
@@ -4176,71 +4189,207 @@ static void RenderPropSection(
         if (idx < (uint32_t)block.size())
         {
             ParsedExtraProp& e = block[idx];
-            ImGui::TextDisabled("prop #%d  (block[%u])", sel.inner, idx);
-            ImGui::Separator();
-            if (BeginPropTable("##prdt"))
+
+            static constexpr ImVec4 kBlockBg = {0.14f, 0.14f, 0.18f, 1.00f};
+            static constexpr ImVec4 kGreen   = {0.30f, 0.88f, 0.42f, 1.00f};
+            static constexpr ImVec4 kPink    = {1.00f, 0.50f, 0.65f, 1.0f};
+            static constexpr ImVec4 kRed     = {0.90f, 0.30f, 0.30f, 1.0f};
+
+            const ImGuiStyle& sty = ImGui::GetStyle();
+
+            const float kArrowW = ImGui::GetFrameHeight() * 0.38f;
+            const float kBtnW   = ImGui::CalcTextSize("Go ").x + kArrowW
+                                + sty.FramePadding.x * 2.0f + 4.0f;
+            auto GoButton = [&](const char* id, bool valid) -> bool {
+                if (!valid) ImGui::BeginDisabled();
+                const float  h   = ImGui::GetFrameHeight();
+                bool clicked     = ImGui::InvisibleButton(id, ImVec2(kBtnW, h));
+                const ImVec2 p0  = ImGui::GetItemRectMin();
+                const ImVec2 p1  = ImGui::GetItemRectMax();
+                const bool   hov = ImGui::IsItemHovered();
+                const bool   act = ImGui::IsItemActive();
+                ImDrawList*  dl  = ImGui::GetWindowDrawList();
+                dl->AddRectFilled(p0, p1,
+                    ImGui::GetColorU32(act ? ImGuiCol_ButtonActive : hov ? ImGuiCol_ButtonHovered : ImGuiCol_Button),
+                    sty.FrameRounding);
+                dl->AddRect(p0, p1, ImGui::GetColorU32(ImGuiCol_Border), sty.FrameRounding);
+                const ImU32  col    = ImGui::GetColorU32(ImGuiCol_Text);
+                const char*  txt    = "Go ";
+                const ImVec2 txtSz  = ImGui::CalcTextSize(txt);
+                const float  totalW = txtSz.x + kArrowW;
+                const float  startX = p0.x + (kBtnW - totalW) * 0.5f;
+                const float  midY   = (p0.y + p1.y) * 0.5f;
+                const float  arrowH = h * 0.30f;
+                dl->AddText(ImVec2(startX, midY - txtSz.y * 0.5f), col, txt);
+                dl->AddTriangleFilled(
+                    ImVec2(startX + txtSz.x,           midY - arrowH * 0.5f),
+                    ImVec2(startX + txtSz.x,           midY + arrowH * 0.5f),
+                    ImVec2(startX + txtSz.x + kArrowW, midY), col);
+                if (!valid) ImGui::EndDisabled();
+                return clicked && valid;
+            };
+
+            // --- Block 1: frame / _0x4 / property / requirements ---
+            // Each field: stacked label (TextLineH) + input (FrameH) + spacing*2
+            const float fH1    = ImGui::GetTextLineHeight() + ImGui::GetFrameHeight() + sty.ItemSpacing.y * 2.0f;
+            const int   b1Rows = isExtraProp ? 4 : 2;
+            const float b1H    = fH1 * b1Rows - sty.ItemSpacing.y
+                               + ImGui::GetTextLineHeightWithSpacing() * 2.0f
+                               + sty.WindowPadding.y * 2.0f;
+
+            std::string b1Id = std::string(detailChildId) + "_b1";
+            ImGui::PushStyleColor(ImGuiCol_ChildBg, kBlockBg);
+            if (ImGui::BeginChild(b1Id.c_str(), ImVec2(-1.0f, b1H), ImGuiChildFlags_Borders))
             {
                 if (isExtraProp) {
-                    if (RowU32Edit  ("##ep_type", ExtraPropLabel::Frame, e.type, FieldTT::ExtraProp::Frame)) dirty = true;
-                    if (RowHex32Edit("##ep_0x4",  ExtraPropLabel::F0x4,  e._0x4, FieldTT::ExtraProp::F0x4)) dirty = true;
-                }
-                if (RowHexCompact32Edit("##ep_id", ExtraPropLabel::Property, e.id, FieldTT::ExtraProp::Property)) dirty = true;
-                // requirement link (editable)
-                {
-                    bool valid = (e.req_list_idx != 0xFFFFFFFF) && (e.req_list_idx < (uint32_t)reqBlk.size());
-                    auto r = RowIdxEditLink("##prop_req_idx", ExtraPropLabel::Requirements, e.req_list_idx, valid);
-                    if (r.changed) dirty = true;
-                    if (r.navigate) {
-                        auto grps = ComputeGroups(reqBlk, +[](const ParsedRequirement& rr)->bool{ return rr.req==GameStatic::Get().data.reqListEnd; });
-                        int gi = FindGroupOuter(grps, e.req_list_idx);
-                        if (gi >= 0) { reqWinSel.outer = gi; reqWinSel.inner = 0; reqWinSel.scrollOuter = true; }
-                        reqWinOpen = true;
+                    // frame
+                    ImGui::TextDisabled("%s", ExtraPropLabel::Frame); ShowFieldTooltip(FieldTT::ExtraProp::Frame);
+                    ImGui::SetNextItemWidth(-1.0f);
+                    int ftmp = (int)e.type;
+                    if (ImGui::InputInt("##ep_type", &ftmp, 0, 0)) { e.type = (uint32_t)ftmp; dirty = true; }
+
+                    // _0x4
+                    ImGui::TextDisabled("%s", ExtraPropLabel::F0x4); ShowFieldTooltip(FieldTT::ExtraProp::F0x4);
+                    ImGui::SetNextItemWidth(-1.0f);
+                    char buf4[14]; snprintf(buf4, sizeof(buf4), "0x%08X", e._0x4);
+                    ImGui::InputText("##ep_0x4", buf4, sizeof(buf4));
+                    if (ImGui::IsItemDeactivatedAfterEdit()) {
+                        const char* p = buf4;
+                        if (p[0]=='0' && (p[1]=='x'||p[1]=='X')) p += 2;
+                        e._0x4 = (uint32_t)strtoul(p, nullptr, 16); dirty = true;
                     }
                 }
-                // params[0]: property-specific display; params[1-4]: decimal
-                {
+
+                // property
+                ImGui::TextDisabled("%s", ExtraPropLabel::Property); ShowFieldTooltip(FieldTT::ExtraProp::Property);
+                ImGui::SetNextItemWidth(-1.0f);
+                char bufId[14]; snprintf(bufId, sizeof(bufId), "0x%X", e.id);
+                ImGui::InputText("##ep_id", bufId, sizeof(bufId));
+                if (ImGui::IsItemDeactivatedAfterEdit()) {
+                    const char* p = bufId;
+                    if (p[0]=='0' && (p[1]=='x'||p[1]=='X')) p += 2;
+                    e.id = (uint32_t)strtoul(p, nullptr, 16); dirty = true;
+                }
+
+                // requirements (navigable)
+                bool reqValid = (e.req_list_idx != 0xFFFFFFFF) && (e.req_list_idx < (uint32_t)reqBlk.size());
+                ImGui::PushStyleColor(ImGuiCol_Text, reqValid ? kGreen : kPink);
+                ImGui::TextUnformatted(ExtraPropLabel::Requirements);
+                ImGui::PopStyleColor();
+                ImGui::SetNextItemWidth(-(kBtnW + sty.ItemSpacing.x));
+                int reqTmp = (e.req_list_idx == 0xFFFFFFFF) ? -1 : (int)e.req_list_idx;
+                if (ImGui::InputInt("##prop_req_idx", &reqTmp, 0, 0)) {
+                    e.req_list_idx = (reqTmp < 0) ? 0xFFFFFFFF : (uint32_t)reqTmp;
+                    dirty = true;
+                }
+                ImGui::SameLine();
+                if (GoButton("##req_go", reqValid)) {
+                    auto grps = ComputeGroups(reqBlk, +[](const ParsedRequirement& rr)->bool{ return rr.req==GameStatic::Get().data.reqListEnd; });
+                    int gi = FindGroupOuter(grps, e.req_list_idx);
+                    if (gi >= 0) { reqWinSel.outer = gi; reqWinSel.inner = 0; reqWinSel.scrollOuter = true; }
+                    reqWinOpen = true;
+                }
+
+                // property dict display
+                const MovesetDataDict::PropEntry* pe = MovesetDataDict::Get().GetPropEntry(e.id);
+                if (pe) {
+                    ImGui::PushStyleColor(ImGuiCol_Text, kGreen);
+                    ImGui::TextUnformatted(pe->function.c_str());
+                    ImGui::PopStyleColor();
+                    if (!pe->tooltip.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+                        ImGui::SetTooltip("%s", pe->tooltip.c_str());
+                    if (!pe->param.empty())
+                        ImGui::TextDisabled("param: %s", pe->param.c_str());
+                    else
+                        ImGui::TextDisabled(" ");
+                } else {
+                    ImGui::PushStyleColor(ImGuiCol_Text, kRed);
+                    ImGui::TextUnformatted("Unknown");
+                    ImGui::PopStyleColor();
+                    ImGui::TextDisabled(" ");
+                }
+            }
+            ImGui::EndChild();
+            ImGui::PopStyleColor();
+
+            ImGui::Spacing();
+
+            // --- Block 2: params[0-4] ---
+            // Each row: label + input on same line (FrameH + ItemSpacing.y)
+            const float fH2 = ImGui::GetFrameHeight() + sty.ItemSpacing.y;
+            const float b2H = fH2 * 5 - sty.ItemSpacing.y + sty.WindowPadding.y * 2.0f;
+
+            std::string b2Id = std::string(detailChildId) + "_b2";
+            ImGui::PushStyleColor(ImGuiCol_ChildBg, kBlockBg);
+            if (ImGui::BeginChild(b2Id.c_str(), ImVec2(-1.0f, b2H), ImGuiChildFlags_Borders))
+            {
+                constexpr ImGuiTableFlags kTF = ImGuiTableFlags_SizingFixedFit;
+                std::string tb2Id = std::string(detailChildId) + "_tb2";
+                if (ImGui::BeginTable(tb2Id.c_str(), 2, kTF, ImVec2(-1.0f, 0.0f))) {
+                    ImGui::TableSetupColumn("##pl", ImGuiTableColumnFlags_WidthFixed);
+                    ImGui::TableSetupColumn("##pv", ImGuiTableColumnFlags_WidthStretch);
+
+                    auto RowPU32 = [&](const char* id, const char* lbl, uint32_t& v, const FieldTooltip& tt = {}) {
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("%s", lbl); ShowFieldTooltip(tt);
+                        ImGui::TableSetColumnIndex(1); ImGui::SetNextItemWidth(-1.0f);
+                        int tmp = (int)v;
+                        if (ImGui::InputInt(id, &tmp, 0, 0)) { v = (uint32_t)tmp; dirty = true; }
+                    };
+                    auto RowPHex32 = [&](const char* id, const char* lbl, uint32_t& v, const FieldTooltip& tt = {}) {
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("%s", lbl); ShowFieldTooltip(tt);
+                        ImGui::TableSetColumnIndex(1); ImGui::SetNextItemWidth(-1.0f);
+                        char buf[14]; snprintf(buf, sizeof(buf), "0x%08X", v);
+                        ImGui::InputText(id, buf, sizeof(buf));
+                        if (ImGui::IsItemDeactivatedAfterEdit()) {
+                            const char* p = buf;
+                            if (p[0]=='0' && (p[1]=='x'||p[1]=='X')) p += 2;
+                            v = (uint32_t)strtoul(p, nullptr, 16); dirty = true;
+                        }
+                    };
+
                     char p0lbl[64];
                     if (e.id == 0x87f8)
                     {
-                        // hex input, format 0xAAAABBBB (AAAA=type, BBBB=id), 8-digit padded
                         snprintf(p0lbl, sizeof(p0lbl), "%s   (Dialogues)", ExtraPropLabel::Param0);
-                        if (RowHex32Edit("##ep_v1_dlg", p0lbl, e.value, FieldTT::ExtraProp::Param0)) dirty = true;
+                        RowPHex32("##ep_v1_dlg", p0lbl, e.value, FieldTT::ExtraProp::Param0);
                     }
                     else if (e.id == 0x877b)
                     {
-                        // decimal index into dialogues (same concept as 0x87f8)
                         snprintf(p0lbl, sizeof(p0lbl), "%s   (Dialogues)", ExtraPropLabel::Param0);
-                        if (RowU32Edit("##ep_v1_877b", p0lbl, e.value, FieldTT::ExtraProp::Param0)) dirty = true;
+                        RowPU32("##ep_v1_877b", p0lbl, e.value, FieldTT::ExtraProp::Param0);
                     }
                     else if (e.id == 0x877d)
                     {
-                        // hex value, full 8-digit padded (0x00000000)
-                        snprintf(p0lbl, sizeof(p0lbl), "%s", ExtraPropLabel::Param0);
-                        if (RowHex32Edit("##ep_v1_877d", p0lbl, e.value, FieldTT::ExtraProp::Param0)) dirty = true;
+                        RowPHex32("##ep_v1_877d", ExtraPropLabel::Param0, e.value, FieldTT::ExtraProp::Param0);
                     }
                     else if (e.id == 0x827b)
                     {
-                        // projectile index
                         snprintf(p0lbl, sizeof(p0lbl), "%s   (Projectiles)", ExtraPropLabel::Param0);
-                        bool valid = navCtx.projBlk && (e.value < (uint32_t)navCtx.projBlk->size());
-                        auto r = RowIdxEditLink("##ep_v1_proj", p0lbl, e.value, valid);
-                        if (r.changed) dirty = true;
-                        if (r.navigate && navCtx.projWinOpen) {
-                            *navCtx.projWinSel    = (int)e.value;
-                            *navCtx.projWinScroll = true;
-                            *navCtx.projWinOpen   = true;
+                        bool projValid = navCtx.projBlk && (e.value < (uint32_t)navCtx.projBlk->size());
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("%s", p0lbl);
+                        ImGui::TableSetColumnIndex(1); ImGui::SetNextItemWidth(-(kBtnW + sty.ItemSpacing.x));
+                        int vtmp = (int)e.value;
+                        if (ImGui::InputInt("##ep_v1_proj", &vtmp, 0, 0)) { e.value = (uint32_t)vtmp; dirty = true; }
+                        ImGui::SameLine();
+                        if (GoButton("##proj_go", projValid) && navCtx.projWinOpen) {
+                            *navCtx.projWinSel = (int)e.value; *navCtx.projWinScroll = true; *navCtx.projWinOpen = true;
                         }
                     }
                     else if (e.id == 0x868f)
                     {
-                        // throw-extra index
                         snprintf(p0lbl, sizeof(p0lbl), "%s   (Throws)", ExtraPropLabel::Param0);
-                        bool valid = navCtx.teGroups &&
-                                     !navCtx.teGroups->empty() &&
-                                     (e.value < (uint32_t)navCtx.teGroups->back().first + navCtx.teGroups->back().second);
-                        auto r = RowIdxEditLink("##ep_v1_te", p0lbl, e.value, valid);
-                        if (r.changed) dirty = true;
-                        if (r.navigate && navCtx.throwExtraSel && navCtx.throwsWinOpen) {
+                        bool teValid = navCtx.teGroups && !navCtx.teGroups->empty() &&
+                                       (e.value < (uint32_t)navCtx.teGroups->back().first + navCtx.teGroups->back().second);
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("%s", p0lbl);
+                        ImGui::TableSetColumnIndex(1); ImGui::SetNextItemWidth(-(kBtnW + sty.ItemSpacing.x));
+                        int vtmp = (int)e.value;
+                        if (ImGui::InputInt("##ep_v1_te", &vtmp, 0, 0)) { e.value = (uint32_t)vtmp; dirty = true; }
+                        ImGui::SameLine();
+                        if (GoButton("##te_go", teValid) && navCtx.throwExtraSel && navCtx.throwsWinOpen) {
                             int gi = FindGroupOuter(*navCtx.teGroups, e.value);
                             if (gi >= 0) { navCtx.throwExtraSel->outer = gi; navCtx.throwExtraSel->inner = 0; navCtx.throwExtraSel->scrollOuter = true; }
                             *navCtx.throwsWinOpen = true;
@@ -4248,15 +4397,18 @@ static void RenderPropSection(
                     }
                     else
                     {
-                        if (RowU32Edit("##ep_v1", ExtraPropLabel::Param0, e.value, FieldTT::ExtraProp::Param0)) dirty = true;
+                        RowPU32("##ep_v1", ExtraPropLabel::Param0, e.value, FieldTT::ExtraProp::Param0);
                     }
+
+                    RowPU32("##ep_v2", ExtraPropLabel::Param1, e.value2, FieldTT::ExtraProp::Param1);
+                    RowPU32("##ep_v3", ExtraPropLabel::Param2, e.value3, FieldTT::ExtraProp::Param2);
+                    RowPU32("##ep_v4", ExtraPropLabel::Param3, e.value4, FieldTT::ExtraProp::Param3);
+                    RowPU32("##ep_v5", ExtraPropLabel::Param4, e.value5, FieldTT::ExtraProp::Param4);
+                    ImGui::EndTable();
                 }
-                if (RowU32Edit("##ep_v2", ExtraPropLabel::Param1, e.value2, FieldTT::ExtraProp::Param1)) dirty = true;
-                if (RowU32Edit("##ep_v3", ExtraPropLabel::Param2, e.value3, FieldTT::ExtraProp::Param2)) dirty = true;
-                if (RowU32Edit("##ep_v4", ExtraPropLabel::Param3, e.value4, FieldTT::ExtraProp::Param3)) dirty = true;
-                if (RowU32Edit("##ep_v5", ExtraPropLabel::Param4, e.value5, FieldTT::ExtraProp::Param4)) dirty = true;
-                ImGui::EndTable();
             }
+            ImGui::EndChild();
+            ImGui::PopStyleColor();
         }
     }
     ImGui::EndChild();
@@ -4286,7 +4438,7 @@ void MovesetEditorWindow::RenderSubWin_Properties()
     if (!m_propertiesWin.open) return;
     const bool propBringFront = m_propertiesWin.pendingFocus;
     if (propBringFront) m_propertiesWin.pendingFocus = false;
-    ImGui::SetNextWindowSize(ImVec2(620.0f, 460.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(960.0f, 600.0f), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin(WinId("Properties##blkwin").c_str(), &m_propertiesWin.open, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking))
     { ImGui::End(); return; }
     if (propBringFront) ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());
@@ -4509,8 +4661,8 @@ void MovesetEditorWindow::RenderSubWin_Throws()
 
             ImGui::BeginChild("##te_outer_sl", ImVec2(0, 0), false);
             for (int gi = 0; gi < (int)teGroups.size(); ++gi) {
-                uint32_t items = teGroups[gi].second > 0 ? teGroups[gi].second - 1 : 0;
-                char lbl[48]; snprintf(lbl, sizeof(lbl), "[%u]  (%u)##teg%d", teGroups[gi].first, items, gi);
+                uint32_t items = teGroups[gi].second;
+                char lbl[48]; snprintf(lbl, sizeof(lbl), "#%u  %u items##teg%d", teGroups[gi].first, items, gi);
                 bool s = (m_throwsWin.extraSel.outer == gi);
                 if (ImGui::Selectable(lbl, s)) { m_throwsWin.extraSel.outer = gi; m_throwsWin.extraSel.inner = 0; }
                 if (s && m_throwsWin.extraSel.scrollOuter) { ImGui::SetScrollHereY(0.5f); m_throwsWin.extraSel.scrollOuter = false; }
@@ -4998,8 +5150,8 @@ void MovesetEditorWindow::RenderSubWin_ParryableMoves()
 
         ImGui::BeginChild("##pm_outer_sl", ImVec2(0, 0), false);
         for (int gi = 0; gi < (int)groups.size(); ++gi) {
-            uint32_t items = groups[gi].second > 0 ? groups[gi].second - 1 : 0;
-            char lbl[48]; snprintf(lbl, sizeof(lbl), "[%u]  (%u)##pmg%d", groups[gi].first, items, gi);
+            uint32_t items = groups[gi].second;
+            char lbl[48]; snprintf(lbl, sizeof(lbl), "#%u  %u items##pmg%d", groups[gi].first, items, gi);
             bool s = (m_parryWinSel.outer == gi);
             if (ImGui::Selectable(lbl, s)) { m_parryWinSel.outer = gi; m_parryWinSel.inner = 0; }
             if (s && m_parryWinSel.scrollOuter) { ImGui::SetScrollHereY(0.5f); m_parryWinSel.scrollOuter = false; }
