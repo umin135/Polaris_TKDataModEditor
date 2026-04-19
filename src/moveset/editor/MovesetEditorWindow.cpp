@@ -5401,7 +5401,7 @@ void MovesetEditorWindow::RenderSubWin_Dialogues()
     int total = (int)block.size();
 
     // Left: flat list
-    ImGui::BeginChild("##dlg_list", ImVec2(130.0f, 0.0f), true);
+    ImGui::BeginChild("##dlg_list", ImVec2(200.0f, 0.0f), true);
     {
         ListAction act = RenderListPlusMenu("##dlg_pm", "Dialogue");
         ImGui::SameLine(); ImGui::TextDisabled("%d", total);
@@ -5431,7 +5431,8 @@ void MovesetEditorWindow::RenderSubWin_Dialogues()
             const ParsedDialogue& d = block[i];
             char lbl[128];
             const char* vcName = LabelDB::Get().GetMoveName(d.voiceclip_key);
-            if (vcName) snprintf(lbl, sizeof(lbl), "#%d  %s##dlgi%d", i, vcName, i);
+            const char* dramaLabel = MovesetDataDict::Get().GetDramaLabel(d.type, d.id);
+            if (dramaLabel) snprintf(lbl, sizeof(lbl), "#%d  %s##dlgi%d", i, dramaLabel, i);
             else        snprintf(lbl, sizeof(lbl), "#%d  t:%u id:%u##dlgi%d", i, d.type, d.id, i);
             bool sel = (m_dialogueSel == i);
             if (ImGui::Selectable(lbl, sel)) m_dialogueSel = i;

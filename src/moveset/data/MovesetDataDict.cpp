@@ -273,10 +273,18 @@ const MovesetDataDict::PropEntry* MovesetDataDict::GetPropEntry(uint32_t val) co
 }
 
 //////////////////////////////////
-const char* MovesetDataDict::GetDialogueTypeLabel(uint32_t value) const
+
+// Copies into thread_local storage so GetParam* can return const char* without dangling temporaries.
+static const char* ParamLabelCStr(std::string s)
 {
-    int dramaType = (value >> 16) & 0xFFFF;
-    switch (dramaType)
+    thread_local std::string s_buf;
+    s_buf = std::move(s);
+    return s_buf.c_str();
+}
+
+const char* MovesetDataDict::GetDialogueTypeLabel(uint32_t type) const
+{
+    switch (type)
     {
         case 0: return "Intro";
         case 1: return "Outro";
@@ -300,12 +308,33 @@ const char* MovesetDataDict::GetDramaTypeLabel(uint32_t value) const
     }
 }
 
-// Copies into thread_local storage so GetParam* can return const char* without dangling temporaries.
-static const char* ParamLabelCStr(std::string s)
+const char *MovesetDataDict::GetDramaLabel(uint16_t type, uint16_t id) const
 {
-    thread_local std::string s_buf;
-    s_buf = std::move(s);
-    return s_buf.c_str();
+    std::string typeLabel = GetDialogueTypeLabel(type);
+    std::string idLabel = "";
+    switch (type)
+    {
+    case 0:
+    case 1:
+    {
+        return ParamLabelCStr(typeLabel + " " + std::to_string(id));
+    }
+    case 2:
+    {
+        switch (id) {
+            case 0: idLabel = "Part 0 : Player"; break;
+            case 1: idLabel = "Part 0 : Opponent"; break;
+            case 10: idLabel = "Part 1 : Player"; break;
+            case 11: idLabel = "Part 1 : Opponent"; break;
+            case 20: idLabel = "Part 2 : Player"; break;
+            case 21: idLabel = "Part 2 : Opponent"; break;
+            default: idLabel = std::to_string(id) + " : Unknown"; break;
+        };
+        return ParamLabelCStr(typeLabel + " " + idLabel);
+    }
+    default:
+        return "";
+    }
 }
 
 std::string divBy1000(int param0)

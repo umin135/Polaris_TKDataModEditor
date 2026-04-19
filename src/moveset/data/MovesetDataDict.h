@@ -47,6 +47,7 @@ public:
 
     const char* GetDialogueTypeLabel(uint32_t value) const;
     const char* GetDramaTypeLabel(uint32_t value) const;
+    const char *GetDramaLabel(uint16_t type, uint16_t id) const;
 
 private:
     MovesetDataDict() = default;
