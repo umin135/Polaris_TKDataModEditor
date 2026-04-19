@@ -244,6 +244,14 @@ void MovesetDataDict::Load(const std::string& path)
 
 const MovesetDataDict::ReqEntry* MovesetDataDict::GetReq(uint32_t req) const
 {
+    // I don't know if this is the right way to do this, but for the time being, seems appropriate
+    if (req > 0x8000) {
+        if (const PropEntry* prop = GetPropEntry(req)) {
+            return reinterpret_cast<const ReqEntry*>(prop);
+        }
+        return nullptr;
+    }
+
     auto it = m_req.find(req);
     return (it != m_req.end()) ? &it->second : nullptr;
 }

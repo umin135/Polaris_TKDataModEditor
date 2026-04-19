@@ -5,6 +5,11 @@
 
 // Loads MovesetDatas/data.json and provides per-category dictionary lookups.
 // Currently supports: requirements.
+// TODO: Refactor this in a way where ReqEntry and PropEntry are easily interchangable.
+// This is needed because a requirements array can also store an extraprop — any req that's > 0x8000 isn't a req, it's an extraprop.
+// So there should be a single "entry" struct that can be used for both reqs and extraprops, and the dictionary should just be a map of uint32_t → entry.
+// Or, there should be a single calling function which then internally checks if the value is a req or an extraprop and then looks it up in the correct dictionary,
+// so that the caller doesn't have to care about this distinction at all.
 class MovesetDataDict
 {
 public:
