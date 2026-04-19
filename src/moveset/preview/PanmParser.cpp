@@ -135,21 +135,17 @@ static void ParseKEF(const uint8_t* d, size_t sz,
     for (int i = 0; i < 11; ++i)
         base[i] = RdF32(d, bf_abs + (size_t)i * 4);
 
-    // Quat W reconstruction parameters
-    bool     has_qw = (num_tracks > 6 && channels[6].bits > 0);
+    // mode == 0x000A: root motion bone (Top, Trans, …).
+    // Channel table has 9 entries; the qw slot (idx 6) is absent and position
+    // channels shift down by 1: idx 6→posX, 7→posY, 8→posZ (comp[7..9]).
+    const bool is_root_motion = (mode == 0x000A);
+
+    // has_qw: root motion bones never encode qw — always derive from qx/qy/qz.
+    bool     has_qw = !is_root_motion && (num_tracks > 6 && channels[6].bits > 0);
     uint32_t sum_active_bits = 0;
     for (int t = 0; t < num_tracks; ++t)
         sum_active_bits += channels[t].bits;
     bool sign_bit_per_frame = (bits_per_frame == sum_active_bits + 1);
-
-    // Root motion bone position channel swap (KEF mode == 0x000A)
-    // Top  → move animated value: slot 8 → slot 9, slot 8 restored from base
-    // Trans→ move animated value: slot 7 → slot 8, slot 7 restored from base
-    int swap_src = -1, swap_dst = -1;
-    if (mode == 0x000A) {
-        if (bone_name == "Top")   { swap_src = 8; swap_dst = 9; }
-        if (bone_name == "Trans") { swap_src = 7; swap_dst = 8; }
-    }
 
     // Section 4: Bitstream
     size_t bs_abs  = c_start + (size_t)bs_off_rel;
@@ -162,21 +158,21 @@ static void ParseKEF(const uint8_t* d, size_t sz,
         float comp[11];
         memcpy(comp, base, sizeof(comp));
 
-        // Read active channels from bitstream (frame-interleaved)
+        // Read active channels from bitstream (frame-interleaved).
+        // Root motion bone (mode=0x000A): channel table idx 6+ maps to comp[idx+1]
+        // because the qw slot is absent and position channels are shifted up by 1.
         for (int t = 0; t < num_tracks; ++t) {
             if (channels[t].bits > 0) {
                 uint32_t raw     = reader.Read((int)channels[t].bits);
                 uint32_t max_val = (1u << channels[t].bits) - 1u;
-                comp[t] = channels[t].min
-                        + ((float)raw / (float)max_val)
-                        * (channels[t].max - channels[t].min);
+                float decoded = channels[t].min
+                              + ((float)raw / (float)max_val)
+                              * (channels[t].max - channels[t].min);
+                if (is_root_motion && t >= 6)
+                    comp[t + 1] = decoded;   // posX/Y/Z: idx 6→comp[7], 7→comp[8], 8→comp[9]
+                else
+                    comp[t] = decoded;
             }
-        }
-
-        // Root motion channel reorder (unidirectional — see format doc sec 13)
-        if (swap_src >= 0) {
-            comp[swap_dst] = comp[swap_src];
-            comp[swap_src] = base[swap_src];
         }
 
         // Reconstruct Quat W

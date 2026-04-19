@@ -296,9 +296,18 @@ void PreviewRenderer::Render()
     m_ctx->RSSetViewports(1, &vp);
 
     // ── Camera ────────────────────────────────────────────────────
-    // Look-target: 100 units above floor height — mid-character in viewer Y-up space.
-    XMVECTOR target = XMVectorSet(0.f, m_floorHeight + 100.f, 0.f, 0.f);
-    XMVECTOR up     = XMVectorSet(0.f,   1.f, 0.f, 0.f);
+    // Character focus: orbit around Spine1 world position (cached from previous frame).
+    // Otherwise orbit around the floor-level mid-character point.
+    XMVECTOR target;
+    if (m_charFocus && m_mesh && m_mesh->IsLoaded())
+    {
+        target = XMVectorSet(m_charFocusPos[0], m_charFocusPos[1], m_charFocusPos[2], 0.f);
+    }
+    else
+    {
+        target = XMVectorSet(0.f, m_floorHeight + 100.f, 0.f, 0.f);
+    }
+    XMVECTOR up = XMVectorSet(0.f, 1.f, 0.f, 0.f);
 
     // Prevent gimbal lock near straight-up / straight-down
     if (fabsf(m_pitch) > 1.55f)
@@ -339,6 +348,23 @@ void PreviewRenderer::Render()
         m_mesh->Draw(m_ctx, m_cbuf, m_anim, m_frame, vpRaw);
         // Restore topology for next frame's grid draw
         m_ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
+
+        // Cache Spine1 world position for the next frame's character-focus camera.
+        if (m_charFocus)
+        {
+            std::vector<PreviewMesh::BonePoseInfo> poses;
+            m_mesh->GetBonePoses(poses);
+            for (const auto& bp : poses)
+            {
+                if (bp.name == "Spine1")
+                {
+                    m_charFocusPos[0] = bp.pos[0];
+                    m_charFocusPos[1] = bp.pos[1];
+                    m_charFocusPos[2] = bp.pos[2];
+                    break;
+                }
+            }
+        }
     }
 
     // ── HARA_ROT1 rotation gizmo (always shown, depth-test off) ──────────────
@@ -376,6 +402,10 @@ void PreviewRenderer::ResetCamera()
     m_yaw   = XM_PI - 0.5f;  // eye at -Z (캐릭터 정면 방향), 살짝 우측
     m_pitch = 0.25f;
     m_dist  = 250.f;
+    // Reset character focus position to default so next character-focus frame starts clean.
+    m_charFocusPos[0] = 0.f;
+    m_charFocusPos[1] = m_floorHeight + 100.f;
+    m_charFocusPos[2] = 0.f;
 }
 
 void PreviewRenderer::SetFloorHeight(float h)

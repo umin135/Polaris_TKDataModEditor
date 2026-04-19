@@ -73,6 +73,11 @@ public:
     // Controls which bones are shown in the x-ray skeleton overlay.
     void SetAnimCategory(int cat) { m_animCat = cat; }
 
+    // Character focus: orbit around Spine1 world position instead of the floor origin.
+    // Keeps the character in view even when root motion moves it far from origin.
+    void SetCharacterFocus(bool v) { m_charFocus = v; }
+    bool GetCharacterFocus() const { return m_charFocus; }
+
     // Diagnostics
     int  GetMeshPartCount()    const;
     bool GetMeshTexLoaded()    const;  // false = white fallback in use
@@ -125,6 +130,10 @@ private:
     float m_yaw   = 2.6416f;  // ≈ π-0.5; eye at -Z (캐릭터 정면 방향), 살짝 우측
     float m_pitch =  0.25f;   // radians, elevation
     float m_dist  = 250.f;    // distance in scene units (cm)
+
+    // Character focus mode
+    bool  m_charFocus      = false;
+    float m_charFocusPos[3] = { 0.f, 115.f + 100.f, 0.f }; // Spine1 world pos (previous frame)
 
     // Part meshes (Phase 5+)
     // Raw pointer: unique_ptr<PreviewMesh> triggers MSVC C2338 when

@@ -139,5 +139,8 @@ private:
     int         m_previewPoolIdx= -1;   // poolIdx of the last loaded animation
     bool        m_showSkeleton  = false; // x-ray skeleton overlay toggle
     float       m_floorHeightInput = 115.f; // UI input value for floor/camera Y offset
+
+    // Per-category search filter buffers
+    char        m_searchBuf[6][128] = {};
 };
 

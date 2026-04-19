@@ -369,7 +369,7 @@ void AnimationManagerWindow::DoExtract(int cat, int poolIdx)
         {
             auto hit = m_hashToAnimKey.find(hash32);
             uint32_t motbinKey = (hit != m_hashToAnimKey.end()) ? hit->second : hash32;
-            const char* kamuiName = LabelDB::Get().GetMoveName(motbinKey);
+            const char* kamuiName = (cat == 0) ? LabelDB::Get().GetMoveName(motbinKey) : nullptr;
             if (kamuiName) { snprintf(defName, sizeof(defName), "%s%s", kamuiName, ext); named = true; }
             if (!named && m_animNameDB)
             {
@@ -644,6 +644,12 @@ void AnimationManagerWindow::RenderTabContent(int cat)
     ImGui::TextDisabled("%d animations", animCount);
     ImGui::Separator();
 
+    // Search bar
+    ImGui::SetNextItemWidth(-1.f);
+    ImGui::InputText("##search", m_searchBuf[cat], sizeof(m_searchBuf[cat]));
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+        ImGui::SetTooltip("Filter by name");
+
     const bool isFullbody = (cat == 0);
     ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(4.f, 2.f));
     if (ImGui::BeginTable("##anm_list", isFullbody ? 3 : 2,
@@ -668,12 +674,19 @@ void AnimationManagerWindow::RenderTabContent(int cat)
             auto hit = m_hashToAnimKey.find(hash32);
             uint32_t motbinKey = (hit != m_hashToAnimKey.end()) ? hit->second : hash32;
 
-            // Priority 1: kamui dictionary (real animation name)
-            const char* kamuiName = LabelDB::Get().GetMoveName(motbinKey);
-            if (kamuiName) return kamuiName;
+            // Priority 1: kamui dictionary — Fullbody only (cat == 0).
+            // Non-Fullbody categories (Hand/Facial/Swing/Extra…) use a referencing
+            // scheme not yet understood; skip kamui there to avoid name collisions.
+            if (cat == 0)
+            {
+                const char* kamuiName = LabelDB::Get().GetMoveName(motbinKey);
+                if (kamuiName) return kamuiName;
+            }
 
-            // Priority 2: AnimNameDB pool-based name (anim_grl_N)
-            if (m_animNameDB)
+            // Priority 2: AnimNameDB pool-based name (anim_grl_N) — Fullbody only.
+            // Non-Fullbody pools are not indexed the same way; using AnimNameDB there
+            // produces Fullbody-pool names at wrong indices and causes duplicates.
+            if (cat == 0 && m_animNameDB)
             {
                 std::string n = m_animNameDB->AnimKeyToName(motbinKey);
                 if (!n.empty()) return n;
@@ -741,14 +754,34 @@ void AnimationManagerWindow::RenderTabContent(int cat)
             ImGui::TextDisabled("-");
         };
 
+        // Pre-compute lower-case search needle once
+        char lowerSearch[128] = {};
+        {
+            size_t slen = strlen(m_searchBuf[cat]);
+            for (size_t k = 0; k < slen && k < sizeof(lowerSearch) - 1; ++k)
+                lowerSearch[k] = (char)tolower((unsigned char)m_searchBuf[cat][k]);
+        }
+        const bool hasSearch = (lowerSearch[0] != '\0');
+
+        auto nameMatchesSearch = [&](const std::string& name) -> bool {
+            char lname[256] = {};
+            size_t n = name.size();
+            for (size_t k = 0; k < n && k < sizeof(lname) - 1; ++k)
+                lname[k] = (char)tolower((unsigned char)name[k]);
+            return strstr(lname, lowerSearch) != nullptr;
+        };
+
         for (int i = 0; i < (int)pool.size(); ++i)
         {
             if (pool[i].animDataPtr == 0) continue; // skip com refs
 
+            // Compute name before TableNextRow so we can filter without emitting empty rows
+            std::string entName = getEntryName(i);
+            if (hasSearch && !nameMatchesSearch(entName)) continue;
+
             bool selected = (sel == i);
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
-            std::string entName = getEntryName(i);
             ImGui::PushID(i);
 
             if (ImGui::Selectable(entName.c_str(), selected,
@@ -764,6 +797,9 @@ void AnimationManagerWindow::RenderTabContent(int cat)
             if (ImGui::BeginPopupContextItem("##row_ctx"))
             {
                 sel = i;
+                if (ImGui::MenuItem("Copy Name"))
+                    ImGui::SetClipboardText(entName.c_str());
+                ImGui::Separator();
                 if (ImGui::MenuItem("Extract"))
                     DoExtract(cat, i);
                 ImGui::Separator();
@@ -942,7 +978,7 @@ void AnimationManagerWindow::RenderPreviewPanel(int cat)
             if (m_preview) m_preview->SetAnim(&m_currentAnim, (uint32_t)m_currentFrame);
         }
         ImGui::SameLine();
-        if (ImGui::Button(m_playing ? " || ##play" : " >  ##play"))
+        if (ImGui::Button(m_playing ? "Pause##play" : "Play##play"))
         {
             m_playing  = !m_playing;
             m_playTime = 0.f;
@@ -1005,6 +1041,17 @@ void AnimationManagerWindow::RenderPreviewPanel(int cat)
             if (ImGui::Button("Set##floorH") && m_preview)
                 m_preview->SetFloorHeight(m_floorHeightInput);
 
+            // Row 3: Character Focus [checkbox]
+            ImGui::Text("Char Focus");
+            ImGui::SameLine(kLabelW);
+            {
+                bool charFocus = m_preview ? m_preview->GetCharacterFocus() : false;
+                if (ImGui::Checkbox("##charfocus", &charFocus) && m_preview)
+                    m_preview->SetCharacterFocus(charFocus);
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+                ImGui::SetTooltip("Orbit camera around Spine1 (tracks character root motion)");
+
             // ?? Right column ?????????????????????????????????????
             ImGui::TableSetColumnIndex(1);
             // (reserved for future controls)
@@ -1036,7 +1083,7 @@ bool AnimationManagerWindow::Render()
     TryLoad();
     BuildAnimKeyMap();
 
-    ImGui::SetNextWindowSize(ImVec2(1200.f, 600.f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(1200.f, 720.f), ImGuiCond_FirstUseEver);
     ImGuiWindowFlags flags = ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoCollapse;
 
     if (!ImGui::Begin(m_windowId.c_str(), &m_open, flags))
