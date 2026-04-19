@@ -272,6 +272,34 @@ const MovesetDataDict::PropEntry* MovesetDataDict::GetPropEntry(uint32_t val) co
     return (it != m_props.end()) ? &it->second : nullptr;
 }
 
+//////////////////////////////////
+const char* MovesetDataDict::GetDialogueTypeLabel(uint32_t value) const
+{
+    int dramaType = (value >> 16) & 0xFFFF;
+    switch (dramaType)
+    {
+        case 0: return "Intro";
+        case 1: return "Outro";
+        case 2: return "Fate";
+        default: return "";
+    }
+}
+
+const char* MovesetDataDict::GetDramaTypeLabel(uint32_t value) const
+{
+    switch (value)
+    {
+        case 1: return "Intro";
+        case 2: return "Outro";
+        case 5: return "Fate";
+        case 6: return "Fate (End)";
+        case 7: return "Story Pre-Fight";
+        case 8: return "Story Post-Fight";
+        case 9: return "Story Mid-Fight";
+        default: return "";
+    }
+}
+
 // Copies into thread_local storage so GetParam* can return const char* without dangling temporaries.
 static const char* ParamLabelCStr(std::string s)
 {
@@ -335,6 +363,12 @@ const char* MovesetDataDict::GetParamLabel(uint32_t reqOrPropId, uint32_t pIndex
     case 288:
     case 326:
     case 365:
+    case 0x8128:
+    case 0x8129:
+    case 0x812A:
+    case 0x812B:
+    case 0x812C:
+    case 0x812D:
     {
         if (pIndex > 0) return "";
         // 0xAAAABBBB. 0xAAAA = flag, 0xBBBB = value. Interpret the flag and value as needed to produce a descriptive label.
@@ -353,6 +387,41 @@ const char* MovesetDataDict::GetParamLabel(uint32_t reqOrPropId, uint32_t pIndex
         int battle = param & 0xF;
         std::ostringstream oss;
         oss << "Chapter " << chapter << ", Battle " << battle;
+        return ParamLabelCStr(oss.str());
+    }
+    case 0x8313:
+    {
+        if (pIndex > 0) return "";
+        return GetDramaTypeLabel(param);
+    }
+    case 0x8695:
+    {
+        if (pIndex > 0) return "";
+        else if (param == 0) return "Player 1";
+        else if (param == 1) return "Player 2";
+        else if (param == 2) return "Player 1 & Player 2";
+        return "";
+    }
+    case 0x877B:
+    case 0x87F8:
+    {
+        if (pIndex > 0) return "";
+        int dramaType = (param >> 16) & 0xFFFF;
+        int dramaId = param & 0xFFFF;
+        std::ostringstream oss;
+        oss << GetDramaTypeLabel(param) << ": " << dramaId;
+        return ParamLabelCStr(oss.str());
+    }
+    case 0x87EF:
+    case 0x87F0:
+    case 0x87F1:
+    case 0x87F2:
+    case 0x87F3:
+    {
+        std::ostringstream oss;
+        oss << "";
+        if (pIndex == 0) oss << "Folder ID: " << param;
+        else if (pIndex == 2) oss << "Clip ID: " << param;
         return ParamLabelCStr(oss.str());
     }
     default:
