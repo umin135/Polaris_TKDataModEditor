@@ -43,6 +43,8 @@ public:
 
     bool IsLoaded() const { return m_loaded; }
 
+    const char* GetParamLabel(uint32_t reqOrPropId, uint32_t index, uint32_t param) const;
+
 private:
     MovesetDataDict() = default;
 

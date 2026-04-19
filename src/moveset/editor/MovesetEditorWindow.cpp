@@ -2715,8 +2715,9 @@ void MovesetEditorWindow::RenderSubWin_Requirements()
             ImGui::PopStyleColor();
 
             // --- Block 2: params ---
-            float rowH   = ImGui::GetFrameHeight() + sty.ItemSpacing.y;
-            float paramBlockH = rowH * 4.0f - sty.ItemSpacing.y + sty.WindowPadding.y * 2.0f;
+            float fieldRowH = ImGui::GetFrameHeight() + sty.ItemSpacing.y;
+            float paramLabelRowH = ImGui::GetTextLineHeightWithSpacing();
+            float paramBlockH = (fieldRowH + paramLabelRowH) * 4.0f - sty.ItemSpacing.y + sty.WindowPadding.y * 2.0f;
             ImGui::PushStyleColor(ImGuiCol_ChildBg, kBlockBg);
             if (ImGui::BeginChild("##req_b2", ImVec2(-1.0f, paramBlockH), ImGuiChildFlags_Borders)) {
                 constexpr ImGuiTableFlags kTF = ImGuiTableFlags_SizingFixedFit;
@@ -2724,13 +2725,14 @@ void MovesetEditorWindow::RenderSubWin_Requirements()
                     ImGui::TableSetupColumn("##lbl", ImGuiTableColumnFlags_WidthFixed);
                     ImGui::TableSetupColumn("##val", ImGuiTableColumnFlags_WidthStretch);
 
-                    struct { const char* label; uint32_t* val; const char* id; const FieldTooltip* tt; } rows[] = {
-                        { ReqLabel::Param0, &r.param,  "##p0", &FieldTT::Req::Param0 },
-                        { ReqLabel::Param1, &r.param2, "##p1", &FieldTT::Req::Param1 },
-                        { ReqLabel::Param2, &r.param3, "##p2", &FieldTT::Req::Param2 },
-                        { ReqLabel::Param3, &r.param4, "##p3", &FieldTT::Req::Param3 },
+                    struct { int index; const char* label; uint32_t* val; const char* id; const FieldTooltip* tt; } rows[] = {
+                        { 0, ReqLabel::Param0, &r.param,  "##p0", &FieldTT::Req::Param0 },
+                        { 1, ReqLabel::Param1, &r.param2, "##p1", &FieldTT::Req::Param1 },
+                        { 2, ReqLabel::Param2, &r.param3, "##p2", &FieldTT::Req::Param2 },
+                        { 3, ReqLabel::Param3, &r.param4, "##p3", &FieldTT::Req::Param3 },
                     };
                     for (auto& row : rows) {
+                        const char* paramLabel = MovesetDataDict::Get().GetParamLabel(r.req, row.index, *row.val);
                         ImGui::TableNextRow();
                         ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("%s", row.label); ShowFieldTooltip(*row.tt);
                         ImGui::TableSetColumnIndex(1);
@@ -2738,6 +2740,16 @@ void MovesetEditorWindow::RenderSubWin_Requirements()
                         int tmp = static_cast<int>(*row.val);
                         if (ImGui::InputInt(row.id, &tmp, 0, 0))
                             { *row.val = static_cast<uint32_t>(tmp); m_dirty = true; }
+
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(1);
+                        if (paramLabel && paramLabel[0]) {
+                            ImGui::PushStyleColor(ImGuiCol_Text, kGreen);
+                            ImGui::TextUnformatted(paramLabel);
+                            ImGui::PopStyleColor();
+                        } else {
+                            ImGui::TextDisabled(" ");
+                        }
                     }
                     ImGui::EndTable();
                 }

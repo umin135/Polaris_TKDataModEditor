@@ -1,9 +1,13 @@
 // MovesetDataDict.cpp
 // Loads data/MovesetDatas/data.json and exposes per-category lookups.
 #include "MovesetDataDict.h"
+#include "moveset/labels/LabelDB.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <sstream>
+#include <iomanip>
+#include <utility>
 
 // ---------------------------------------------------------------------------
 //  Singleton
@@ -266,4 +270,92 @@ const MovesetDataDict::PropEntry* MovesetDataDict::GetPropEntry(uint32_t val) co
 {
     auto it = m_props.find(val);
     return (it != m_props.end()) ? &it->second : nullptr;
+}
+
+// Copies into thread_local storage so GetParam* can return const char* without dangling temporaries.
+static const char* ParamLabelCStr(std::string s)
+{
+    thread_local std::string s_buf;
+    s_buf = std::move(s);
+    return s_buf.c_str();
+}
+
+std::string divBy1000(int param0)
+{
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(2) << (param0 / 1000.0);
+    return oss.str();
+}
+
+const char* MovesetDataDict::GetParamLabel(uint32_t reqOrPropId, uint32_t pIndex, uint32_t param) const
+{
+    switch (reqOrPropId)
+    {
+    // Yes/No Options
+    case 159:
+    case 1028:
+    case 1029:
+    {
+        if (pIndex > 0) return "";
+        return param ? "Yes" : "No";
+    }
+    case 35:
+    case 36:
+    case 758:
+    {
+        if (pIndex > 0) return "";
+        return ParamLabelCStr(divBy1000(static_cast<int>(param)));
+    }
+    // Character ID Checks
+    case 220:
+    case 221:
+    case 222:
+    case 223:
+    case 224:
+    case 225:
+    case 226:
+    case 227:
+    {
+        if (pIndex > 0) return "";
+        return LabelDB::Get().CharaName(param);
+    }
+    // Character ID Checks (multiple)
+    case 499:
+    case 500:
+    case 501:
+    case 502:
+    case 503:
+    case 504:
+    case 505:
+    case 506:
+    {
+        return LabelDB::Get().CharaName(param);
+    }
+    // Short Flag
+    case 288:
+    case 326:
+    case 365:
+    {
+        if (pIndex > 0) return "";
+        // 0xAAAABBBB. 0xAAAA = flag, 0xBBBB = value. Interpret the flag and value as needed to produce a descriptive label.
+        int flag = (param >> 16) & 0xFFFF;
+        int value = param & 0xFFFF;
+        std::ostringstream oss;
+        oss << "Flag[" << flag << "]" << " = " << value;
+        return ParamLabelCStr(oss.str());
+    }
+    // Story Battle Number
+    case 668:
+    {
+        if (pIndex > 0) return "";
+        // 0xAB: A chapter, B = battle number.
+        int chapter = (param >> 4) & 0xFF;
+        int battle = param & 0xF;
+        std::ostringstream oss;
+        oss << "Chapter " << chapter << ", Battle " << battle;
+        return ParamLabelCStr(oss.str());
+    }
+    default:
+        return "";
+    }
 }
