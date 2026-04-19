@@ -2717,7 +2717,20 @@ void MovesetEditorWindow::RenderSubWin_Requirements()
             // --- Block 2: params ---
             float fieldRowH = ImGui::GetFrameHeight() + sty.ItemSpacing.y;
             float paramLabelRowH = ImGui::GetTextLineHeightWithSpacing();
-            float paramBlockH = (fieldRowH + paramLabelRowH) * 4.0f - sty.ItemSpacing.y + sty.WindowPadding.y * 2.0f;
+            struct { int index; const char* label; uint32_t* val; const char* id; const FieldTooltip* tt; } rows[] = {
+                { 0, ReqLabel::Param0, &r.param,  "##p0", &FieldTT::Req::Param0 },
+                { 1, ReqLabel::Param1, &r.param2, "##p1", &FieldTT::Req::Param1 },
+                { 2, ReqLabel::Param2, &r.param3, "##p2", &FieldTT::Req::Param2 },
+                { 3, ReqLabel::Param3, &r.param4, "##p3", &FieldTT::Req::Param3 },
+            };
+            float paramBlockContentH = 0.0f;
+            for (auto& row : rows) {
+                paramBlockContentH += fieldRowH;
+                const char* pl = MovesetDataDict::Get().GetParamLabel(r.req, row.index, *row.val);
+                if (pl && pl[0])
+                    paramBlockContentH += paramLabelRowH;
+            }
+            float paramBlockH = paramBlockContentH - sty.ItemSpacing.y + sty.WindowPadding.y * 2.0f;
             ImGui::PushStyleColor(ImGuiCol_ChildBg, kBlockBg);
             if (ImGui::BeginChild("##req_b2", ImVec2(-1.0f, paramBlockH), ImGuiChildFlags_Borders)) {
                 constexpr ImGuiTableFlags kTF = ImGuiTableFlags_SizingFixedFit;
@@ -2725,12 +2738,6 @@ void MovesetEditorWindow::RenderSubWin_Requirements()
                     ImGui::TableSetupColumn("##lbl", ImGuiTableColumnFlags_WidthFixed);
                     ImGui::TableSetupColumn("##val", ImGuiTableColumnFlags_WidthStretch);
 
-                    struct { int index; const char* label; uint32_t* val; const char* id; const FieldTooltip* tt; } rows[] = {
-                        { 0, ReqLabel::Param0, &r.param,  "##p0", &FieldTT::Req::Param0 },
-                        { 1, ReqLabel::Param1, &r.param2, "##p1", &FieldTT::Req::Param1 },
-                        { 2, ReqLabel::Param2, &r.param3, "##p2", &FieldTT::Req::Param2 },
-                        { 3, ReqLabel::Param3, &r.param4, "##p3", &FieldTT::Req::Param3 },
-                    };
                     for (auto& row : rows) {
                         const char* paramLabel = MovesetDataDict::Get().GetParamLabel(r.req, row.index, *row.val);
                         ImGui::TableNextRow();
@@ -2741,14 +2748,12 @@ void MovesetEditorWindow::RenderSubWin_Requirements()
                         if (ImGui::InputInt(row.id, &tmp, 0, 0))
                             { *row.val = static_cast<uint32_t>(tmp); m_dirty = true; }
 
-                        ImGui::TableNextRow();
-                        ImGui::TableSetColumnIndex(1);
                         if (paramLabel && paramLabel[0]) {
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(1);
                             ImGui::PushStyleColor(ImGuiCol_Text, kGreen);
                             ImGui::TextUnformatted(paramLabel);
                             ImGui::PopStyleColor();
-                        } else {
-                            ImGui::TextDisabled(" ");
                         }
                     }
                     ImGui::EndTable();
@@ -4396,10 +4401,26 @@ static void RenderPropSection(
             ImGui::Spacing();
 
             // --- Block 2: params[0-4] ---
-            // RowPU32: field row + green param label row (same sizing as requirement param block).
+            // RowPU32: optional green param label row only when GetParamLabel is non-empty.
             const float fieldRowH = ImGui::GetFrameHeight() + sty.ItemSpacing.y;
             const float paramLabelRowH = ImGui::GetTextLineHeightWithSpacing();
-            const float b2H = (fieldRowH + paramLabelRowH) * 5.0f - sty.ItemSpacing.y + sty.WindowPadding.y * 2.0f;
+            float b2ContentH = 0.0f;
+            if (e.id == 0x877d || e.id == 0x827b || e.id == 0x868f) {
+                b2ContentH += fieldRowH;
+            } else {
+                b2ContentH += fieldRowH;
+                const char* pl0 = MovesetDataDict::Get().GetParamLabel(e.id, 0, e.value);
+                if (pl0 && pl0[0])
+                    b2ContentH += paramLabelRowH;
+            }
+            const uint32_t* epVals[4] = { &e.value2, &e.value3, &e.value4, &e.value5 };
+            for (int pi = 0; pi < 4; ++pi) {
+                b2ContentH += fieldRowH;
+                const char* pl = MovesetDataDict::Get().GetParamLabel(e.id, pi + 1, *epVals[pi]);
+                if (pl && pl[0])
+                    b2ContentH += paramLabelRowH;
+            }
+            const float b2H = b2ContentH - sty.ItemSpacing.y + sty.WindowPadding.y * 2.0f;
 
             std::string b2Id = std::string(detailChildId) + "_b2";
             ImGui::PushStyleColor(ImGuiCol_ChildBg, kBlockBg);
@@ -4419,14 +4440,12 @@ static void RenderPropSection(
                         int tmp = (int)v;
                         if (ImGui::InputInt(id, &tmp, 0, 0)) { v = (uint32_t)tmp; dirty = true; }
 
-                        ImGui::TableNextRow();
-                        ImGui::TableSetColumnIndex(1);
                         if (paramLabel && paramLabel[0]) {
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(1);
                             ImGui::PushStyleColor(ImGuiCol_Text, kGreen);
                             ImGui::TextUnformatted(paramLabel);
                             ImGui::PopStyleColor();
-                        } else {
-                            ImGui::TextDisabled(" ");
                         }
                     };
                     auto RowPHex32 = [&](const char* id, const char* lbl, uint32_t& v, const FieldTooltip& tt = {}) {
