@@ -8,7 +8,11 @@
 namespace AppStr
 {
     // ── Tool version (shown bottom-left of sidebar) ───────────────────────────
-    static constexpr const char* Version       = "v0.1.1b";
+    // APPSTR_VERSION is a macro so adjacent string literals can compose it at
+    // compile time (e.g. "Title - " APPSTR_VERSION).  Update only this one line.
+#define APPSTR_VERSION   "v0.1.1b"
+#define APPSTR_VERSION_W L"v0.1.1b"
+    static constexpr const char* Version       = APPSTR_VERSION;
 
     // ── Sidebar header text (top of the sidebar) ─────────────────────────────
     static constexpr const char* SidebarLogoText = "TEKKEN8";
@@ -31,6 +35,8 @@ namespace AppStr
     // ── Home view — title / subtitle (shown when logo texture is unavailable) ─
     static constexpr const char* AppTitle      = "TEKKEN8 TKData Mod Editor";
     static constexpr const char* AppSubtitle   = "TEKKEN8 TKData Mod Editor";
+    // Combined title with version suffix — use this for display rendering.
+    static constexpr const char* AppTitleFull  = "TEKKEN8 TKData Mod Editor - " APPSTR_VERSION;
 
     // ── Home view — Supported Modules table ──────────────────────────────────
     static constexpr const char* SectionModules = "Supported Modules";

@@ -16,6 +16,7 @@
 #include "imgui/backends/imgui_impl_win32.h"
 #include "imgui/backends/imgui_impl_dx11.h"
 #include "App.h"
+#include "AppStrings.h"
 #include "../resource.h"
 
 // Global bold font -- loaded once at startup, used throughout the UI
@@ -220,7 +221,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
 
     // Create the main window (wide rectangle: 1280x720)
     HWND hwnd = ::CreateWindowW(
-        wc.lpszClassName, L"PolarisTK Data Editor",
+        wc.lpszClassName, L"TEKKEN8 TKData Mod Editor - " APPSTR_VERSION_W,
         WS_OVERLAPPEDWINDOW,
         100, 100, 1280, 720,
         nullptr, nullptr, wc.hInstance, nullptr
