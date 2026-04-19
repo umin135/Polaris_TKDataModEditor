@@ -2646,14 +2646,9 @@ void MovesetEditorWindow::RenderSubWin_Requirements()
                 } else {
                     const MovesetDataDict::ReqEntry* de = MovesetDataDict::Get().GetReq(r.req);
                     if (de && !de->condition.empty()) {
-                        snprintf(lbl, sizeof(lbl), "#%u  %s: %s##ri%u",
-                                k, reqBuf, de->condition.c_str(), idx);
+                        snprintf(lbl, sizeof(lbl), "#%u  %s: %s##ri%u", k, reqBuf, de->condition.c_str(), idx);
                     } else {
-                        snprintf(lbl, sizeof(lbl), "#%u  %s=%s##ri%u",
-                                k,
-                                (r.req > 0x8000) ? "prop" : "req",
-                                reqBuf,
-                                idx);
+                        snprintf(lbl, sizeof(lbl), "#%u  %s##ri%u", k, reqBuf, idx);
                     }
                 }
                 if (isTerm) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f,0.5f,0.5f,1.0f));
@@ -2688,7 +2683,9 @@ void MovesetEditorWindow::RenderSubWin_Requirements()
                 + sty.WindowPadding.y * 2.0f;
             ImGui::PushStyleColor(ImGuiCol_ChildBg, kBlockBg);
             if (ImGui::BeginChild("##req_b1", ImVec2(-1.0f, reqBlockH), ImGuiChildFlags_Borders)) {
-                ImGui::TextDisabled("%s", ReqLabel::Req); ShowFieldTooltip(FieldTT::Req::Req);
+                bool isProp = r.req > 0x8000;
+                const char* displayLabel = isProp ? ExtraPropLabel::Property : ReqLabel::Req;
+                ImGui::TextDisabled("%s", displayLabel); ShowFieldTooltip(FieldTT::Req::Req);
                 ImGui::SetNextItemWidth(-1.0f);
                 int tmp = static_cast<int>(r.req);
                 if (ImGui::InputInt("##req_val", &tmp, 0, 0))
@@ -2697,7 +2694,8 @@ void MovesetEditorWindow::RenderSubWin_Requirements()
                 const MovesetDataDict::ReqEntry* de = MovesetDataDict::Get().GetReq(r.req);
                 if (de) {
                     ImGui::PushStyleColor(ImGuiCol_Text, kGreen);
-                    ImGui::TextUnformatted(de->condition.c_str());
+                    const char* fmt = isProp ? "0x%X: %s" : "%u: %s";
+                    ImGui::Text(fmt, r.req, de->condition.c_str());
                     ImGui::PopStyleColor();
                     if (!de->tooltip.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
                         ImGui::SetTooltip("%s", de->tooltip.c_str());
@@ -2707,7 +2705,8 @@ void MovesetEditorWindow::RenderSubWin_Requirements()
                         ImGui::TextDisabled(" ");
                 } else {
                     ImGui::PushStyleColor(ImGuiCol_Text, kRed);
-                    ImGui::TextUnformatted("Unknown");
+                    const char* fmt = isProp ? "0x%X: Unknown" : "%u: Unknown";
+                    ImGui::Text(fmt, r.req);
                     ImGui::PopStyleColor();
                     ImGui::TextDisabled(" ");
                 }
