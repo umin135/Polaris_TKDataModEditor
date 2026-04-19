@@ -4396,9 +4396,10 @@ static void RenderPropSection(
             ImGui::Spacing();
 
             // --- Block 2: params[0-4] ---
-            // Each row: label + input on same line (FrameH + ItemSpacing.y)
-            const float fH2 = ImGui::GetFrameHeight() + sty.ItemSpacing.y;
-            const float b2H = fH2 * 5 - sty.ItemSpacing.y + sty.WindowPadding.y * 2.0f;
+            // RowPU32: field row + green param label row (same sizing as requirement param block).
+            const float fieldRowH = ImGui::GetFrameHeight() + sty.ItemSpacing.y;
+            const float paramLabelRowH = ImGui::GetTextLineHeightWithSpacing();
+            const float b2H = (fieldRowH + paramLabelRowH) * 5.0f - sty.ItemSpacing.y + sty.WindowPadding.y * 2.0f;
 
             std::string b2Id = std::string(detailChildId) + "_b2";
             ImGui::PushStyleColor(ImGuiCol_ChildBg, kBlockBg);
@@ -4410,12 +4411,23 @@ static void RenderPropSection(
                     ImGui::TableSetupColumn("##pl", ImGuiTableColumnFlags_WidthFixed);
                     ImGui::TableSetupColumn("##pv", ImGuiTableColumnFlags_WidthStretch);
 
-                    auto RowPU32 = [&](const char* id, const char* lbl, uint32_t& v, const FieldTooltip& tt = {}) {
+                    auto RowPU32 = [&](const char* id, const char* lbl, uint32_t& v, const FieldTooltip& tt = {}, int pIndex = 0) {
+                        const char* paramLabel = MovesetDataDict::Get().GetParamLabel(e.id, pIndex, v);
                         ImGui::TableNextRow();
                         ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("%s", lbl); ShowFieldTooltip(tt);
                         ImGui::TableSetColumnIndex(1); ImGui::SetNextItemWidth(-1.0f);
                         int tmp = (int)v;
                         if (ImGui::InputInt(id, &tmp, 0, 0)) { v = (uint32_t)tmp; dirty = true; }
+
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(1);
+                        if (paramLabel && paramLabel[0]) {
+                            ImGui::PushStyleColor(ImGuiCol_Text, kGreen);
+                            ImGui::TextUnformatted(paramLabel);
+                            ImGui::PopStyleColor();
+                        } else {
+                            ImGui::TextDisabled(" ");
+                        }
                     };
                     auto RowPHex32 = [&](const char* id, const char* lbl, uint32_t& v, const FieldTooltip& tt = {}) {
                         ImGui::TableNextRow();
@@ -4431,17 +4443,18 @@ static void RenderPropSection(
                     };
 
                     char p0lbl[64];
-                    if (e.id == 0x87f8)
-                    {
-                        snprintf(p0lbl, sizeof(p0lbl), "%s   (Dialogues)", ExtraPropLabel::Param0);
-                        RowPHex32("##ep_v1_dlg", p0lbl, e.value, FieldTT::ExtraProp::Param0);
-                    }
-                    else if (e.id == 0x877b)
-                    {
-                        snprintf(p0lbl, sizeof(p0lbl), "%s   (Dialogues)", ExtraPropLabel::Param0);
-                        RowPU32("##ep_v1_877b", p0lbl, e.value, FieldTT::ExtraProp::Param0);
-                    }
-                    else if (e.id == 0x877d)
+                    // if (e.id == 0x87f8)
+                    // {
+                    //     snprintf(p0lbl, sizeof(p0lbl), "%s   (Dialogues)", ExtraPropLabel::Param0);
+                    //     RowPHex32("##ep_v1_dlg", p0lbl, e.value, FieldTT::ExtraProp::Param0);
+                    // }
+                    // else if (e.id == 0x877b)
+                    // {
+                    //     snprintf(p0lbl, sizeof(p0lbl), "%s   (Dialogues)", ExtraPropLabel::Param0);
+                    //     RowPU32("##ep_v1_877b", p0lbl, e.value, FieldTT::ExtraProp::Param0);
+                    // }
+                    // else 
+                    if (e.id == 0x877d)
                     {
                         RowPHex32("##ep_v1_877d", ExtraPropLabel::Param0, e.value, FieldTT::ExtraProp::Param0);
                     }
@@ -4478,13 +4491,13 @@ static void RenderPropSection(
                     }
                     else
                     {
-                        RowPU32("##ep_v1", ExtraPropLabel::Param0, e.value, FieldTT::ExtraProp::Param0);
+                        RowPU32("##ep_v1", ExtraPropLabel::Param0, e.value, FieldTT::ExtraProp::Param0, 0);
                     }
 
-                    RowPU32("##ep_v2", ExtraPropLabel::Param1, e.value2, FieldTT::ExtraProp::Param1);
-                    RowPU32("##ep_v3", ExtraPropLabel::Param2, e.value3, FieldTT::ExtraProp::Param2);
-                    RowPU32("##ep_v4", ExtraPropLabel::Param3, e.value4, FieldTT::ExtraProp::Param3);
-                    RowPU32("##ep_v5", ExtraPropLabel::Param4, e.value5, FieldTT::ExtraProp::Param4);
+                    RowPU32("##ep_v2", ExtraPropLabel::Param1, e.value2, FieldTT::ExtraProp::Param1, 1);
+                    RowPU32("##ep_v3", ExtraPropLabel::Param2, e.value3, FieldTT::ExtraProp::Param2, 2);
+                    RowPU32("##ep_v4", ExtraPropLabel::Param3, e.value4, FieldTT::ExtraProp::Param3, 3);
+                    RowPU32("##ep_v5", ExtraPropLabel::Param4, e.value5, FieldTT::ExtraProp::Param4, 4);
                     ImGui::EndTable();
                 }
             }
