@@ -1,0 +1,1319 @@
+{
+  "requirements": {
+    "1100": {
+      "param": "0",
+      "Condition": "End",
+      "ToolTip": "o"
+    },
+    "0": {
+      "param": "0",
+      "Condition": "Always true",
+      "ToolTip": ""
+    },
+    "1": {
+      "param": "0",
+      "Condition": "Practice Mode Demo",
+      "ToolTip": "Inside Practice mode movelist demo.\nE.g, Used in Claudio to go to Starburst Manually"
+    },
+    "2": {
+      "param": "Any",
+      "Condition": "Attack To Throw",
+      "ToolTip": "Used for Hit-to-Throw transitions. \nWorks for all opponent directions (Front, Back, Left, Right).\nand Status (Standing, Crouching, Airborne etc)\nParameter is distance\nE.g, DVJ, KAZ Heaven's Door\nCommon values are 1536 and 1900"
+    },
+    "3": {
+      "param": "Any",
+      "Condition": "Throw Hit Forward (Standing)",
+      "ToolTip": ""
+    },
+    "4": {
+      "param": "Any",
+      "Condition": "Throw Hit Backward (Standing)",
+      "ToolTip": ""
+    },
+    "5": {
+      "param": "Any",
+      "Condition": "Throw Hit Left Side (Standing)",
+      "ToolTip": ""
+    },
+    "6": {
+      "param": "Any",
+      "Condition": "Throw Hit Right Side (Standing)",
+      "ToolTip": ""
+    },
+    "7": {
+      "param": "Any",
+      "Condition": "Throw Hit Forward (Crouching)",
+      "ToolTip": ""
+    },
+    "8": {
+      "param": "Any",
+      "Condition": "Throw Hit Backward (Crouching)",
+      "ToolTip": ""
+    },
+    "9": {
+      "param": "Any",
+      "Condition": "Throw Hit Left Side (Crouching)",
+      "ToolTip": ""
+    },
+    "10": {
+      "param": "Any",
+      "Condition": "Throw Hit Right Side (Crouching)",
+      "ToolTip": ""
+    },
+    "11": {
+      "param": "Any",
+      "Condition": "Throw Hit Forward (Face Up)",
+      "ToolTip": ""
+    },
+    "12": {
+      "param": "Any",
+      "Condition": "Throw Hit Backward (Face Up)",
+      "ToolTip": ""
+    },
+    "13": {
+      "param": "Any",
+      "Condition": "Throw Hit Left Side (Face Up)",
+      "ToolTip": ""
+    },
+    "14": {
+      "param": "Any",
+      "Condition": "Throw Hit Right Side (Face Up)",
+      "ToolTip": ""
+    },
+    "15": {
+      "param": "Any",
+      "Condition": "Throw Hit Forward (Face Down)",
+      "ToolTip": ""
+    },
+    "16": {
+      "param": "Any",
+      "Condition": "Throw Hit Backward (Face Down)",
+      "ToolTip": ""
+    },
+    "17": {
+      "param": "Any",
+      "Condition": "Throw Hit Left Side (Face Down)",
+      "ToolTip": ""
+    },
+    "18": {
+      "param": "Any",
+      "Condition": "Throw Hit Right Side (Face Down)",
+      "ToolTip": ""
+    },
+    "23": {
+      "param": "Any",
+      "Condition": "Attack To Throw (Forward)",
+      "ToolTip": ""
+    },
+    "24": {
+      "param": "Any",
+      "Condition": "Attack To Throw (Backward)",
+      "ToolTip": ""
+    },
+    "25": {
+      "param": "Any",
+      "Condition": "Attack To Throw (Left Side)",
+      "ToolTip": ""
+    },
+    "26": {
+      "param": "Any",
+      "Condition": "Attack To Throw (Right Side)",
+      "ToolTip": ""
+    },
+    "27": {
+      "param": "Any",
+      "Condition": "Airborne Throw Hit Forward (Face Up)",
+      "ToolTip": ""
+    },
+    "28": {
+      "param": "Any",
+      "Condition": "Airborne Throw Hit Backward (Face Up)",
+      "ToolTip": ""
+    },
+    "29": {
+      "param": "Any",
+      "Condition": "Airborne Throw Hit Left Side (Face Up)",
+      "ToolTip": ""
+    },
+    "30": {
+      "param": "Any",
+      "Condition": "Airborne Throw Hit Right Side (Face Up)",
+      "ToolTip": ""
+    },
+    "31": {
+      "param": "Any",
+      "Condition": "Airborne Throw Hit Forward (Face Down)",
+      "ToolTip": ""
+    },
+    "32": {
+      "param": "Any",
+      "Condition": "Airborne Throw Hit Backward (Face Down)",
+      "ToolTip": ""
+    },
+    "33": {
+      "param": "Any",
+      "Condition": "Airborne Throw Hit Left Side (Face Down)",
+      "ToolTip": ""
+    },
+    "34": {
+      "param": "Any",
+      "Condition": "Airborne Throw Hit Right Side (Face Down)",
+      "ToolTip": ""
+    },
+    "35": {
+      "param": "Any",
+      "Condition": "Opponent distance smaller or equal than",
+      "ToolTip": "1000 = 1.0 distance in framedata"
+    },
+    "36": {
+      "param": "Any",
+      "Condition": "Opponent distance greater  or equal than",
+      "ToolTip": "1000 = 1.0 distance in framedata"
+    },
+    "43": {
+      "param": "0",
+      "Condition": "On Hit",
+      "ToolTip": "Difference b/w this and 44 not known yet"
+    },
+    "44": {
+      "param": "0",
+      "Condition": "On Hit",
+      "ToolTip": "Must be used at active frames"
+    },
+    "47": {
+      "param": "0",
+      "Condition": "On Block",
+      "ToolTip": "Must be used at active frames"
+    },
+    "48": {
+      "param": "0",
+      "Condition": "On Whiff",
+      "ToolTip": "Must be used at active frames"
+    },
+    "49": {
+      "param": "0",
+      "Condition": "On Hit / On Block",
+      "ToolTip": "Used when cancel happens after active frames. i.e, 2D cancels"
+    },
+    "50": {
+      "param": "0",
+      "Condition": "Hit/Block related (?)",
+      "ToolTip": ""
+    },
+    "51": {
+      "param": "0",
+      "Condition": "On Hit",
+      "ToolTip": "Used when cancel happens after active frames. i.e, Story mode mid-battle cutscenes."
+    },
+    "61": {
+      "param": "VULN",
+      "Condition": "Check Opponent VULN",
+      "ToolTip": ""
+    },
+    "62": {
+      "param": "Any",
+      "Condition": "Opponent Attacking",
+      "ToolTip": "Checks if the opponent current move has non-zero damage value"
+    },
+    "63": {
+      "param": "Any",
+      "Condition": "Opponent Attacking while Standing",
+      "ToolTip": "Checks if the opponent current move has non-zero damage value while they are considered \"standing\""
+    },
+    "64": {
+      "param": "Any",
+      "Condition": "Opponent Attacking while Crouching",
+      "ToolTip": "Checks if the opponent current move has non-zero damage value while they are considered \"crouching\""
+    },
+    "65": {
+      "param": "Any",
+      "Condition": "Opponent moving but not attacking",
+      "ToolTip": "Opp. current move has a damage of 0"
+    },
+    "66": {
+      "param": "0",
+      "Condition": "Opponent Standing",
+      "ToolTip": ""
+    },
+    "67": {
+      "param": "0",
+      "Condition": "Opponent Crouching",
+      "ToolTip": ""
+    },
+    "68": {
+      "param": "0",
+      "Condition": "Incoming high attack",
+      "ToolTip": ""
+    },
+    "69": {
+      "param": "0",
+      "Condition": "Incoming mid attack",
+      "ToolTip": ""
+    },
+    "70": {
+      "param": "0",
+      "Condition": "Incoming low attack",
+      "ToolTip": ""
+    },
+    "71": {
+      "param": "0",
+      "Condition": "Incoming high/mid attack",
+      "ToolTip": ""
+    },
+    "72": {
+      "param": "0",
+      "Condition": "Character Backturned",
+      "ToolTip": "player direction >= 0x4000 is considered backturned"
+    },
+    "73": {
+      "param": "0",
+      "Condition": "Character Not Backturned",
+      "ToolTip": "Includes facing Front, Left and Right\nplayer direction < 0x4000 is considered not backturned"
+    },
+    "76": {
+      "param": "Any",
+      "Condition": "Character Facing Direction >= param",
+      "ToolTip": ""
+    },
+    "77": {
+      "param": "Any",
+      "Condition": "Character Facing Direction < param",
+      "ToolTip": ""
+    },
+    "87": {
+      "param": "0",
+      "Condition": "Collide with opponent(?)",
+      "ToolTip": ""
+    },
+    "92": {
+      "param": "0",
+      "Condition": "Opponent facing Forward",
+      "ToolTip": ""
+    },
+    "93": {
+      "param": "0",
+      "Condition": "Opponent facing Left",
+      "ToolTip": ""
+    },
+    "94": {
+      "param": "0",
+      "Condition": "Opponent facing Right",
+      "ToolTip": ""
+    },
+    "95": {
+      "param": "0",
+      "Condition": "Opponent facing Backwards",
+      "ToolTip": ""
+    },
+    "96": {
+      "param": "0",
+      "Condition": "Opponent facing Forward",
+      "ToolTip": ""
+    },
+    "97": {
+      "param": "0",
+      "Condition": "Opponent facing Left",
+      "ToolTip": ""
+    },
+    "98": {
+      "param": "0",
+      "Condition": "Opponent facing Right",
+      "ToolTip": ""
+    },
+    "99": {
+      "param": "0",
+      "Condition": "Opponent facing Backwards",
+      "ToolTip": ""
+    },
+    "100": {
+      "param": "0",
+      "Condition": "Opponent is close, last active frame not reached, high attack",
+      "ToolTip": "Enemy within 1792 units & his last active frame is not reached & his attack is high"
+    },
+    "101": {
+      "param": "Any",
+      "Condition": "Enemy first active frame - curr frame < X",
+      "ToolTip": ""
+    },
+    "102": {
+      "param": "Any",
+      "Condition": "Enemy first active frame - curr frame >= X",
+      "ToolTip": ""
+    },
+    "103": {
+      "param": "Any",
+      "Condition": "Enemy first active frame - curr frame = X",
+      "ToolTip": ""
+    },
+    "104": {
+      "param": "Any",
+      "Condition": "Enemy last active frame - curr frame < X",
+      "ToolTip": ""
+    },
+    "105": {
+      "param": "Any",
+      "Condition": "Enemy last active frame - curr frame >= X",
+      "ToolTip": ""
+    },
+    "106": {
+      "param": "Any",
+      "Condition": "Enemy last active frame - curr frame = X",
+      "ToolTip": ""
+    },
+    "107": {
+      "param": "Any",
+      "Condition": "Enemy current frame - last active frame <= X",
+      "ToolTip": "Returns True if attack doesn't have first active frame"
+    },
+    "108": {
+      "param": "Any",
+      "Condition": "Player current frame - max anim length >= X",
+      "ToolTip": ""
+    },
+    "109": {
+      "param": "Any",
+      "Condition": "Player move max anim length - Current frame > X",
+      "ToolTip": ""
+    },
+    "110": {
+      "param": "Any",
+      "Condition": "Enemy move frame >= X",
+      "ToolTip": ""
+    },
+    "111": {
+      "param": "Any",
+      "Condition": "Enemy move frame < X",
+      "ToolTip": ""
+    },
+    "112": {
+      "param": "Any",
+      "Condition": "Enemy move frame == X",
+      "ToolTip": ""
+    },
+    "126": {
+      "param": "0",
+      "Condition": "Opponent is downed",
+      "ToolTip": ""
+    },
+    "127": {
+      "param": "0 - 1",
+      "Condition": "Opponent is on their feet",
+      "ToolTip": "Opponent is standing or crouching, parameter unknown"
+    },
+    "128": {
+      "param": "0",
+      "Condition": "Opponent is downed, not airborne, distance <= X",
+      "ToolTip": ""
+    },
+    "130": {
+      "param": "0",
+      "Condition": "On Counter Hit",
+      "ToolTip": ""
+    },
+    "131": {
+      "param": "0",
+      "Condition": "Pressed ONLY Left Punch",
+      "ToolTip": "Throw Breaking"
+    },
+    "132": {
+      "param": "0",
+      "Condition": "Pressed ONLY Right Punch",
+      "ToolTip": "Throw Breaking"
+    },
+    "133": {
+      "param": "0",
+      "Condition": "Pressed ONLY Left + Right Punch",
+      "ToolTip": "Throw Breaking"
+    },
+    "134": {
+      "param": "0",
+      "Condition": "Throw break related",
+      "ToolTip": ""
+    },
+    "135": {
+      "param": "0",
+      "Condition": "Throw break related",
+      "ToolTip": ""
+    },
+    "137": {
+      "param": "0",
+      "Condition": "On Death",
+      "ToolTip": ""
+    },
+    "138": {
+      "param": "0",
+      "Condition": "On Opponent Death",
+      "ToolTip": ""
+    },
+    "139": {
+      "param": "0",
+      "Condition": "Opponent Health < 50%",
+      "ToolTip": ""
+    },
+    "140": {
+      "param": "0 - 175",
+      "Condition": "Player HP >= Param",
+      "ToolTip": "Max param value is 32767"
+    },
+    "141": {
+      "param": "0 - 175",
+      "Condition": "Player HP < Param",
+      "ToolTip": "Max param value is 32767"
+    },
+    "142": {
+      "param": "0 - 175",
+      "Condition": "Opponent HP >= Param",
+      "ToolTip": "Max param value is 32767"
+    },
+    "143": {
+      "param": "0 - 175",
+      "Condition": "Opponent HP < Param",
+      "ToolTip": "Max param value is 32767. Doesn't work in practice mode"
+    },
+    "144": {
+      "param": "0 - 100",
+      "Condition": "Player HP Percentage >= Param",
+      "ToolTip": ""
+    },
+    "145": {
+      "param": "0 - 100",
+      "Condition": "Player HP Percentage < Param",
+      "ToolTip": ""
+    },
+    "146": {
+      "param": "0 - 175",
+      "Condition": "Opponent HP <= Param",
+      "ToolTip": "Max param value is 32767"
+    },
+    "147": {
+      "param": "0 - 175",
+      "Condition": "Player HP <= Param",
+      "ToolTip": "Max param value is 32767"
+    },
+    "148": {
+      "param": "0",
+      "Condition": "Standing on the Left Side",
+      "ToolTip": ""
+    },
+    "149": {
+      "param": "0",
+      "Condition": "Standing on the Right Side",
+      "ToolTip": ""
+    },
+    "150": {
+      "param": "0",
+      "Condition": "Player on the Ground (Right Side)",
+      "ToolTip": ""
+    },
+    "151": {
+      "param": "0",
+      "Condition": "Player on the Ground (Left Side)",
+      "ToolTip": ""
+    },
+    "152": {
+      "param": "0",
+      "Condition": "Something related to which side player is standing (Left)",
+      "ToolTip": ""
+    },
+    "153": {
+      "param": "0",
+      "Condition": "Something related to which side player is standing (Right)",
+      "ToolTip": ""
+    },
+    "157": {
+      "param": "0",
+      "Condition": "If Player is Ki Charged",
+      "ToolTip": "Player must be Ki Charged (e.g Leo's d/b+1,1+2)"
+    },
+    "158": {
+      "param": "0",
+      "Condition": "If Player is NOT Ki Charged",
+      "ToolTip": ""
+    },
+    "159": {
+      "param": "0 - 1",
+      "Condition": "Player is in rage",
+      "ToolTip": "0 = Player NOT in Rage. 1 = Player in Rage."
+    },
+    "168": {
+      "param": "?",
+      "Condition": "Something related to Speed & frame values of some unknown cancel",
+      "ToolTip": ""
+    },
+    "184": {
+      "param": "1, 2, 4, 8",
+      "Condition": "Near Wall",
+      "ToolTip": "Used in throws for Wall Splats.\nEach value indicates a facing direction"
+    },
+    "192": {
+      "param": "0",
+      "Condition": "Wallbreak Available",
+      "ToolTip": "Used for stages like Howard Estate and G-Corp Helipad"
+    },
+    "219": {
+      "param": "0",
+      "Condition": "Something Wallsplat Related (?)",
+      "ToolTip": "Always present in wallsplat cancels"
+    },
+    "220": {
+      "param": "Character ID",
+      "Condition": "Player character ID",
+      "ToolTip": ""
+    },
+    "221": {
+      "param": "Character ID",
+      "Condition": "Player NOT character ID",
+      "ToolTip": ""
+    },
+    "222": {
+      "param": "Character ID",
+      "Condition": "Oppponent character ID",
+      "ToolTip": ""
+    },
+    "223": {
+      "param": "Character ID",
+      "Condition": "Opponent NOT character ID",
+      "ToolTip": ""
+    },
+    "224": {
+      "param": "Character ID",
+      "Condition": "Player character ID",
+      "ToolTip": ""
+    },
+    "225": {
+      "param": "Character ID",
+      "Condition": "Player NOT character ID",
+      "ToolTip": ""
+    },
+    "226": {
+      "param": "Character ID",
+      "Condition": "Oppponent character ID",
+      "ToolTip": "Used in character intros"
+    },
+    "227": {
+      "param": "Character ID",
+      "Condition": "Oppponent NOT character ID",
+      "ToolTip": "Used in character intros"
+    },
+    "228": {
+      "param": "0-1,3",
+      "Condition": "Player Character Controller",
+      "ToolTip": "Player = 0 CPU = 1 Intro/Outro = 3"
+    },
+    "229": {
+      "param": "0-1,3",
+      "Condition": "Opponent Character Controller",
+      "ToolTip": "Player = 0 CPU = 1 Intro/Outro = 3"
+    },
+    "236": {
+      "param": "0",
+      "Condition": "Player is Eddy",
+      "ToolTip": ""
+    },
+    "238": {
+      "param": "0",
+      "Condition": "Player is Eddy",
+      "ToolTip": "This one checks opponent's existence first. Probably a mistake from the devs where they were supposed to apply opponent check for Eddy"
+    },
+    "259": {
+      "param": "Any",
+      "Condition": "Prop 0x809b >= Value",
+      "ToolTip": ""
+    },
+    "274": {
+      "param": "0 - 1",
+      "Condition": "Kazuya Devil Flag >= Value",
+      "ToolTip": ""
+    },
+    "276": {
+      "param": "Any",
+      "Condition": "Prop 0x80e4 >= Value",
+      "ToolTip": ""
+    },
+    "280": {
+      "param": "Any",
+      "Condition": "Prop 0x80f0 >= Value",
+      "ToolTip": ""
+    },
+    "281": {
+      "param": "Any",
+      "Condition": "Prop 0x80c5 >= Value",
+      "ToolTip": ""
+    },
+    "282": {
+      "param": "Any",
+      "Condition": "Prop 0x80c8 >= Value",
+      "ToolTip": ""
+    },
+    "283": {
+      "param": "Any",
+      "Condition": "Prop 0x80cb >= Value",
+      "ToolTip": ""
+    },
+    "288": {
+      "param": "0xAAAABBBB",
+      "Condition": "Short Flag (Prop 0x8128) >= Value",
+      "ToolTip": "AAAA is Flag number\nBBBB is the value of the flag"
+    },
+    "297": {
+      "param": "Any",
+      "Condition": "Prop 0x809b <= Value",
+      "ToolTip": ""
+    },
+    "312": {
+      "param": "0 - 1",
+      "Condition": "Kazuya Devil Flag <= Value",
+      "ToolTip": ""
+    },
+    "314": {
+      "param": "Any",
+      "Condition": "Prop 0x80e4 <= Value",
+      "ToolTip": ""
+    },
+    "318": {
+      "param": "Any",
+      "Condition": "Prop 0x80f0 <= Value",
+      "ToolTip": ""
+    },
+    "319": {
+      "param": "Any",
+      "Condition": "Prop 0x80c5 <= Value",
+      "ToolTip": ""
+    },
+    "320": {
+      "param": "Any",
+      "Condition": "Prop 0x80c8 <= Value",
+      "ToolTip": ""
+    },
+    "321": {
+      "param": "Any",
+      "Condition": "Prop 0x80cb <= Value",
+      "ToolTip": ""
+    },
+    "326": {
+      "param": "0xAAAABBBB",
+      "Condition": "Short Flag (Prop 0x8128) <= Value",
+      "ToolTip": "AAAA is Flag number\nBBBB is the value of the flag"
+    },
+    "335": {
+      "param": "Any",
+      "Condition": "Prop 0x809b == Value",
+      "ToolTip": ""
+    },
+    "350": {
+      "param": "0 - 1",
+      "Condition": "Kazuya Devil Flag == Value",
+      "ToolTip": "This integer container is treated as a flag (0 or 1) to indicate Kazuya's current state: 0 for human 1 for 'Devil' form. The Parameter value (0 or 1) determines which state satisfies the requirement."
+    },
+    "352": {
+      "param": "Any",
+      "Condition": "Prop 0x80e4 == Value",
+      "ToolTip": ""
+    },
+    "356": {
+      "param": "Any",
+      "Condition": "Prop 0x80f0 == Value",
+      "ToolTip": ""
+    },
+    "358": {
+      "param": "Any",
+      "Condition": "Prop 0x80c5 == Value",
+      "ToolTip": ""
+    },
+    "359": {
+      "param": "Any",
+      "Condition": "Prop 0x80c8 == Value",
+      "ToolTip": ""
+    },
+    "360": {
+      "param": "Any",
+      "Condition": "Prop 0x80cb == Value",
+      "ToolTip": ""
+    },
+    "365": {
+      "param": "0xAAAABBBB",
+      "Condition": "Short Flag (Prop 0x8128) == Value",
+      "ToolTip": "AAAA is Flag number\nBBBB is the value of the flag"
+    },
+    "442": {
+      "param": "0 - 1 ???",
+      "Condition": "Heat Available",
+      "ToolTip": ""
+    },
+    "453": {
+      "param": "Command",
+      "Condition": "Check Button Input",
+      "ToolTip": "Used in frame-1 cancels to check the input"
+    },
+    "454": {
+      "param": "Any",
+      "Condition": "Character Install Active",
+      "ToolTip": "0 = No, 1 = Yes"
+    },
+    "460": {
+      "param": "0",
+      "Condition": "Is Counter-hit Throw",
+      "ToolTip": "Used in Throws to allow shorter break window"
+    },
+    "461": {
+      "param": "0",
+      "Condition": "Is Normal Throw",
+      "ToolTip": "Used in Throws to allow regular break window"
+    },
+    "465": {
+      "param": "0",
+      "Condition": "Is Punish Throw",
+      "ToolTip": "Used to make throws unbreakable after Rage Art or Power Crush"
+    },
+    "466": {
+      "param": "?",
+      "Condition": "Heat Related",
+      "ToolTip": "Used in tandem with req 442"
+    },
+    "473": {
+      "param": "0 - 1",
+      "Condition": "Kazuya Permanent Devil Flag == Value",
+      "ToolTip": "0 = No, 1 = Yes.\nRefer to prop 0x8151"
+    },
+    "490": {
+      "param": "0 - 2",
+      "Condition": "Eddy's Install Active",
+      "ToolTip": "Parameter is the level of install"
+    },
+    "498": {
+      "param": "0 - 1",
+      "Condition": "Heihachi Warrior Instinct Active",
+      "ToolTip": "0 = No, 1 = Yes"
+    },
+    "499": {
+      "param": "Character ID",
+      "Condition": "Player Character ID\n(List Check)",
+      "ToolTip": "Uses multiple parameters, each Parameter is a Character ID. If opponent isn't param0 then it checks if the opponent is param1, then checks if it's param2.\nparameter value 255 denotes a NULL value or an empty parameter"
+    },
+    "500": {
+      "param": "Character ID",
+      "Condition": "Player Not Character ID\n(List Check)",
+      "ToolTip": ""
+    },
+    "501": {
+      "param": "Character ID",
+      "Condition": "Opponent Character ID\n(List Check)",
+      "ToolTip": ""
+    },
+    "502": {
+      "param": "Character ID",
+      "Condition": "Opponent Not Character ID\n(List Check)",
+      "ToolTip": ""
+    },
+    "503": {
+      "param": "Character ID",
+      "Condition": "Player Character ID\n(List Check)",
+      "ToolTip": ""
+    },
+    "504": {
+      "param": "Character ID",
+      "Condition": "Player Not Character ID\n(List Check)",
+      "ToolTip": ""
+    },
+    "505": {
+      "param": "Character ID",
+      "Condition": "Opponent Character ID\n(List Check)",
+      "ToolTip": "Used in Devil Jin to play specific voicelines in his Heat Smash against Heihachi.\nSame as above\nSeen in Devil Jin and Heihachi"
+    },
+    "506": {
+      "param": "Character ID",
+      "Condition": "Opponent Not Character ID\n(List Check)",
+      "ToolTip": ""
+    },
+    "640": {
+      "param": "Any",
+      "Condition": "Player Speed >= param",
+      "ToolTip": "4096 = 100%"
+    },
+    "641": {
+      "param": "Any",
+      "Condition": "Player Speed <= param",
+      "ToolTip": "4096 = 100%"
+    },
+    "642": {
+      "param": "Any",
+      "Condition": "Player Speed == param",
+      "ToolTip": "4096 = 100%"
+    },
+    "648": {
+      "param": "Move Technical ID",
+      "Condition": "Opponent Current Move == param",
+      "ToolTip": "Checks the \"ordinal id\" field of a move"
+    },
+    "649": {
+      "param": "Move Technical ID",
+      "Condition": "Opponent Next Move == param",
+      "ToolTip": "Checks the \"ordinal id\" field of a move"
+    },
+    "652": {
+      "param": "0 - 2",
+      "Condition": "Random Number Generator (2-way)",
+      "ToolTip": "Parameter represents a possible option value, must contain multiple \ncancels of this requirement with different paramater values for this to have an effect.\nThis requirement is the odd one out because it uses values 0 - 2, which shouldn't be the case judging by the params for other RNG reqs"
+    },
+    "653": {
+      "param": "0 - 2",
+      "Condition": "Random Number Generator (3-way)",
+      "ToolTip": "Same as above, but requires 3 cancels"
+    },
+    "654": {
+      "param": "0 - 3",
+      "Condition": "Random Number Generator (4-way)",
+      "ToolTip": "Same as above, but requires 4 cancels"
+    },
+    "655": {
+      "param": "0 - 4",
+      "Condition": "Random Number Generator (5-way)",
+      "ToolTip": "Same as above, but requires 5 cancels\nSeen in Kazuya, True Devil Kazuya & Seiryu for Story AI"
+    },
+    "656": {
+      "param": "0 - 5",
+      "Condition": "Random Number Generator (6-way)",
+      "ToolTip": "Same as above, but requires 6 cancels\nSeen in Lars for Story AI and Lee"
+    },
+    "657": {
+      "param": "0 - 6",
+      "Condition": "Random Number Generator (7-way)",
+      "ToolTip": "Same as above, but requires 7 cancels"
+    },
+    "658": {
+      "param": "0 - 7",
+      "Condition": "Random Number Generator (8-way)",
+      "ToolTip": "Same as above, but requires 8 cancels"
+    },
+    "659": {
+      "param": "0 - 8",
+      "Condition": "Random Number Generator (9-way)",
+      "ToolTip": "Same as above, but requires 9 cancels\nSeen in Kazuya and True Devil Kazuya for Story AI"
+    },
+    "660": {
+      "param": "0 - 9",
+      "Condition": "Random Number Generator (10-way)",
+      "ToolTip": "Same as above, but requires 10 cancels\nSeen in Alisa"
+    },
+    "661": {
+      "param": "0-1000",
+      "Condition": "Random Number Generator (Weighted)",
+      "ToolTip": "Parameter determines the percentage the given requirement would succeed\n0 means 0%, 1000 means 100.0%\nLeroy's dog, Sugar, has a 40.0% chance of missing"
+    },
+    "662": {
+      "param": "?",
+      "Condition": "RNG-Related",
+      "ToolTip": ""
+    },
+    "664": {
+      "param": "0",
+      "Condition": "Arcade Mode(?)",
+      "ToolTip": "Seen in True Devil Kazuya to play a specific dialogue during Rage Art"
+    },
+    "666": {
+      "param": "0",
+      "Condition": "Tekken Ball Mode",
+      "ToolTip": "Checks if ball mode (8) is playing"
+    },
+    "667": {
+      "param": "0 - 1",
+      "Condition": "Story Mode",
+      "ToolTip": "Checks if storymode (4) is playing\nParameter is suspected to indicate whether you're player Tekken Force segment (1) or not (0)"
+    },
+    "668": {
+      "param": "0 - 244",
+      "Condition": "Story Battle Number",
+      "ToolTip": "Doesn't work if storymode isn't playing"
+    },
+    "672": {
+      "param": "Game Mode",
+      "Condition": "Game Mode",
+      "ToolTip": "Check what Game Mode is running"
+    },
+    "687": {
+      "param": "0",
+      "Condition": "Player is a Bear",
+      "ToolTip": "Checks if the player is currently using Kuma or Panda"
+    },
+    "689": {
+      "param": "0",
+      "Condition": "Player is a male character",
+      "ToolTip": "Includes Leo"
+    },
+    "690": {
+      "param": "0",
+      "Condition": "Player is a female character",
+      "ToolTip": ""
+    },
+    "691": {
+      "param": "0",
+      "Condition": "Player is a big character",
+      "ToolTip": "Jack-8, Fahkumram, Jack-7 and Seiryu"
+    },
+    "692": {
+      "param": "0",
+      "Condition": "Opponent is a male character",
+      "ToolTip": "Includes Leo"
+    },
+    "693": {
+      "param": "0",
+      "Condition": "Opponent is a female character",
+      "ToolTip": ""
+    },
+    "694": {
+      "param": "0",
+      "Condition": "Opponent is a big character",
+      "ToolTip": "Jack-8, Fahkumram, Jack-7 and Seiryu"
+    },
+    "695": {
+      "param": "0",
+      "Condition": "Opponent is a Bear",
+      "ToolTip": ""
+    },
+    "696": {
+      "param": "0 - 2",
+      "Condition": "Pre-round animation",
+      "ToolTip": "Used to decide which pre-round animation to play. Each character has 3 animations hence param 0 - 2. The req is very likely tied to some RNG system"
+    },
+    "716": {
+      "param": "0",
+      "Condition": "Opponent is Airborne",
+      "ToolTip": ""
+    },
+    "717": {
+      "param": "0",
+      "Condition": "Opponent is NOT Airborne",
+      "ToolTip": ""
+    },
+    "718": {
+      "param": "Item ID",
+      "Condition": "Has Item",
+      "ToolTip": "Checks if the player has equipped the specified customized item"
+    },
+    "723": {
+      "param": "0",
+      "Condition": "Opponent is in juggle",
+      "ToolTip": "Opponent is being juggled / in an airborne state"
+    },
+    "724": {
+      "param": "0",
+      "Condition": "Tornado Available",
+      "ToolTip": ""
+    },
+    "738": {
+      "param": "?",
+      "Condition": "Kazama Essence >= Param",
+      "ToolTip": "Checks Kazama-essence install value. Used in Jun.\n1000 = 100.0"
+    },
+    "744": {
+      "param": "?",
+      "Condition": "Kazama Essence < Param",
+      "ToolTip": ""
+    },
+    "750": {
+      "param": "0",
+      "Condition": "Leroy Install Available",
+      "ToolTip": "Leroy has not consumed his once-per-match move"
+    },
+    "751": {
+      "param": "0",
+      "Condition": "Leroy Install Unavailable",
+      "ToolTip": "Leroy has consumed his once-per-match move"
+    },
+    "755": {
+      "param": "Character ID",
+      "Condition": "Player Character ID",
+      "ToolTip": "There's some more stuff going around too, but it's not known yet"
+    },
+    "758": {
+      "param": "Any",
+      "Condition": "Opponent distance smaller or equal than",
+      "ToolTip": ""
+    },
+    "766": {
+      "param": "?",
+      "Condition": "Chara Episode pre-fight?",
+      "ToolTip": "Used to play specific intro dialogues in chara episodes. If it's not Character Episodes being played, it's considered false"
+    },
+    "767": {
+      "param": "?",
+      "Condition": "Chara Episode post-fight?",
+      "ToolTip": "Used to play specific outro dialogues in chara episodes. If it's not Character Episodes being played, it's considered false"
+    },
+    "777": {
+      "param": "Any",
+      "Condition": "Story Flag == X",
+      "ToolTip": "Checks if some story mode flags are activated or not. Needs Gamemode to be story mode.\nUsed in Jin to enable his Mishima, Kazama and other variants"
+    },
+    "778": {
+      "param": "0",
+      "Condition": "Not Story Mode",
+      "ToolTip": "Current game mode is not story mode"
+    },
+    "783": {
+      "param": "Any",
+      "Condition": "Something-RNG-Related >= X",
+      "ToolTip": "Seen only in Angel Jin\nValue seen: 1"
+    },
+    "784": {
+      "param": "Any",
+      "Condition": "Something-RNG-Related <= X",
+      "ToolTip": "Seen only in Nina\nValue seen: 1"
+    },
+    "785": {
+      "param": "Any",
+      "Condition": "Something-RNG-Related == X",
+      "ToolTip": "Seen in the entire cast\nValues seen: 0 - 2"
+    },
+    "790": {
+      "param": "Any",
+      "Condition": "Enemy first active frame < X",
+      "ToolTip": ""
+    },
+    "791": {
+      "param": "Any",
+      "Condition": "Enemy first active frame >= X",
+      "ToolTip": ""
+    },
+    "792": {
+      "param": "Any",
+      "Condition": "Enemy first active frame == X",
+      "ToolTip": ""
+    },
+    "793": {
+      "param": "Any",
+      "Condition": "Enemy last active frame < X",
+      "ToolTip": ""
+    },
+    "794": {
+      "param": "Any",
+      "Condition": "Enemy last active frame >= X",
+      "ToolTip": ""
+    },
+    "795": {
+      "param": "Any",
+      "Condition": "Enemy last active frame == X",
+      "ToolTip": ""
+    },
+    "796": {
+      "param": "Battle ID",
+      "Condition": "Is Tekken Force Mode",
+      "ToolTip": "Parameter is the battle ID for that section\nSeen in all the characters that have a playable segment in Tekken Force mode"
+    },
+    "799": {
+      "param": "0",
+      "Condition": "Special Style related",
+      "ToolTip": ""
+    },
+    "800": {
+      "param": "0",
+      "Condition": "Special Style related",
+      "ToolTip": ""
+    },
+    "801": {
+      "param": "1",
+      "Condition": "(DLC) Story Battle",
+      "ToolTip": ""
+    },
+    "802": {
+      "param": "Any",
+      "Condition": "(DLC) Story Battle Number",
+      "ToolTip": ""
+    },
+    "803": {
+      "param": "Any",
+      "Condition": "(DLC) Story Not Battle Number",
+      "ToolTip": ""
+    },
+    "804": {
+      "param": "1 - 2",
+      "Condition": "Check Player Side",
+      "ToolTip": "1 = Player 1\n2 = Player 2\nSeen in the Dialogue structure, used in Intros"
+    },
+    "806": {
+      "param": "Any",
+      "Condition": "Heihachi Story DLC Flags",
+      "ToolTip": "Used in Heihachi to grant him storymode attacks"
+    },
+    "1016": {
+      "param": "Any",
+      "Condition": "Something-RNG-Related == X - 1",
+      "ToolTip": "Seen only in Jack-7, Soldier & Tekken Monks\nValues spotted 1 - 5"
+    },
+    "1028": {
+      "param": "0-1",
+      "Condition": "Player is in Heat",
+      "ToolTip": "0 = Player NOT in Heat. 1 = Player in Heat."
+    },
+    "1029": {
+      "param": "0-1",
+      "Condition": "Opponent is in Heat",
+      "ToolTip": "0 = Player NOT in Heat. 1 = Player in Heat."
+    },
+    "1032": {
+      "param": "Limb ID",
+      "Condition": "Parry High",
+      "ToolTip": ""
+    },
+    "1033": {
+      "param": "Limb ID",
+      "Condition": "Parry Mid",
+      "ToolTip": ""
+    },
+    "1034": {
+      "param": "Limb ID",
+      "Condition": "Parry Low",
+      "ToolTip": "Seen in generic low parry"
+    },
+    "1035": {
+      "param": "Limb ID",
+      "Condition": "Parry High and Mid",
+      "ToolTip": "Seen in King"
+    },
+    "1036": {
+      "param": "Index",
+      "Condition": "Parry Group",
+      "ToolTip": ""
+    },
+    "1038": {
+      "param": "Limb ID",
+      "Condition": "Parry High",
+      "ToolTip": ""
+    },
+    "1039": {
+      "param": "Limb ID",
+      "Condition": "Parry Mid",
+      "ToolTip": ""
+    },
+    "1040": {
+      "param": "Limb ID",
+      "Condition": "Parry Low",
+      "ToolTip": ""
+    },
+    "1041": {
+      "param": "Limb ID",
+      "Condition": "Parry High and Mid",
+      "ToolTip": ""
+    },
+    "1042": {
+      "param": "Index",
+      "Condition": "Parry Group",
+      "ToolTip": ""
+    },
+    "1049": {
+      "param": "0",
+      "Condition": "Power Crush Attack Absorption",
+      "ToolTip": ""
+    },
+    "1061": {
+      "param": "Limb ID",
+      "Condition": "Parry High",
+      "ToolTip": ""
+    },
+    "1062": {
+      "param": "Limb ID",
+      "Condition": "Parry Mid",
+      "ToolTip": ""
+    },
+    "1063": {
+      "param": "Limb ID",
+      "Condition": "Parry Low",
+      "ToolTip": ""
+    },
+    "1064": {
+      "param": "Limb ID",
+      "Condition": "Parry High and Mid",
+      "ToolTip": ""
+    },
+    "1065": {
+      "param": "Index",
+      "Condition": "Parry Group",
+      "ToolTip": "Seen in Jin"
+    },
+    "1067": {
+      "param": "Limb ID",
+      "Condition": "Parry High",
+      "ToolTip": ""
+    },
+    "1068": {
+      "param": "Limb ID",
+      "Condition": "Parry Mid",
+      "ToolTip": ""
+    },
+    "1069": {
+      "param": "Limb ID",
+      "Condition": "Parry Low",
+      "ToolTip": ""
+    },
+    "1070": {
+      "param": "Limb ID",
+      "Condition": "Parry High and Mid",
+      "ToolTip": ""
+    },
+    "1071": {
+      "param": "Index",
+      "Condition": "Parry Group",
+      "ToolTip": ""
+    },
+    "1078": {
+      "param": "Limb ID",
+      "Condition": "Parry High",
+      "ToolTip": "Could also be for Airborne opponents. Seen in Alisa"
+    },
+    "1079": {
+      "param": "Limb ID",
+      "Condition": "Parry Mid (Airborne)",
+      "ToolTip": ""
+    },
+    "1080": {
+      "param": "Limb ID",
+      "Condition": "Parry Low",
+      "ToolTip": "Could also be for Airborne opponents"
+    },
+    "1081": {
+      "param": "Limb ID",
+      "Condition": "Parry High and Mid",
+      "ToolTip": ""
+    },
+    "1082": {
+      "param": "Limb ID",
+      "Condition": "Parry High",
+      "ToolTip": "Seen in Alisa"
+    },
+    "1083": {
+      "param": "Limb ID",
+      "Condition": "Parry Mid",
+      "ToolTip": ""
+    },
+    "1084": {
+      "param": "Limb ID",
+      "Condition": "Parry Low",
+      "ToolTip": ""
+    },
+    "1085": {
+      "param": "Limb ID",
+      "Condition": "Parry High and Mid",
+      "ToolTip": ""
+    },
+    "1090": {
+      "param": "Limb ID",
+      "Condition": "Parry High",
+      "ToolTip": ""
+    },
+    "1091": {
+      "param": "Limb ID",
+      "Condition": "Parry Mid",
+      "ToolTip": ""
+    },
+    "1092": {
+      "param": "Limb ID",
+      "Condition": "Parry Low",
+      "ToolTip": ""
+    },
+    "1093": {
+      "param": "Limb ID",
+      "Condition": "Parry High and Mid",
+      "ToolTip": ""
+    }
+  }
+}

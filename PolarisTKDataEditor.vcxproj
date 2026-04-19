@@ -157,7 +157,10 @@
     <PostBuildEvent>
       <Command>if not exist "$(OutDir)res\kamui-hashes\" mkdir "$(OutDir)res\kamui-hashes\"
 xcopy /Y /Q "$(ProjectDir)data\kamui-hashes\version.json" "$(OutDir)res\kamui-hashes\"
-xcopy /Y /Q "$(ProjectDir)data\kamui-hashes\data.json"    "$(OutDir)res\kamui-hashes\"</Command>
+xcopy /Y /Q "$(ProjectDir)data\kamui-hashes\data.json"    "$(OutDir)res\kamui-hashes\"
+if not exist "$(OutDir)res\MovesetDatas\" mkdir "$(OutDir)res\MovesetDatas\"
+xcopy /Y /Q "$(ProjectDir)data\MovesetDatas\version.json" "$(OutDir)res\MovesetDatas\"
+xcopy /Y /Q "$(ProjectDir)data\MovesetDatas\data.json"    "$(OutDir)res\MovesetDatas\"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <!-- ════════════════════════════════════════════════════════ -->
@@ -175,6 +178,7 @@ xcopy /Y /Q "$(ProjectDir)data\kamui-hashes\data.json"    "$(OutDir)res\kamui-ha
     <ClCompile Include="src\moveset\data\MotbinData.cpp" />
     <ClCompile Include="src\moveset\editor\MovesetEditorWindow.cpp" />
     <ClCompile Include="src\moveset\data\AnmbinData.cpp" />
+    <ClCompile Include="src\moveset\data\MovesetDataDict.cpp" />
     <ClCompile Include="src\moveset\data\AnimNameDB.cpp" />
     <ClCompile Include="src\moveset\data\AnmbinRebuild.cpp" />
     <ClCompile Include="src\moveset\editor\AnimationManagerWindow.cpp" />
@@ -221,6 +225,7 @@ xcopy /Y /Q "$(ProjectDir)data\kamui-hashes\data.json"    "$(OutDir)res\kamui-ha
     <ClInclude Include="src\moveset\data\MotbinData.h" />
     <ClInclude Include="src\moveset\editor\MovesetEditorWindow.h" />
     <ClInclude Include="src\moveset\data\AnmbinData.h" />
+    <ClInclude Include="src\moveset\data\MovesetDataDict.h" />
     <ClInclude Include="src\moveset\data\AnimNameDB.h" />
     <ClInclude Include="src\moveset\data\AnmbinRebuild.h" />
     <ClInclude Include="src\moveset\editor\AnimationManagerWindow.h" />

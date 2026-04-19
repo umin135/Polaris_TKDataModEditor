@@ -5,6 +5,7 @@
 #include "moveset/editor/MovesetEditorWindow.h"
 #include "GameStatic.h"
 #include "moveset/labels/LabelDB.h"
+#include "moveset/data/MovesetDataDict.h"
 #include "moveset/data/EditorFieldLabel.h"
 #include "moveset/labels/FieldTooltips.h"
 #include "moveset/live/GameLiveEdit.h"
@@ -2514,7 +2515,7 @@ void MovesetEditorWindow::RenderSubWin_Requirements()
 
         ImGui::BeginChild("##req_outer_sl", ImVec2(0, 0), false);
         for (int gi = 0; gi < (int)groups.size(); ++gi) {
-            uint32_t items = groups[gi].second > 0 ? groups[gi].second - 1 : 0;
+            uint32_t items = groups[gi].second;
             char lbl[48]; snprintf(lbl, sizeof(lbl), "#%u  %u items##rg%d", groups[gi].first, items, gi);
             bool s = (m_reqWinSel.outer == gi);
             if (ImGui::Selectable(lbl, s)) { m_reqWinSel.outer = gi; m_reqWinSel.inner = 0; }
@@ -2588,9 +2589,16 @@ void MovesetEditorWindow::RenderSubWin_Requirements()
                 if (idx >= (uint32_t)blk.size()) break;
                 const ParsedRequirement& r = blk[idx];
                 bool isTerm = (r.req == reqEnd);
-                char lbl[48];
-                if (isTerm) snprintf(lbl, sizeof(lbl), "#%u  [END]##ri%u", k, idx);
-                else        snprintf(lbl, sizeof(lbl), "#%u  req=%u##ri%u", k, r.req, idx);
+                char lbl[192];
+                if (isTerm) {
+                    snprintf(lbl, sizeof(lbl), "#%u  [END]##ri%u", k, idx);
+                } else {
+                    const MovesetDataDict::ReqEntry* de = MovesetDataDict::Get().GetReq(r.req);
+                    if (de && !de->condition.empty())
+                        snprintf(lbl, sizeof(lbl), "#%u  %s##ri%u", k, de->condition.c_str(), idx);
+                    else
+                        snprintf(lbl, sizeof(lbl), "#%u  req=%u##ri%u", k, r.req, idx);
+                }
                 if (isTerm) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f,0.5f,0.5f,1.0f));
                 bool sel = (m_reqWinSel.inner == (int)k);
                 if (ImGui::Selectable(lbl, sel)) m_reqWinSel.inner = (int)k;
@@ -2614,9 +2622,12 @@ void MovesetEditorWindow::RenderSubWin_Requirements()
             static constexpr ImVec4 kBlockBg = {0.14f, 0.14f, 0.18f, 1.00f};
             static constexpr ImVec4 kTTCol   = {0.40f, 0.75f, 1.00f, 1.00f};
 
-            // --- Block 1: req ---
+            // --- Block 1: req + dictionary info ---
+            static constexpr ImVec4 kGreen = { 0.30f, 0.88f, 0.42f, 1.00f };
+            static constexpr ImVec4 kRed   = { 0.90f, 0.30f, 0.30f, 1.00f };
             float reqBlockH = ImGui::GetTextLineHeight()
                 + sty.ItemSpacing.y + ImGui::GetFrameHeight()
+                + sty.ItemSpacing.y + ImGui::GetTextLineHeightWithSpacing() * 2.0f
                 + sty.WindowPadding.y * 2.0f;
             ImGui::PushStyleColor(ImGuiCol_ChildBg, kBlockBg);
             if (ImGui::BeginChild("##req_b1", ImVec2(-1.0f, reqBlockH), ImGuiChildFlags_Borders)) {
@@ -2625,11 +2636,27 @@ void MovesetEditorWindow::RenderSubWin_Requirements()
                 int tmp = static_cast<int>(r.req);
                 if (ImGui::InputInt("##req_val", &tmp, 0, 0))
                     { r.req = static_cast<uint32_t>(tmp); m_dirty = true; }
+
+                const MovesetDataDict::ReqEntry* de = MovesetDataDict::Get().GetReq(r.req);
+                if (de) {
+                    ImGui::PushStyleColor(ImGuiCol_Text, kGreen);
+                    ImGui::TextUnformatted(de->condition.c_str());
+                    ImGui::PopStyleColor();
+                    if (!de->tooltip.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+                        ImGui::SetTooltip("%s", de->tooltip.c_str());
+                    if (!de->param.empty())
+                        ImGui::TextDisabled("param: %s", de->param.c_str());
+                    else
+                        ImGui::TextDisabled(" ");
+                } else {
+                    ImGui::PushStyleColor(ImGuiCol_Text, kRed);
+                    ImGui::TextUnformatted("Unknown");
+                    ImGui::PopStyleColor();
+                    ImGui::TextDisabled(" ");
+                }
             }
             ImGui::EndChild();
             ImGui::PopStyleColor();
-
-            ImGui::Spacing();
 
             // --- Block 2: params ---
             float rowH   = ImGui::GetFrameHeight() + sty.ItemSpacing.y;
@@ -2662,9 +2689,6 @@ void MovesetEditorWindow::RenderSubWin_Requirements()
             ImGui::EndChild();
             ImGui::PopStyleColor();
 
-            // --- Tooltip area (plain, no box) ---
-            ImGui::Spacing();
-            ImGui::TextColored(kTTCol, " ");  // placeholder — tooltip text goes here
         }
     }
     ImGui::EndChild();

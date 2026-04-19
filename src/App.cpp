@@ -4,6 +4,7 @@
 #include "GameStatic.h"
 #include "KamuiDictUpdater.h"
 #include "moveset/labels/LabelDB.h"
+#include "moveset/data/MovesetDataDict.h"
 #include "imgui/imgui.h"
 #include "imgui/imgui_internal.h"  // DockBuilder API
 #include <functional>
@@ -252,6 +253,12 @@ App::App(ID3D11Device* device, ID3D11DeviceContext* ctx)
                     // data.json was updated; reload from the same path
                 }
                 LabelDB::Get().AddNames(kamuiDataPath);
+
+                // MovesetDatas dictionary (req/property/etc. descriptions).
+                // Lives at res/MovesetDatas/data.json alongside kamui-hashes.
+                std::string movesetDataPath = resDir + "\\MovesetDatas\\data.json";
+                FILE* mdf = nullptr; fopen_s(&mdf, movesetDataPath.c_str(), "rb");
+                if (mdf) { fclose(mdf); MovesetDataDict::Get().Load(movesetDataPath); }
             }
         }
     }
