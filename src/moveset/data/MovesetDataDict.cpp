@@ -282,6 +282,25 @@ static const char* ParamLabelCStr(std::string s)
     return s_buf.c_str();
 }
 
+const char* MovesetDataDict::GetHurtboxLabel(uint32_t val) const
+{
+    switch ((val & 0xFFFF))
+    {
+        case 0x842:
+        case 0xC842:
+            return "Standing - No Block";
+        case 0x1052:
+        case 0xD852:
+            return "Standing - Allow Block";
+        case 0x2821: return "Crouching - No Block";
+        case 0x3029: return "Crouching - Allow Block";
+        case 0x6084: return "Downed - Face Up";
+        case 0x6A84: return "Downed - Face Down";
+        case 0xA000: return "Invincible";
+        default: return "";
+    }
+}
+
 const char* MovesetDataDict::GetDialogueTypeLabel(uint32_t type) const
 {
     switch (type)
@@ -418,6 +437,11 @@ const char* MovesetDataDict::GetParamLabel(uint32_t reqOrPropId, uint32_t pIndex
         oss << "Chapter " << chapter << ", Battle " << battle;
         return ParamLabelCStr(oss.str());
     }
+    case 0x81FC:
+    {
+        if (pIndex > 0) return "";
+        return GetHurtboxLabel(param);
+    }
     case 0x8313:
     {
         if (pIndex > 0) return "";
@@ -437,9 +461,10 @@ const char* MovesetDataDict::GetParamLabel(uint32_t reqOrPropId, uint32_t pIndex
         if (pIndex > 0) return "";
         int dramaType = (param >> 16) & 0xFFFF;
         int dramaId = param & 0xFFFF;
-        std::ostringstream oss;
-        oss << GetDramaTypeLabel(param) << ": " << dramaId;
-        return ParamLabelCStr(oss.str());
+        return GetDramaLabel(dramaType, dramaId);
+        // std::ostringstream oss;
+        // oss << GetDialogueTypeLabel(dramaType) << ": " << dramaId;
+        // return ParamLabelCStr(oss.str());
     }
     case 0x87EF:
     case 0x87F0:

@@ -45,7 +45,8 @@ public:
 
     const char* GetParamLabel(uint32_t reqOrPropId, uint32_t index, uint32_t param) const;
 
-    const char* GetDialogueTypeLabel(uint32_t value) const;
+    const char *GetHurtboxLabel(uint32_t val) const;
+    const char *GetDialogueTypeLabel(uint32_t value) const;
     const char* GetDramaTypeLabel(uint32_t value) const;
     const char *GetDramaLabel(uint16_t type, uint16_t id) const;
 
