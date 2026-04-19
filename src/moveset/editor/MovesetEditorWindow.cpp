@@ -4254,8 +4254,14 @@ static void RenderPropSection(
                 char lbl[48];
                 if (isTerm)
                     snprintf(lbl, sizeof(lbl), "#%u  [END]##pi%u", k, idx);
-                else
-                    snprintf(lbl, sizeof(lbl), "#%u  id=0x%X##pi%u", k, e.id, idx);
+                else {
+                    const MovesetDataDict::PropEntry* de = MovesetDataDict::Get().GetPropEntry(e.id);
+                    if (de && !de->function.empty()) {
+                        snprintf(lbl, sizeof(lbl), "#%u  0x%.4X: %s##pi%u", k, e.id, de->function.c_str(), idx);
+                    } else {
+                        snprintf(lbl, sizeof(lbl), "#%u  0x%.4X ##pi%u", k, e.id, idx);
+                    }
+                }
                 if (isTerm) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f,0.5f,0.5f,1.0f));
                 bool s = (sel.inner == (int)k);
                 if (ImGui::Selectable(lbl, s)) sel.inner = (int)k;
