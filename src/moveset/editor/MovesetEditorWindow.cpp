@@ -262,18 +262,17 @@ bool MovesetEditorWindow::Render()
 
 void MovesetEditorWindow::RenderRemoveConfirmModal()
 {
-    // Absorb one-frame triggers
-    if (m_removeConfirm.pending) { m_removeConfirm.showing = true; m_removeConfirm.pending = false; }
-    if (m_endInsertBlocked)      { m_showInsertBlocked = true; m_endInsertBlocked = false; }
-
-    if (!m_removeConfirm.showing && !m_showInsertBlocked) return;
+    // Nothing pending or showing → nothing to do.
+    if (!m_removeConfirm.pending && !m_removeConfirm.showing &&
+        !m_endInsertBlocked       && !m_showInsertBlocked)
+        return;
 
     // Prefer the viewport of the sub-window that triggered the dialog;
     // fall back to the main editor viewport, then the host viewport.
     ImGuiViewport* edVp = nullptr;
-    if (m_removeConfirm.showing && m_removeConfirm.callerViewportId != 0)
+    if ((m_removeConfirm.showing || m_removeConfirm.pending) && m_removeConfirm.callerViewportId != 0)
         edVp = ImGui::FindViewportByID(m_removeConfirm.callerViewportId);
-    else if (m_showInsertBlocked && m_insertBlockedViewportId != 0)
+    else if ((m_showInsertBlocked || m_endInsertBlocked) && m_insertBlockedViewportId != 0)
         edVp = ImGui::FindViewportByID(m_insertBlockedViewportId);
     if (!edVp && m_viewportId != 0)
         edVp = ImGui::FindViewportByID(m_viewportId);
@@ -282,72 +281,118 @@ void MovesetEditorWindow::RenderRemoveConfirmModal()
     const ImVec2 vpSize = edVp->Size;
     const ImVec2 center(vpPos.x + vpSize.x * 0.5f, vpPos.y + vpSize.y * 0.5f);
 
-    constexpr ImGuiWindowFlags kOvFlags =
+    // A 1×1 off-screen window on the correct viewport acts as the popup owner.
+    // BeginPopupModal must be called from inside a Begin/End scope.
+    constexpr ImGuiWindowFlags kHostFlags =
         ImGuiWindowFlags_NoTitleBar     | ImGuiWindowFlags_NoResize    |
         ImGuiWindowFlags_NoMove         | ImGuiWindowFlags_NoDocking   |
         ImGuiWindowFlags_NoSavedSettings| ImGuiWindowFlags_NoScrollbar |
-        ImGuiWindowFlags_NoNav          | ImGuiWindowFlags_NoFocusOnAppearing;
-
+        ImGuiWindowFlags_NoNav          | ImGuiWindowFlags_NoFocusOnAppearing |
+        ImGuiWindowFlags_NoBackground   | ImGuiWindowFlags_NoMouseInputs;
     ImGui::SetNextWindowViewport(edVp->ID);
-    ImGui::SetNextWindowPos(vpPos);
-    ImGui::SetNextWindowSize(vpSize);
-    ImGui::SetNextWindowBgAlpha(0.28f);
-    ImGui::Begin(WinId("##dlg_dim").c_str(), nullptr, kOvFlags);
-    ImGui::End();
+    ImGui::SetNextWindowPos(ImVec2(vpPos.x - 100.f, vpPos.y - 100.f));
+    ImGui::SetNextWindowSize(ImVec2(1.f, 1.f));
+    ImGui::Begin(WinId("##dlg_host").c_str(), nullptr, kHostFlags);
+
+    // Convert one-frame triggers → open the matching popup (same frame = immediate open).
+    if (m_removeConfirm.pending) {
+        ImGui::OpenPopup(WinId("##rm_confirm").c_str());
+        m_removeConfirm.pending = false;
+        m_removeConfirm.showing = true;
+    }
+    if (m_endInsertBlocked) {
+        ImGui::OpenPopup(WinId("##ins_blocked").c_str());
+        m_endInsertBlocked      = false;
+        m_showInsertBlocked     = true;
+    }
 
     const float pad   = ImGui::GetStyle().WindowPadding.x;
     const float lineH = ImGui::GetTextLineHeightWithSpacing();
 
-    ImGui::SetNextWindowViewport(edVp->ID);
-    ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowBgAlpha(0.96f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.f);
+    constexpr ImGuiWindowFlags kDlgFlags =
+        ImGuiWindowFlags_NoTitleBar     | ImGuiWindowFlags_NoResize    |
+        ImGuiWindowFlags_NoMove         | ImGuiWindowFlags_NoDocking   |
+        ImGuiWindowFlags_NoSavedSettings| ImGuiWindowFlags_NoScrollbar |
+        ImGuiWindowFlags_NoNav;
 
-    if (m_removeConfirm.showing)
+    // ── Remove-confirmation modal ─────────────────────────────────────────
     {
         const float msgW = ImGui::CalcTextSize(m_removeConfirm.message, nullptr, false, 280.f).x;
         const float boxW = (msgW > 220.f ? msgW : 220.f) + pad * 2.f + 8.f;
         const float msgH = ImGui::CalcTextSize(m_removeConfirm.message, nullptr, false, 280.f).y;
         const float boxH = msgH + lineH * 2.f + pad * 2.f + 8.f;
+        ImGui::SetNextWindowViewport(edVp->ID);
+        ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
         ImGui::SetNextWindowSize(ImVec2(boxW, boxH), ImGuiCond_Always);
-        ImGui::Begin(WinId("##dlg_box").c_str(), nullptr, kOvFlags);
-        ImGui::PopStyleVar();
-        ImGui::SetCursorPosY(ImGui::GetStyle().WindowPadding.y + 4.f);
-        ImGui::TextWrapped("%s", m_removeConfirm.message);
-        ImGui::Spacing();
-        if (ImGui::Button("Remove", ImVec2(100, 0)))
+        ImGui::SetNextWindowBgAlpha(0.96f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.f);
+        ImGui::PushStyleColor(ImGuiCol_ModalWindowDimBg, ImVec4(0.f, 0.f, 0.f, 0.28f));
+        if (ImGui::BeginPopupModal(WinId("##rm_confirm").c_str(), nullptr, kDlgFlags))
         {
-            if (m_removeConfirm.onConfirm) m_removeConfirm.onConfirm();
-            m_removeConfirm.onConfirm       = nullptr;
-            m_removeConfirm.callerViewportId = 0;
-            m_removeConfirm.showing          = false;
+            ImGui::PopStyleColor();
+            ImGui::PopStyleVar();
+            ImGui::SetCursorPosY(ImGui::GetStyle().WindowPadding.y + 4.f);
+            ImGui::TextWrapped("%s", m_removeConfirm.message);
+            ImGui::Spacing();
+            if (ImGui::Button("Remove", ImVec2(100, 0)))
+            {
+                if (m_removeConfirm.onConfirm) m_removeConfirm.onConfirm();
+                m_removeConfirm = {};
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(100, 0)))
+            {
+                m_removeConfirm = {};
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
         }
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel", ImVec2(100, 0)))
+        else
         {
-            m_removeConfirm.onConfirm       = nullptr;
-            m_removeConfirm.callerViewportId = 0;
-            m_removeConfirm.showing          = false;
+            ImGui::PopStyleColor();
+            ImGui::PopStyleVar();
+            // Popup closed externally (e.g. ESC key) → clear state.
+            if (m_removeConfirm.showing)
+                m_removeConfirm = {};
         }
     }
-    else // m_showInsertBlocked
+
+    // ── "Cannot insert at [END]" modal ───────────────────────────────────
     {
         const char* msg  = "Cannot insert at an [END] item.";
         const float boxW = ImGui::CalcTextSize(msg).x + pad * 2.f + 16.f;
         const float boxH = lineH * 2.f + pad * 2.f + 8.f;
+        ImGui::SetNextWindowViewport(edVp->ID);
+        ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
         ImGui::SetNextWindowSize(ImVec2(boxW, boxH), ImGuiCond_Always);
-        ImGui::Begin(WinId("##dlg_box").c_str(), nullptr, kOvFlags);
-        ImGui::PopStyleVar();
-        ImGui::SetCursorPosY(ImGui::GetStyle().WindowPadding.y + 4.f);
-        ImGui::TextUnformatted(msg);
-        ImGui::Spacing();
-        if (ImGui::Button("Close", ImVec2(80, 0)))
+        ImGui::SetNextWindowBgAlpha(0.96f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.f);
+        ImGui::PushStyleColor(ImGuiCol_ModalWindowDimBg, ImVec4(0.f, 0.f, 0.f, 0.28f));
+        if (ImGui::BeginPopupModal(WinId("##ins_blocked").c_str(), nullptr, kDlgFlags))
         {
-            m_showInsertBlocked       = false;
-            m_insertBlockedViewportId = 0;
+            ImGui::PopStyleColor();
+            ImGui::PopStyleVar();
+            ImGui::SetCursorPosY(ImGui::GetStyle().WindowPadding.y + 4.f);
+            ImGui::TextUnformatted(msg);
+            ImGui::Spacing();
+            if (ImGui::Button("Close", ImVec2(80, 0)))
+            {
+                m_showInsertBlocked       = false;
+                m_insertBlockedViewportId = 0;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        }
+        else
+        {
+            ImGui::PopStyleColor();
+            ImGui::PopStyleVar();
+            if (m_showInsertBlocked) { m_showInsertBlocked = false; m_insertBlockedViewportId = 0; }
         }
     }
-    ImGui::End();
+
+    ImGui::End(); // ##dlg_host
 }
 
 // -------------------------------------------------------------
@@ -2903,8 +2948,8 @@ static ParsedCancel MakeCancelTerminator()
 {
     ParsedCancel c{};
     c.command       = 0x8000;
-    c.move_id       = 0x8000;
-    c.req_list_idx  = 0xFFFFFFFF;
+    c.move_id       = 0x8001;
+    c.req_list_idx  = 0;
     c.extradata_idx = 0;  // TK8: always valid; index 0 = cancel_extra[0]
     c.group_cancel_list_idx = 0xFFFFFFFF;
     return c;
