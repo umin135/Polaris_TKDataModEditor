@@ -3149,15 +3149,28 @@ static void RenderCancelSection(
                 if (idx >= (uint32_t)block.size()) break;
                 const ParsedCancel& c = block[idx];
                 bool isTerm = (c.command == terminatorCmd);
-                char lbl[64];
+                char lbl[128];
                 if (isTerm)
                     snprintf(lbl, sizeof(lbl), "#%u  [END]##ci%u", k, idx);
                 else if (c.command == GameStatic::Get().data.groupCancelStart)
                     snprintf(lbl, sizeof(lbl), "#%u  [GRP_START]##ci%u", k, idx);
                 else if (c.command == GameStatic::Get().data.groupCancelEnd)
                     snprintf(lbl, sizeof(lbl), "#%u  [GRP_END]##ci%u", k, idx);
-                else
-                    snprintf(lbl, sizeof(lbl), "#%u  ->%u##ci%u", k, c.move_id, idx);
+                else {
+                    std::string moveName = "move_" + std::to_string(c.move_id);
+                    if (c.move_id < 0x8000) {
+                        if ((size_t)c.move_id < data.moves.size())
+                            moveName = data.moves[c.move_id].displayName;
+                    } else {
+                        uint32_t aliasIdx = c.move_id - 0x8000u;
+                        if (aliasIdx < data.originalAliases.size()) {
+                            uint16_t res = data.originalAliases[aliasIdx];
+                            if ((size_t)res < data.moves.size())
+                                moveName = data.moves[res].displayName;
+                        }
+                    }
+                    snprintf(lbl, sizeof(lbl), "#%u  ->%s (%u)##ci%u", k, moveName.c_str(), c.move_id, idx);
+                }
                 if (isTerm) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f,0.5f,0.5f,1.0f));
                 bool s = (sel.inner == (int)k);
                 if (ImGui::Selectable(lbl, s)) sel.inner = (int)k;
