@@ -169,6 +169,7 @@ xcopy /Y /Q "$(ProjectDir)data\MovesetDatas\data.json"    "$(OutDir)res\MovesetD
   <ItemGroup>
     <ClCompile Include="src\GameStatic.cpp" />
     <ClCompile Include="src\KamuiDictUpdater.cpp" />
+    <ClCompile Include="src\MovesetDataDictUpdater.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\App.cpp" />
     <ClCompile Include="src\Config.cpp" />
@@ -226,6 +227,7 @@ xcopy /Y /Q "$(ProjectDir)data\MovesetDatas\data.json"    "$(OutDir)res\MovesetD
     <ClInclude Include="src\moveset\editor\MovesetEditorWindow.h" />
     <ClInclude Include="src\moveset\data\AnmbinData.h" />
     <ClInclude Include="src\moveset\data\MovesetDataDict.h" />
+    <ClInclude Include="src\MovesetDataDictUpdater.h" />
     <ClInclude Include="src\moveset\data\AnimNameDB.h" />
     <ClInclude Include="src\moveset\data\AnmbinRebuild.h" />
     <ClInclude Include="src\moveset\editor\AnimationManagerWindow.h" />

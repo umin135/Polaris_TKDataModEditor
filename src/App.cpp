@@ -3,6 +3,7 @@
 #include "Config.h"
 #include "GameStatic.h"
 #include "KamuiDictUpdater.h"
+#include "MovesetDataDictUpdater.h"
 #include "moveset/labels/LabelDB.h"
 #include "moveset/data/MovesetDataDict.h"
 #include "imgui/imgui.h"
@@ -256,6 +257,7 @@ App::App(ID3D11Device* device, ID3D11DeviceContext* ctx)
 
                 // MovesetDatas dictionary (req/property/etc. descriptions).
                 // Lives at res/MovesetDatas/data.json alongside kamui-hashes.
+                MovesetDataDictCheckAndUpdate(resDir);
                 std::string movesetDataPath = resDir + "\\MovesetDatas\\data.json";
                 FILE* mdf = nullptr; fopen_s(&mdf, movesetDataPath.c_str(), "rb");
                 if (mdf) { fclose(mdf); MovesetDataDict::Get().Load(movesetDataPath); }
