@@ -8,7 +8,7 @@
 namespace AppStr
 {
     // ── Tool version (shown bottom-left of sidebar) ───────────────────────────
-    static constexpr const char* Version       = "v0.1.0b";
+    static constexpr const char* Version       = "v0.1.1b";
 
     // ── Sidebar header text (top of the sidebar) ─────────────────────────────
     static constexpr const char* SidebarLogoText = "TEKKEN8";
