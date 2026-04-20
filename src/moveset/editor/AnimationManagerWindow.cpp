@@ -876,11 +876,10 @@ void AnimationManagerWindow::RenderTabContent(int cat)
 
 void AnimationManagerWindow::RenderPreviewPanel(int cat)
 {
-    // Non-Fullbody categories: 3D preview is not yet supported.
-    if (cat != 0)
+    if (cat >= 2)
     {
         float avail = ImGui::GetContentRegionAvail().x;
-        const char* msg = "Not supported for preview";
+        const char* msg = "Preview not supported for this category";
         ImGui::SetCursorPosX((avail - ImGui::CalcTextSize(msg).x) * 0.5f);
         ImGui::TextDisabled("%s", msg);
         return;

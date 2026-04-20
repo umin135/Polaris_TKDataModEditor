@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "polaris-tkdata": {
+      "command": "python",
+      "args": ["C:\\Users\\dawid.DAWCZA67\\idavibe\\Polaris_TKDataModEditor\\mcp_server\\server.py"]
+    }
+  }
+}
