@@ -240,6 +240,7 @@ bool MovesetEditorWindow::Render()
     RenderSubWin_InputSequences();
     RenderSubWin_ParryableMoves();
     RenderSubWin_Dialogues();
+    RenderSubWin_ReferenceFinder();
 
     // Animation Manager
     if (m_animMgr)
@@ -2124,6 +2125,9 @@ void MovesetEditorWindow::RenderMenuBar()
 
     if (ImGui::BeginMenu("Tools"))
     {
+        if (ImGui::MenuItem("Reference Finder", nullptr, m_refFinder.open))
+            m_refFinder.open = !m_refFinder.open;
+        ImGui::Separator();
         bool animMgrOpen = m_animMgr != nullptr;
         if (ImGui::MenuItem("Animation Manager", nullptr, animMgrOpen))
         {
@@ -5562,6 +5566,214 @@ void MovesetEditorWindow::RenderSubWin_Dialogues()
         }
     }
     ImGui::EndChild();
+
+    ImGui::End();
+}
+
+// -------------------------------------------------------------
+//  Reference Finder
+// -------------------------------------------------------------
+
+void MovesetEditorWindow::RenderSubWin_ReferenceFinder()
+{
+    if (!m_refFinder.open) return;
+
+    ImGui::SetNextWindowSize(ImVec2(480.0f, 380.0f), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin(WinId("Reference Finder##blkwin").c_str(), &m_refFinder.open,
+                      ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking))
+    { ImGui::End(); return; }
+
+    if (ImGui::BeginTabBar("##rftabs"))
+    {
+        if (ImGui::BeginTabItem("Move"))
+        {
+            ImGui::SetNextItemWidth(200.0f);
+            bool doFind = ImGui::InputText("##rfmoveinput", m_refFinder.inputBuf,
+                                           sizeof(m_refFinder.inputBuf),
+                                           ImGuiInputTextFlags_EnterReturnsTrue);
+            ImGui::SameLine();
+            doFind |= ImGui::Button("Find##rffind");
+
+            if (doFind)
+            {
+                m_refFinder.results.clear();
+                m_refFinder.searched   = true;
+                m_refFinder.targetMove = -1;
+
+                const char* inp = m_refFinder.inputBuf;
+                char* end = nullptr;
+                long v = strtol(inp, &end, 10);
+                if (end != inp && v >= 0 && (size_t)v < m_data.moves.size())
+                {
+                    m_refFinder.targetMove = (int)v;
+                }
+                else
+                {
+                    std::string query(inp);
+                    for (char& ch : query) ch = (char)tolower((unsigned char)ch);
+                    for (int i = 0; i < (int)m_data.moves.size(); ++i) {
+                        std::string dn = m_data.moves[i].displayName;
+                        for (char& ch : dn) ch = (char)tolower((unsigned char)ch);
+                        if (dn == query) { m_refFinder.targetMove = i; break; }
+                    }
+                }
+
+                if (m_refFinder.targetMove >= 0)
+                {
+                    const uint16_t tgt           = (uint16_t)m_refFinder.targetMove;
+                    const uint64_t cancelEnd      = 0x8000;
+                    const uint64_t groupCancelEnd = GameStatic::Get().data.groupCancelEnd;
+
+                    auto resolveMove = [&](uint16_t mid) -> int {
+                        if (mid < 0x8000) return (int)mid;
+                        uint32_t aliasIdx = mid - 0x8000u;
+                        if (aliasIdx < m_data.originalAliases.size())
+                            return (int)m_data.originalAliases[aliasIdx];
+                        return -1;
+                    };
+
+                    {
+                        uint32_t g = 0, gStart = 0;
+                        for (uint32_t i = 0; i < (uint32_t)m_data.cancelBlock.size(); ++i) {
+                            const auto& c = m_data.cancelBlock[i];
+                            if (c.command == cancelEnd) { ++g; gStart = i + 1; continue; }
+                            if (resolveMove(c.move_id) == (int)tgt)
+                                m_refFinder.results.push_back({RefFinderState::Hit::Type::Cancel, i, g, gStart});
+                        }
+                    }
+
+                    {
+                        uint32_t g = 0, gStart = 0;
+                        for (uint32_t i = 0; i < (uint32_t)m_data.groupCancelBlock.size(); ++i) {
+                            const auto& c = m_data.groupCancelBlock[i];
+                            if (c.command == groupCancelEnd) { ++g; gStart = i + 1; continue; }
+                            if (resolveMove(c.move_id) == (int)tgt)
+                                m_refFinder.results.push_back({RefFinderState::Hit::Type::GroupCancel, i, g, gStart});
+                        }
+                    }
+
+                    // Post-process: compute owningMoves for each hit.
+                    std::vector<uint32_t> cGStart(m_data.cancelBlock.size(), 0);
+                    {
+                        uint32_t gs = 0;
+                        for (uint32_t i = 0; i < (uint32_t)m_data.cancelBlock.size(); ++i) {
+                            cGStart[i] = gs;
+                            if (m_data.cancelBlock[i].command == cancelEnd) gs = i + 1;
+                        }
+                    }
+                    std::unordered_map<uint32_t, std::vector<int>> movesByCGStart;
+                    for (int mi = 0; mi < (int)m_data.moves.size(); ++mi) {
+                        const auto& mv = m_data.moves[mi];
+                        if (mv.cancel_idx  != 0xFFFFFFFF) movesByCGStart[mv.cancel_idx ].push_back(mi);
+                        if (mv.cancel2_idx != 0xFFFFFFFF) movesByCGStart[mv.cancel2_idx].push_back(mi);
+                    }
+                    for (auto& hit : m_refFinder.results) {
+                        using HT2 = RefFinderState::Hit::Type;
+                        if (hit.type == HT2::Cancel) {
+                            auto it = movesByCGStart.find(hit.groupFirst);
+                            if (it != movesByCGStart.end()) hit.owningMoves = it->second;
+                        } else {
+                            for (uint32_t ci = 0; ci < (uint32_t)m_data.cancelBlock.size(); ++ci) {
+                                if (m_data.cancelBlock[ci].group_cancel_list_idx != hit.groupFirst) continue;
+                                uint32_t cgStart = cGStart[ci];
+                                auto it = movesByCGStart.find(cgStart);
+                                if (it == movesByCGStart.end()) continue;
+                                for (int mi : it->second) {
+                                    bool dup = false;
+                                    for (int x : hit.owningMoves) { if (x == mi) { dup = true; break; } }
+                                    if (!dup) hit.owningMoves.push_back(mi);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            ImGui::Separator();
+
+            if (!m_refFinder.searched)
+            {
+                ImGui::TextDisabled("Enter a move index or name and press Find.");
+            }
+            else if (m_refFinder.targetMove < 0)
+            {
+                ImGui::TextDisabled("Invalid input.");
+            }
+            else if (m_refFinder.results.empty())
+            {
+                ImGui::TextDisabled("No references found for move #%d.", m_refFinder.targetMove);
+            }
+            else
+            {
+                ImGui::BeginChild("##rfresults", ImVec2(0.0f, 0.0f), false);
+
+                using HT = RefFinderState::Hit::Type;
+                HT lastType = (HT)0xFF;
+
+                for (int ri = 0; ri < (int)m_refFinder.results.size(); ++ri)
+                {
+                    const auto& h = m_refFinder.results[ri];
+
+                    if (h.type != lastType)
+                    {
+                        if (lastType != (HT)0xFF) ImGui::Spacing();
+                        switch (h.type) {
+                        case HT::Cancel:      ImGui::TextDisabled("--- Cancels ---");       break;
+                        case HT::GroupCancel: ImGui::TextDisabled("--- Group Cancels ---"); break;
+                        }
+                        lastType = h.type;
+                    }
+
+                    const uint32_t A = h.groupFirst;
+                    const uint32_t B = h.blockIdx - h.groupFirst;
+                    const uint32_t C = h.blockIdx;
+
+                    const char* typeName = (h.type == HT::Cancel) ? "Cancel" : "Group Cancel";
+                    ImGui::Text("  %s List ID : %u | Item Idx : %u | Absolute ID : %u",
+                                typeName, A, B, C);
+                    ImGui::SameLine();
+                    char goId[24]; snprintf(goId, sizeof(goId), "Go >##rfgo%d", ri);
+                    if (ImGui::SmallButton(goId))
+                    {
+                        if (h.type == HT::Cancel) {
+                            m_cancelsWin.cancelSel.outer       = (int)h.groupOuter;
+                            m_cancelsWin.cancelSel.inner       = (int)B;
+                            m_cancelsWin.cancelSel.scrollOuter = true;
+                        } else {
+                            m_cancelsWin.groupCancelSel.outer       = (int)h.groupOuter;
+                            m_cancelsWin.groupCancelSel.inner       = (int)B;
+                            m_cancelsWin.groupCancelSel.scrollOuter = true;
+                        }
+                        m_cancelsWin.open         = true;
+                        m_cancelsWin.pendingFocus = true;
+                        m_cancelsWin.pendingTab   = (h.type == HT::Cancel) ? 0 : 1;
+                    }
+
+                    if (!h.owningMoves.empty()) {
+                        ImGui::Indent(16.0f);
+                        ImGui::TextDisabled("-> Referenced Move :");
+                        for (int mi : h.owningMoves) {
+                            const std::string& dname = (mi >= 0 && mi < (int)m_data.moves.size())
+                                                       ? m_data.moves[mi].displayName : "?";
+                            ImGui::Text("    - %s", dname.c_str());
+                            ImGui::SameLine();
+                            char mvGoId[32]; snprintf(mvGoId, sizeof(mvGoId), "Go >##rfmv%d_%d", ri, mi);
+                            if (ImGui::SmallButton(mvGoId)) {
+                                m_selectedIdx = mi;
+                                m_moveListScrollPending = true;
+                            }
+                        }
+                        ImGui::Unindent(16.0f);
+                    }
+                }
+
+                ImGui::EndChild();
+            }
+
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
+    }
 
     ImGui::End();
 }
