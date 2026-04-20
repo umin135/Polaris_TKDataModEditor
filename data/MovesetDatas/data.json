@@ -2390,9 +2390,9 @@
       "ToolTip": "Plays the hand pose for the right hand at the specified frame."
     },
     "34318": {
-      "param": "?",
+      "param": "Blend Frames",
       "Function": "Both Hands Pose related",
-      "ToolTip": "It appears to be playing seq # 1 on left hand & seq # 2 on right hand with param num of frames"
+      "ToolTip": "Blends both hands into their default poses (Left: #1, Right: #2).\nParam is the blend duration in frames.\nUse 0x860B/0x860C to override which pose each hand targets."
     },
     "34319": {
       "param": "Anim Index",

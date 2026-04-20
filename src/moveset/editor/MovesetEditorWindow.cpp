@@ -4422,12 +4422,14 @@ static void RenderPropSection(
                 return id >= 0x860F && id <= 0x8613;
             };
             auto isHandPoseProp = [](uint32_t id) {
-                return id >= 0x860A && id <= 0x860E;
+                return id >= 0x860A && id <= 0x860D;
             };
             if (e.id == 0x877d || e.id == 0x827b || e.id == 0x868f || isHandAnimProp(e.id)) {
                 b2ContentH += fieldRowH;
             } else if (isHandPoseProp(e.id)) {
                 b2ContentH += 2 * fieldRowH + paramLabelRowH;  // pose combo + blend input + decoded label
+            } else if (e.id == 0x860E) {
+                b2ContentH += fieldRowH + paramLabelRowH;  // blend input + decoded label
             } else {
                 b2ContentH += fieldRowH;
                 const char* pl0 = MovesetDataDict::Get().GetParamLabel(e.id, 0, e.value);
@@ -4592,6 +4594,28 @@ static void RenderPropSection(
                         char decoded[64];
                         snprintf(decoded, sizeof(decoded), "Pose #%u  |  blend: %u frames", poseIdx, blendFrames);
                         ImGui::TextUnformatted(decoded);
+                        ImGui::PopStyleColor();
+                    }
+                    else if (e.id == 0x860E)
+                    {
+                        // param is raw blend duration; poses are hardcoded (Left #1, Right #2)
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Blend");
+                        ImGui::TableSetColumnIndex(1); ImGui::SetNextItemWidth(-1.0f);
+                        int btmp860e = (int)e.value;
+                        if (ImGui::InputInt("##ep_860e_blend", &btmp860e, 1, 10))
+                        {
+                            btmp860e = btmp860e < 0 ? 0 : btmp860e > 255 ? 255 : btmp860e;
+                            e.value = (uint32_t)btmp860e;
+                            dirty = true;
+                        }
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(1);
+                        ImGui::PushStyleColor(ImGuiCol_Text, kGreen);
+                        char decoded860e[64];
+                        snprintf(decoded860e, sizeof(decoded860e),
+                                 "blend: %u frames  |  Left: Pose #1, Right: Pose #2", e.value);
+                        ImGui::TextUnformatted(decoded860e);
                         ImGui::PopStyleColor();
                     }
                     else
