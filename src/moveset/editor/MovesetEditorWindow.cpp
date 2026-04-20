@@ -5676,6 +5676,25 @@ void MovesetEditorWindow::RenderSubWin_ReferenceFinder()
                         }
                     }
 
+                    // reactionListBlock — check all 14 move fields per entry
+                    {
+                        for (uint32_t i = 0; i < (uint32_t)m_data.reactionListBlock.size(); ++i) {
+                            const auto& rl = m_data.reactionListBlock[i];
+                            const uint16_t fields[] = {
+                                rl.standing, rl.crouch, rl.ch, rl.crouch_ch,
+                                rl.left_side, rl.left_side_crouch, rl.right_side, rl.right_side_crouch,
+                                rl.back, rl.back_crouch, rl.block, rl.crouch_block,
+                                rl.wallslump, rl.downed
+                            };
+                            for (uint16_t mid : fields) {
+                                if (resolveMove(mid) == (int)tgt) {
+                                    m_refFinder.results.push_back({RefFinderState::Hit::Type::ReactionList, i, i, i});
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
                     // Post-process: compute owningMoves for each hit.
                     std::vector<uint32_t> cGStart(m_data.cancelBlock.size(), 0);
                     {
@@ -5742,12 +5761,27 @@ void MovesetEditorWindow::RenderSubWin_ReferenceFinder()
                     {
                         if (lastType != (HT)0xFF) ImGui::Spacing();
                         switch (h.type) {
-                        case HT::Cancel:      ImGui::TextDisabled("--- Cancels ---");       break;
-                        case HT::GroupCancel: ImGui::TextDisabled("--- Group Cancels ---"); break;
+                        case HT::Cancel:       ImGui::TextDisabled("--- Cancels ---");        break;
+                        case HT::GroupCancel:  ImGui::TextDisabled("--- Group Cancels ---");  break;
+                        case HT::ReactionList: ImGui::TextDisabled("--- Reaction Lists ---"); break;
                         }
                         lastType = h.type;
                     }
 
+                    char goId[24]; snprintf(goId, sizeof(goId), "Go >##rfgo%d", ri);
+
+                    if (h.type == HT::ReactionList)
+                    {
+                        ImGui::Text("  Reaction List ID : %u", h.blockIdx);
+                        ImGui::SameLine();
+                        if (ImGui::SmallButton(goId)) {
+                            m_reacWin.selectedIdx   = (int)h.blockIdx;
+                            m_reacWin.scrollPending = true;
+                            m_reacWin.open          = true;
+                        }
+                    }
+                    else
+                    {
                     const uint32_t A = h.groupFirst;
                     const uint32_t B = h.blockIdx - h.groupFirst;
                     const uint32_t C = h.blockIdx;
@@ -5756,7 +5790,6 @@ void MovesetEditorWindow::RenderSubWin_ReferenceFinder()
                     ImGui::Text("  %s List ID : %u | Item Idx : %u | Absolute ID : %u",
                                 typeName, A, B, C);
                     ImGui::SameLine();
-                    char goId[24]; snprintf(goId, sizeof(goId), "Go >##rfgo%d", ri);
                     if (ImGui::SmallButton(goId))
                     {
                         if (h.type == HT::Cancel) {
@@ -5789,6 +5822,7 @@ void MovesetEditorWindow::RenderSubWin_ReferenceFinder()
                         }
                         ImGui::Unindent(16.0f);
                     }
+                    } // end Cancel/GroupCancel branch
                 }
 
                 ImGui::EndChild();

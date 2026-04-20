@@ -82,7 +82,7 @@ public:
         bool  searched     = false;
 
         struct Hit {
-            enum class Type { Cancel, GroupCancel };
+            enum class Type { Cancel, GroupCancel, ReactionList };
             Type     type;
             uint32_t blockIdx;    // C: absolute index in the block
             uint32_t groupOuter;  // group number (for navigation)
