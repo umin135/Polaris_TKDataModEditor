@@ -64,6 +64,9 @@ public:
     // Navigate to the pool entry for a given motbin anim_key.
     void NavigateByMotbinKey(int cat, uint32_t motbinAnimKey);
 
+    // Returns totalFrames read from the PANM header for the given anim_key, or -1 if not found.
+    int32_t GetTotalFramesForKey(uint32_t animKey);
+
     // Reload anmbin from disk (called after rebuild).
     void ForceReload();
 

@@ -209,6 +209,35 @@ void AnimationManagerWindow::NavigateByMotbinKey(int cat, uint32_t motbinAnimKey
         NavigateToPool(cat, poolIdx);
 }
 
+int32_t AnimationManagerWindow::GetTotalFramesForKey(uint32_t animKey)
+{
+    if (!m_anmbin.loaded) return -1;
+    BuildAnimKeyMap();
+    for (int cat = 0; cat < 6; ++cat)
+    {
+        auto it = m_animKeyToPoolIdx[cat].find(animKey);
+        if (it == m_animKeyToPoolIdx[cat].end()) continue;
+        int poolIdx = it->second;
+        if (poolIdx < 0 || poolIdx >= (int)m_anmbin.pool[cat].size()) continue;
+        uint64_t animDataPtr = m_anmbin.pool[cat][poolIdx].animDataPtr;
+        if (animDataPtr == 0) continue;
+
+        std::string anmbinPath = m_folderPath;
+        if (!anmbinPath.empty() && anmbinPath.back() != '\\' && anmbinPath.back() != '/')
+            anmbinPath += '\\';
+        anmbinPath += "moveset.anmbin";
+
+        FILE* f = nullptr;
+        if (fopen_s(&f, anmbinPath.c_str(), "rb") != 0 || !f) return -1;
+        fseek(f, static_cast<long>(animDataPtr + 0x40), SEEK_SET);
+        uint32_t totalFrames = 0;
+        size_t n = fread(&totalFrames, 4, 1, f);
+        fclose(f);
+        return (n == 1) ? (int32_t)totalFrames : -1;
+    }
+    return -1;
+}
+
 void AnimationManagerWindow::NavigateTo(int cat, int moveIdx)
 {
     TryLoad();
