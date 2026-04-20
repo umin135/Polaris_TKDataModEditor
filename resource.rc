@@ -8,8 +8,9 @@ IDR_HOME_LOGO_PNG RCDATA "res\\Home_Logo.png"
 IDR_FONT_REGULAR  RCDATA "res\\fonts\\en\\NotoSans-Regular.ttf"
 IDR_FONT_BOLD     RCDATA "res\\fonts\\en\\NotoSans-Bold.ttf"
 
-// Preview part meshes (packed binary archive)
-IDR_PREVIEW_MESHES RCDATA "data\\Meshes\\preview_meshes.pack"
+// Preview part meshes (packed binary archives)
+IDR_PREVIEW_MESHES      RCDATA "data\\Meshes\\preview_meshes.pack"
+IDR_PREVIEW_MESHES_HAND RCDATA "data\\Meshes_hand\\preview_meshes_hand.pack"
 
 // Interface data files (disk files take priority at runtime; these are fallback)
 IDR_DATA_CHARLIST RCDATA "data\\interfacedata\\characterList.txt"

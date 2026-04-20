@@ -429,13 +429,13 @@ void PreviewRenderer::SetFloorHeight(float h)
 
 // ─── Mesh helpers ─────────────────────────────────────────────────────────────
 
-void PreviewRenderer::LoadMeshes(const std::string& meshFolder)
+void PreviewRenderer::LoadMeshes(const std::string& meshFolder, bool isHand)
 {
     delete m_mesh;
     m_mesh = nullptr;
     if (!m_dev) return;
     PreviewMesh* mesh = new PreviewMesh();
-    if (mesh->Load(m_dev, meshFolder))
+    if (mesh->Load(m_dev, meshFolder, isHand))
         m_mesh = mesh;
     else
         delete mesh;

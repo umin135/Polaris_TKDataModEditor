@@ -628,9 +628,27 @@ void AnimationManagerWindow::LoadSelectedAnim(int cat, int poolIdx)
 
     m_animLoaded = true;
     if (m_preview) {
+        EnsurePreviewMeshes(cat);
         m_preview->SetAnimCategory(cat);
         m_preview->SetAnim(&m_currentAnim, 0);
     }
+}
+
+// -------------------------------------------------------------
+//  EnsurePreviewMeshes  --  load correct mesh set for category
+// -------------------------------------------------------------
+
+void AnimationManagerWindow::EnsurePreviewMeshes(int cat)
+{
+    if (!m_preview) return;
+    const int meshCat = (cat == 1) ? 1 : 0;
+    if (m_previewMeshCat == meshCat) return;
+    if (meshCat == 1) {
+        m_preview->LoadMeshes("_references/moveset_anim/Meshes_hand", true);
+    } else {
+        m_preview->LoadMeshes("_references/moveset_anim/Meshes", false);
+    }
+    m_previewMeshCat = meshCat;
 }
 
 // -------------------------------------------------------------
@@ -647,10 +665,8 @@ void AnimationManagerWindow::SetD3DContext(ID3D11Device* dev, ID3D11DeviceContex
             m_preview.reset();
             return;
         }
-        // Load part meshes from the reference folder.
-        // Path is relative to the working directory (project root during development).
-        // TODO: make this configurable via Config or a per-character folder.
         m_preview->LoadMeshes("_references/moveset_anim/Meshes");
+        m_previewMeshCat = 0;
     }
 }
 
@@ -1198,6 +1214,7 @@ bool AnimationManagerWindow::Render()
             if (ImGui::BeginTabItem(tabLabel, nullptr, tabFlags))
             {
                 if (m_pendingTab == cat) m_pendingTab = -1;
+                EnsurePreviewMeshes(cat);
 
                 float availW = ImGui::GetContentRegionAvail().x;
                 float leftW  = availW * 0.60f;

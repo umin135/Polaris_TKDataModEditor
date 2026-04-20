@@ -222,8 +222,26 @@ done:
     return ok;
 }
 
-// ─── White texture fallback ───────────────────────────────────────────────────
-// Created when Diffuse.png is unavailable; alpha=1 so clip never fires.
+// ─── Solid colour texture helpers ────────────────────────────────────────────
+// alpha=1 so the alpha-clip in the PS never fires.
+
+static bool CreateSolidTexture(ID3D11Device* dev, ID3D11ShaderResourceView** outSRV, uint32_t rgba)
+{
+    D3D11_TEXTURE2D_DESC td = {};
+    td.Width = td.Height = 1;
+    td.MipLevels = td.ArraySize = 1;
+    td.Format           = DXGI_FORMAT_R8G8B8A8_UNORM;
+    td.SampleDesc.Count = 1;
+    td.Usage            = D3D11_USAGE_IMMUTABLE;
+    td.BindFlags        = D3D11_BIND_SHADER_RESOURCE;
+    D3D11_SUBRESOURCE_DATA sd = { &rgba, 4, 0 };
+
+    ID3D11Texture2D* tex = nullptr;
+    if (FAILED(dev->CreateTexture2D(&td, &sd, &tex))) return false;
+    HRESULT hr = dev->CreateShaderResourceView(tex, nullptr, outSRV);
+    tex->Release();
+    return SUCCEEDED(hr);
+}
 
 static bool CreateWhiteTexture(ID3D11Device* dev, ID3D11ShaderResourceView** outSRV)
 {
@@ -647,7 +665,7 @@ static bool BuildSkeleton(
 
 // ─── PreviewMesh::Load ────────────────────────────────────────────────────────
 
-bool PreviewMesh::Load(ID3D11Device* dev, const std::string& meshFolder)
+bool PreviewMesh::Load(ID3D11Device* dev, const std::string& meshFolder, bool isHand)
 {
     m_parts.clear();
     m_skeleton.clear();
@@ -671,7 +689,8 @@ bool PreviewMesh::Load(ID3D11Device* dev, const std::string& meshFolder)
             bool valid = false;
         } resPack;
 
-        HRSRC   hRsrc = FindResource(nullptr, MAKEINTRESOURCE(IDR_PREVIEW_MESHES), RT_RCDATA);
+        UINT    resId = isHand ? IDR_PREVIEW_MESHES_HAND : IDR_PREVIEW_MESHES;
+        HRSRC   hRsrc = FindResource(nullptr, MAKEINTRESOURCE(resId), RT_RCDATA);
         HGLOBAL hGlob = hRsrc ? LoadResource(nullptr, hRsrc) : nullptr;
         const uint8_t* pData = hGlob ? static_cast<const uint8_t*>(LockResource(hGlob)) : nullptr;
         DWORD   dSize = hRsrc ? SizeofResource(nullptr, hRsrc) : 0;
@@ -691,7 +710,13 @@ bool PreviewMesh::Load(ID3D11Device* dev, const std::string& meshFolder)
         }
 
         // ── Helper: load Diffuse.png from disk → resource fallback ────
+        // Hand meshes always use a flat grey (0.5, 0.5, 0.5) colour; no texture lookup.
         auto LoadDiffuse = [&](const std::string& diskFolder) {
+            if (isHand) {
+                // 0x80 per channel ≈ 0.5 linear (hand meshes, no texture)
+                CreateSolidTexture(dev, &m_diffuseSRV, 0xFF808080u);
+                return;
+            }
             // Try disk first
             if (!diskFolder.empty()) {
                 std::string p = diskFolder + "/Diffuse.png";

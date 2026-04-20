@@ -7,7 +7,8 @@
 #define IDR_FONT_BOLD     203   // NotoSans Condensed Bold (TTF, embedded)
 
 // Preview part meshes (OBJ + skeleton.json packed into a single binary archive)
-#define IDR_PREVIEW_MESHES 401   // data/preview_meshes.pack
+#define IDR_PREVIEW_MESHES      401   // data/Meshes/preview_meshes.pack
+#define IDR_PREVIEW_MESHES_HAND 402   // data/Meshes_hand/preview_meshes_hand.pack
 
 // data/interfacedata/* embedded as RCDATA fallback (disk files override when present)
 #define IDR_DATA_CHARLIST 301   // characterList.txt

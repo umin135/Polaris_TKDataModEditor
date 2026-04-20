@@ -79,6 +79,7 @@ private:
     void RenderTabContent(int cat);
     void RenderPreviewPanel(int cat);
     void LoadSelectedAnim(int cat, int poolIdx);
+    void EnsurePreviewMeshes(int cat);
 
     // Action handlers
     void DoAdd(int cat);
@@ -131,6 +132,7 @@ private:
     std::unique_ptr<PreviewRenderer> m_preview;
     ID3D11Device*        m_d3dDev = nullptr;
     ID3D11DeviceContext* m_d3dCtx = nullptr;
+    int                  m_previewMeshCat = -1; // mesh set currently loaded (-1 = none)
 
     // Animation playback state
     ParsedAnim  m_currentAnim;          // currently loaded PANM data

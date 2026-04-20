@@ -40,7 +40,8 @@ public:
 
     // Scan meshFolder for skeleton.json + *.obj + Diffuse.png.
     // Returns true if at least one part was loaded.
-    bool Load(ID3D11Device* dev, const std::string& meshFolder);
+    // isHand=true: use IDR_PREVIEW_MESHES_HAND resource and flat grey (0.5,0.5,0.5) colour.
+    bool Load(ID3D11Device* dev, const std::string& meshFolder, bool isHand = false);
 
     bool IsLoaded()        const { return m_loaded; }
     int  GetPartCount()    const { return (int)m_parts.size(); }

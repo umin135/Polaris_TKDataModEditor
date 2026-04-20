@@ -54,8 +54,9 @@ public:
     void ResetCamera();
 
     // Load part meshes from meshFolder (expects skeleton.json + *.obj files).
+    // isHand=true: use IDR_PREVIEW_MESHES_HAND resource + flat grey colour.
     // Safe to call multiple times; reloads on each call.
-    void LoadMeshes(const std::string& meshFolder);
+    void LoadMeshes(const std::string& meshFolder, bool isHand = false);
 
     // Set the animation to display.  nullptr = draw in bind pose.
     void SetAnim(const ParsedAnim* anim, uint32_t frame);
