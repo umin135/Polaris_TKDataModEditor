@@ -2129,9 +2129,6 @@ void MovesetEditorWindow::RenderMenuBar()
             m_refFinder.open = !m_refFinder.open;
         ImGui::Separator();
         bool animMgrOpen = m_animMgr != nullptr;
-        if (ImGui::MenuItem("Reference Finder",  nullptr, m_refFinder.open))
-            m_refFinder.open = !m_refFinder.open;
-        ImGui::Separator();
         if (ImGui::MenuItem("Animation Manager", nullptr, animMgrOpen))
         {
             if (!m_animMgr)
