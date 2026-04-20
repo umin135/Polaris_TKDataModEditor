@@ -40,6 +40,7 @@ public:
         TwoLevelSel  groupCancelSel;
         int          extradataSel          = 0;
         bool         extraScrollPending    = false;
+        int          pendingTab            = -1; // 0=Cancel List, 1=Group Cancel List
     };
 
     struct ReactionListWinState {
@@ -72,6 +73,23 @@ public:
         int         throwSel           = 0;
         bool        throwScrollPending = false;
         TwoLevelSel extraSel;
+    };
+
+    struct RefFinderState {
+        bool  open     = false;
+        char  inputBuf[64] = {};
+        int   targetMove   = -1;
+        bool  searched     = false;
+
+        struct Hit {
+            enum class Type { Cancel, GroupCancel };
+            Type     type;
+            uint32_t blockIdx;    // C: absolute index in the block
+            uint32_t groupOuter;  // group number (for navigation)
+            uint32_t groupFirst;  // A: first block index of the group (for display)
+            std::vector<int> owningMoves; // move indices whose cancel list contains this hit
+        };
+        std::vector<Hit> results;
     };
 
     struct PropertiesWinState {
@@ -139,6 +157,7 @@ private:
     void RenderSubWin_InputSequences();
     void RenderSubWin_ParryableMoves();
     void RenderSubWin_Dialogues();
+    void RenderSubWin_ReferenceFinder();
     void RenderRemoveConfirmModal();
 
     // Returns a per-instance ImGui window/popup ID: "Label##tag_<uid>"
@@ -192,6 +211,7 @@ private:
     TwoLevelSel          m_parryWinSel;
     bool                 m_dialogueWinOpen = false;
     int                  m_dialogueSel     = 0;
+    RefFinderState       m_refFinder;
 
     // Animation name DB (anim_N <-> motbin anim_key, loaded from .tkedit/anim_names.json)
     AnimNameDB           m_animNameDB;
