@@ -644,7 +644,7 @@ void AnimationManagerWindow::EnsurePreviewMeshes(int cat)
     const int meshCat = (cat == 1) ? 1 : 0;
     if (m_previewMeshCat == meshCat) return;
     if (meshCat == 1) {
-        m_preview->LoadMeshes("_references/moveset_anim/Meshes_hand", true);
+        m_preview->LoadMeshes("", true);
     } else {
         m_preview->LoadMeshes("_references/moveset_anim/Meshes", false);
     }

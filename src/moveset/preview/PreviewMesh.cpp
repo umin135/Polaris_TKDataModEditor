@@ -18,6 +18,7 @@
 #include "resource.h"
 
 #include <algorithm>
+#include <numeric>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -639,7 +640,7 @@ static bool BuildSkeleton(
         XMStoreFloat4(reinterpret_cast<XMFLOAT4*>(bn.aposeQuat),   apoQ);
     }
 
-    // ── Pass 3: create MeshPart for each bone that has an OBJ ────────────────
+    // ── Pass 3a: create MeshPart for each bone that has an OBJ ──────────────
     for (int i = 0; i < (int)rawBones.size(); ++i) {
         auto it = objMap.find(rawBones[i].name + ".obj");
         if (it == objMap.end()) continue;
@@ -657,6 +658,37 @@ static bool BuildSkeleton(
         part->bindWorld    = bindWorldVec[i];
         part->vb           = vb;
         part->vcount       = vcount;
+        outParts.push_back(std::move(part));
+    }
+
+    // ── Pass 3b: for R_ bones without OBJ, share the matching L_ VB ─────────
+    // Build boneName → partIdx map from what was just created.
+    std::unordered_map<std::string, int> nameToPartIdx;
+    for (int i = 0; i < (int)outParts.size(); ++i)
+        nameToPartIdx[outParts[i]->boneName] = i;
+
+    for (int i = 0; i < (int)rawBones.size(); ++i) {
+        if (outSkeleton[i].partIdx >= 0) continue; // already has its own OBJ
+
+        const std::string& name = rawBones[i].name;
+        if (name.size() < 2 || name[0] != 'R' || name[1] != '_') continue;
+
+        std::string lName = "L_" + name.substr(2);
+        auto it = nameToPartIdx.find(lName);
+        if (it == nameToPartIdx.end()) continue;
+
+        auto& src = outParts[it->second];
+        src->vb->AddRef(); // shared ownership: both parts release once
+
+        int partIdx = (int)outParts.size();
+        outSkeleton[i].partIdx = partIdx;
+
+        auto part         = std::make_unique<PreviewMesh::MeshPart>();
+        part->boneName    = name;
+        part->boneNodeIdx = i;
+        part->bindWorld   = bindWorldVec[i];
+        part->vb          = src->vb;
+        part->vcount      = src->vcount;
         outParts.push_back(std::move(part));
     }
 
@@ -804,7 +836,9 @@ cleanup:
 
 void PreviewMesh::Draw(ID3D11DeviceContext* ctx, ID3D11Buffer* cbuf,
                        const ParsedAnim* anim, uint32_t frame,
-                       const float viewProj[16])
+                       const float viewProj[16],
+                       const float eyePos[3],
+                       ID3D11DepthStencilState* dssNoDepth)
 {
     if (m_parts.empty() || !m_vs || !m_diffuseSRV) return;
 
@@ -967,7 +1001,18 @@ void PreviewMesh::Draw(ID3D11DeviceContext* ctx, ID3D11Buffer* cbuf,
     ctx->PSSetShaderResources(0, 1, &m_diffuseSRV);
 
     // ── Draw each mesh part ───────────────────────────────────────────────────
-    for (auto& part : m_parts) {
+    // Hand meshes: disable depth test so all finger segments remain visible
+    // even when they share depth with adjacent bones (Ring0/Pinky0 occlusion fix).
+    // Draw in reverse part order so base segments (boneIndex0) paint last = on top.
+    std::vector<int> drawOrder(m_parts.size());
+    std::iota(drawOrder.begin(), drawOrder.end(), 0);
+    if (eyePos && dssNoDepth) {
+        ctx->OMSetDepthStencilState(dssNoDepth, 0);
+        std::reverse(drawOrder.begin(), drawOrder.end());
+    }
+
+    for (int idx : drawOrder) {
+        auto& part = m_parts[idx];
         XMMATRIX model;
         if (anim && part->boneNodeIdx >= 0 && part->boneNodeIdx < boneCount) {
             model = animWorld[part->boneNodeIdx];

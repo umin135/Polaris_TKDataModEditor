@@ -139,7 +139,8 @@ private:
     // Part meshes (Phase 5+)
     // Raw pointer: unique_ptr<PreviewMesh> triggers MSVC C2338 when
     // PreviewMesh is only forward-declared.  Lifetime managed manually.
-    PreviewMesh*      m_mesh  = nullptr;
+    PreviewMesh*      m_mesh      = nullptr;
+    bool              m_meshIsHand = false;
     const ParsedAnim* m_anim  = nullptr;
     uint32_t          m_frame = 0;
 };

@@ -196,7 +196,7 @@ bool PreviewRenderer::Init(ID3D11Device* dev, ID3D11DeviceContext* ctx)
         D3D11_DEPTH_STENCIL_DESC dd = {};
         dd.DepthEnable    = TRUE;
         dd.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
-        dd.DepthFunc      = D3D11_COMPARISON_LESS;
+        dd.DepthFunc      = D3D11_COMPARISON_LESS_EQUAL;
         dev->CreateDepthStencilState(&dd, &m_dss);
     }
 
@@ -345,14 +345,14 @@ void PreviewRenderer::Render()
     float vpRaw[16];
     memcpy(vpRaw, &mvp, sizeof(vpRaw));   // view*proj (model=I for grid)
     if (m_mesh && m_mesh->IsLoaded()) {
-        // Hand meshes (cat==1): finger bones cluster at overlapping world positions.
-        // Depth-test LESS would cull later-drawn bones; disable depth for hand draw.
-        if (m_animCat == 1)
-            m_ctx->OMSetDepthStencilState(m_dssNoDepth, 0);
-        m_mesh->Draw(m_ctx, m_cbuf, m_anim, m_frame, vpRaw);
-        if (m_animCat == 1)
-            m_ctx->OMSetDepthStencilState(m_dss, 0);
-        // Restore topology for next frame's grid draw
+        float eyeRaw[3] = {};
+        XMStoreFloat3(reinterpret_cast<XMFLOAT3*>(eyeRaw), eye);
+        if (m_meshIsHand)
+            m_mesh->Draw(m_ctx, m_cbuf, m_anim, m_frame, vpRaw, eyeRaw, m_dssNoDepth);
+        else
+            m_mesh->Draw(m_ctx, m_cbuf, m_anim, m_frame, vpRaw);
+        // Restore depth state and topology
+        m_ctx->OMSetDepthStencilState(m_dss, 0);
         m_ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
 
         // Cache Spine1 world position for the next frame's character-focus camera.
@@ -441,10 +441,12 @@ void PreviewRenderer::LoadMeshes(const std::string& meshFolder, bool isHand)
     m_mesh = nullptr;
     if (!m_dev) return;
     PreviewMesh* mesh = new PreviewMesh();
-    if (mesh->Load(m_dev, meshFolder, isHand))
-        m_mesh = mesh;
-    else
+    if (mesh->Load(m_dev, meshFolder, isHand)) {
+        m_mesh      = mesh;
+        m_meshIsHand = isHand;
+    } else {
         delete mesh;
+    }
 }
 
 void PreviewRenderer::SetAnim(const ParsedAnim* anim, uint32_t frame)
