@@ -4116,6 +4116,8 @@ struct PropNavCtx {
     const std::vector<std::pair<uint32_t,uint32_t>>* teGroups    = nullptr;
     MovesetEditorWindow::TwoLevelSel*              throwExtraSel = nullptr;
     bool*                                          throwsWinOpen = nullptr;
+    // 0x860A-0x8613: hand animation/pose pool index
+    AnimationManagerWindow*                        animMgr       = nullptr;
 };
 
 static void RenderPropSection(
@@ -4416,8 +4418,16 @@ static void RenderPropSection(
             const float fieldRowH = ImGui::GetFrameHeight() + sty.ItemSpacing.y;
             const float paramLabelRowH = ImGui::GetTextLineHeightWithSpacing();
             float b2ContentH = 0.0f;
-            if (e.id == 0x877d || e.id == 0x827b || e.id == 0x868f) {
+            auto isHandAnimProp = [](uint32_t id) {
+                return id >= 0x860F && id <= 0x8613;
+            };
+            auto isHandPoseProp = [](uint32_t id) {
+                return id >= 0x860A && id <= 0x860E;
+            };
+            if (e.id == 0x877d || e.id == 0x827b || e.id == 0x868f || isHandAnimProp(e.id)) {
                 b2ContentH += fieldRowH;
+            } else if (isHandPoseProp(e.id)) {
+                b2ContentH += 2 * fieldRowH + paramLabelRowH;  // pose combo + blend input + decoded label
             } else {
                 b2ContentH += fieldRowH;
                 const char* pl0 = MovesetDataDict::Get().GetParamLabel(e.id, 0, e.value);
@@ -4519,6 +4529,71 @@ static void RenderPropSection(
                             *navCtx.throwsWinOpen = true;
                         }
                     }
+                    else if (isHandAnimProp(e.id))
+                    {
+                        snprintf(p0lbl, sizeof(p0lbl), "%s   (Hand)", ExtraPropLabel::Param0);
+                        bool handValid = navCtx.animMgr && navCtx.animMgr->IsLoaded();
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("%s", p0lbl);
+                        ImGui::TableSetColumnIndex(1); ImGui::SetNextItemWidth(-(kBtnW + sty.ItemSpacing.x));
+                        int vtmp = (int)e.value;
+                        if (ImGui::InputInt("##ep_v1_hand", &vtmp, 0, 0)) { e.value = (uint32_t)vtmp; dirty = true; }
+                        ImGui::SameLine();
+                        if (GoButton("##hand_go", handValid))
+                            navCtx.animMgr->NavigateToPool(1, (int)e.value);
+                    }
+                    else if (isHandPoseProp(e.id))
+                    {
+                        uint32_t poseIdx    = e.value >> 8;
+                        uint32_t blendFrames = e.value & 0xFF;
+                        const int kMaxPose  = ((int)poseIdx + 1 > 64) ? (int)poseIdx + 1 : 64;
+
+                        // Row 1: pose index dropdown
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Pose");
+                        ImGui::TableSetColumnIndex(1); ImGui::SetNextItemWidth(-1.0f);
+                        char posePreview[24];
+                        snprintf(posePreview, sizeof(posePreview), "Pose #%u", poseIdx);
+                        if (ImGui::BeginCombo("##ep_pose_idx", posePreview, ImGuiComboFlags_HeightLarge))
+                        {
+                            for (int i = 0; i < kMaxPose; ++i)
+                            {
+                                char item[24];
+                                snprintf(item, sizeof(item), "Pose #%d", i);
+                                bool sel = ((int)poseIdx == i);
+                                if (ImGui::Selectable(item, sel))
+                                {
+                                    e.value = ((uint32_t)i << 8) | blendFrames;
+                                    poseIdx = (uint32_t)i;
+                                    dirty = true;
+                                }
+                                if (sel) ImGui::SetItemDefaultFocus();
+                            }
+                            ImGui::EndCombo();
+                        }
+
+                        // Row 2: blend frames input
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Blend");
+                        ImGui::TableSetColumnIndex(1); ImGui::SetNextItemWidth(-1.0f);
+                        int btmp = (int)blendFrames;
+                        if (ImGui::InputInt("##ep_blend_frames", &btmp, 1, 10))
+                        {
+                            btmp = btmp < 0 ? 0 : btmp > 255 ? 255 : btmp;
+                            e.value = (poseIdx << 8) | (uint32_t)btmp;
+                            blendFrames = (uint32_t)btmp;
+                            dirty = true;
+                        }
+
+                        // Row 3: decoded summary
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(1);
+                        ImGui::PushStyleColor(ImGuiCol_Text, kGreen);
+                        char decoded[64];
+                        snprintf(decoded, sizeof(decoded), "Pose #%u  |  blend: %u frames", poseIdx, blendFrames);
+                        ImGui::TextUnformatted(decoded);
+                        ImGui::PopStyleColor();
+                    }
                     else
                     {
                         RowPU32("##ep_v1", ExtraPropLabel::Param0, e.value, FieldTT::ExtraProp::Param0, 0);
@@ -4585,6 +4660,7 @@ void MovesetEditorWindow::RenderSubWin_Properties()
     navCtx.teGroups      = &teGroups;
     navCtx.throwExtraSel = &m_throwsWin.extraSel;
     navCtx.throwsWinOpen = &m_throwsWin.open;
+    navCtx.animMgr       = m_animMgr.get();
 
     if (!ImGui::BeginTabBar("##prop_tabs")) { ImGui::End(); return; }
 
