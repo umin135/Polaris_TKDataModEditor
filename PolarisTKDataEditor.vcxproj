@@ -152,7 +152,7 @@
   <!-- ════════════════════════════════════════════════════════ -->
   <ItemDefinitionGroup>
     <PreBuildEvent>
-      <Command>cd /d "$(ProjectDir)" &amp;&amp; python BuildEvent/pack_meshes.py</Command>
+      <Command>cd /d "$(ProjectDir)" &amp;&amp; python BuildEvent/pack_meshes.py &amp;&amp; python BuildEvent/pack_meshes_hand.py</Command>
     </PreBuildEvent>
     <PostBuildEvent>
       <Command>if not exist "$(OutDir)res\kamui-hashes\" mkdir "$(OutDir)res\kamui-hashes\"

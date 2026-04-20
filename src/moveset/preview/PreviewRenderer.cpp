@@ -345,7 +345,13 @@ void PreviewRenderer::Render()
     float vpRaw[16];
     memcpy(vpRaw, &mvp, sizeof(vpRaw));   // view*proj (model=I for grid)
     if (m_mesh && m_mesh->IsLoaded()) {
+        // Hand meshes (cat==1): finger bones cluster at overlapping world positions.
+        // Depth-test LESS would cull later-drawn bones; disable depth for hand draw.
+        if (m_animCat == 1)
+            m_ctx->OMSetDepthStencilState(m_dssNoDepth, 0);
         m_mesh->Draw(m_ctx, m_cbuf, m_anim, m_frame, vpRaw);
+        if (m_animCat == 1)
+            m_ctx->OMSetDepthStencilState(m_dss, 0);
         // Restore topology for next frame's grid draw
         m_ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
 
