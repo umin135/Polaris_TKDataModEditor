@@ -369,11 +369,71 @@ const char* MovesetDataDict::GetParamLabel(uint32_t reqOrPropId, uint32_t pIndex
     {
     // Yes/No Options
     case 159:
+    case 454:
+    case 473:
+    case 498:
     case 1028:
     case 1029:
     {
         if (pIndex > 0) return "";
         return param ? "Yes" : "No";
+    }
+    // Character Controller
+    case 228:
+    case 229:
+    {
+        if (pIndex > 0) return "";
+        switch (param) {
+            case 0: return "Player";
+            case 1: return "CPU";
+            case 3: return "Intro/Outro";
+            default: return "";
+        }
+    }
+    // Eddy Install Level
+    case 490:
+    {
+        if (pIndex > 0) return "";
+        switch (param) {
+            case 0: return "Level 0";
+            case 1: return "Level 1";
+            case 2: return "Level 2";
+            default: return "";
+        }
+    }
+    // RNG option index (2-way through 10-way)
+    case 652:
+    case 653:
+    case 654:
+    case 655:
+    case 656:
+    case 657:
+    case 658:
+    case 659:
+    case 660:
+    {
+        if (pIndex > 0) return "";
+        return ParamLabelCStr("Option " + std::to_string(param));
+    }
+    // Weighted RNG percentage (0-1000, where 1000 = 100%)
+    case 661:
+    {
+        if (pIndex > 0) return "";
+        std::ostringstream oss;
+        oss << std::fixed;
+        oss.precision(1);
+        oss << (param / 10.0) << "%";
+        return ParamLabelCStr(oss.str());
+    }
+    // Player Side
+    case 804:
+    {
+        if (pIndex > 0) return "";
+        switch (param) {
+            case 1: return "Player 1";
+            case 2: return "Player 2";
+            default: return "";
+        }
     }
     case 35:
     case 36:
@@ -437,10 +497,69 @@ const char* MovesetDataDict::GetParamLabel(uint32_t reqOrPropId, uint32_t pIndex
         oss << "Chapter " << chapter << ", Battle " << battle;
         return ParamLabelCStr(oss.str());
     }
+    case 0x8151:
+    {
+        if (pIndex > 0) return "";
+        return param ? "Activate" : "Deactivate";
+    }
+    case 0x82BE:
+    {
+        if (pIndex > 0) return "";
+        return param ? "Yes" : "No";
+    }
+    case 0x835B:
+    {
+        if (pIndex > 0) return "";
+        return param ? "Spend" : "Not Spent";
+    }
+    case 0x8139:
+    {
+        if (pIndex > 0) return "";
+        switch (param) {
+            case 1: return "Level 1";
+            case 2: return "Level 2";
+            case 3: return "Level 3";
+            case 4: return "Level 4";
+            default: return "";
+        }
+    }
+    case 0x81EC:
+    {
+        if (pIndex > 0) return "";
+        return param ? "Can Block" : "Can't Block";
+    }
     case 0x81FC:
     {
         if (pIndex > 0) return "";
         return GetHurtboxLabel(param);
+    }
+    case 0x82C5:
+    {
+        if (pIndex > 0) return "";
+        return param ? "Spend Tornado" : "Don't Spend";
+    }
+    case 0x82D4:
+    case 0x82D5:
+    case 0x82D8:
+    case 0x82D9:
+    {
+        if (pIndex > 0) return "";
+        return param ? "Visible" : "Hidden";
+    }
+    case 0x82E2:
+    {
+        if (pIndex > 0) return "";
+        return param ? "Spend Rage" : "Allow Rage";
+    }
+    case 0x82F0:
+    {
+        if (pIndex > 0) return "";
+        return (param % 2) ? "Enabled" : "Disabled";
+    }
+    case 0x83F9:
+    {
+        if (pIndex > 0) return "";
+        return param ? "Activate" : "Remove";
     }
     case 0x8313:
     {
@@ -462,9 +581,6 @@ const char* MovesetDataDict::GetParamLabel(uint32_t reqOrPropId, uint32_t pIndex
         int dramaType = (param >> 16) & 0xFFFF;
         int dramaId = param & 0xFFFF;
         return GetDramaLabel(dramaType, dramaId);
-        // std::ostringstream oss;
-        // oss << GetDialogueTypeLabel(dramaType) << ": " << dramaId;
-        // return ParamLabelCStr(oss.str());
     }
     case 0x87EF:
     case 0x87F0:

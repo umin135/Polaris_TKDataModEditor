@@ -4340,16 +4340,7 @@ static void RenderPropSection(
                     int ftmp = (int)e.type;
                     if (ImGui::InputInt("##ep_type", &ftmp, 0, 0)) { e.type = (uint32_t)ftmp; dirty = true; }
 
-                    // _0x4: Commenting this, this field is NEVER used and probably only exists for padding.
-                    // ImGui::TextDisabled("%s", ExtraPropLabel::F0x4); ShowFieldTooltip(FieldTT::ExtraProp::F0x4);
-                    // ImGui::SetNextItemWidth(-1.0f);
-                    // char buf4[14]; snprintf(buf4, sizeof(buf4), "0x%08X", e._0x4);
-                    // ImGui::InputText("##ep_0x4", buf4, sizeof(buf4));
-                    // if (ImGui::IsItemDeactivatedAfterEdit()) {
-                    //     const char* p = buf4;
-                    //     if (p[0]=='0' && (p[1]=='x'||p[1]=='X')) p += 2;
-                    //     e._0x4 = (uint32_t)strtoul(p, nullptr, 16); dirty = true;
-                    // }
+
                 }
 
                 // property

@@ -28,8 +28,8 @@ OUTPUT     = "data/Meshes/preview_meshes.pack"
 
 def main():
     if not os.path.isdir(MESHES_DIR):
-        print(f"ERROR: meshes folder not found: {MESHES_DIR}")
-        sys.exit(1)
+        print(f"WARNING: meshes folder not found: {MESHES_DIR}, skipping pack.")
+        sys.exit(0)
 
     files = sorted(
         f for f in os.listdir(MESHES_DIR)
@@ -59,7 +59,7 @@ def main():
             print(f"  + {fname:30s}  {len(data):>8,} bytes")
 
     total = os.path.getsize(OUTPUT)
-    print(f"\nPacked {len(files)} files → {OUTPUT}  ({total:,} bytes total)")
+    print(f"\nPacked {len(files)} files -> {OUTPUT}  ({total:,} bytes total)")
 
 if __name__ == "__main__":
     main()
