@@ -80,6 +80,12 @@ struct PreviewMesh::MeshPart {
     // Bind-pose world matrix (D3D11 Y-up) — used when no animation is playing
     // or when the bone has no matching track in the current PANM.
     XMMATRIX      bindWorld;
+    // Per-part model-space correction applied BEFORE animWorld in Draw().
+    // Identity for L_ parts.  For R_ parts sharing an L_ VB:
+    //   modelOffset = L_bindWorld @ scale(-1,1,1) @ inv(R_bindWorld)
+    // This maps L_bone_local → L_world → mirror_X → R_bone_local,
+    // so the L_ geometry renders correctly at the R_ bone's animated position.
+    XMMATRIX      modelOffset;
     ID3D11Buffer* vb      = nullptr;
     int           vcount  = 0;
 
@@ -656,6 +662,7 @@ static bool BuildSkeleton(
         part->boneName     = rawBones[i].name;
         part->boneNodeIdx  = i;
         part->bindWorld    = bindWorldVec[i];
+        part->modelOffset  = XMMatrixIdentity();
         part->vb           = vb;
         part->vcount       = vcount;
         outParts.push_back(std::move(part));
@@ -667,6 +674,9 @@ static bool BuildSkeleton(
     for (int i = 0; i < (int)outParts.size(); ++i)
         nameToPartIdx[outParts[i]->boneName] = i;
 
+    // mirrorX: world-space X-axis reflection (L_ ↔ R_ symmetry plane)
+    const XMMATRIX mirrorX = XMMatrixScaling(-1.f, 1.f, 1.f);
+
     for (int i = 0; i < (int)rawBones.size(); ++i) {
         if (outSkeleton[i].partIdx >= 0) continue; // already has its own OBJ
 
@@ -676,6 +686,17 @@ static bool BuildSkeleton(
         std::string lName = "L_" + name.substr(2);
         auto it = nameToPartIdx.find(lName);
         if (it == nameToPartIdx.end()) continue;
+
+        int lBoneIdx = outParts[it->second]->boneNodeIdx;
+        XMMATRIX L_bw = bindWorldVec[lBoneIdx];
+        XMMATRIX R_bw = bindWorldVec[i];
+
+        // modelOffset = L_bindWorld @ mirrorX @ inv(R_bindWorld)
+        // Transforms: v (L_local) → L_world → mirror_X_world → R_local
+        // Draw() then multiplies by R_animWorld to get final world position.
+        XMMATRIX modelOffset = XMMatrixMultiply(
+            XMMatrixMultiply(L_bw, mirrorX),
+            XMMatrixInverse(nullptr, R_bw));
 
         auto& src = outParts[it->second];
         src->vb->AddRef(); // shared ownership: both parts release once
@@ -687,6 +708,7 @@ static bool BuildSkeleton(
         part->boneName    = name;
         part->boneNodeIdx = i;
         part->bindWorld   = bindWorldVec[i];
+        part->modelOffset = modelOffset;
         part->vb          = src->vb;
         part->vcount      = src->vcount;
         outParts.push_back(std::move(part));
@@ -1013,12 +1035,17 @@ void PreviewMesh::Draw(ID3D11DeviceContext* ctx, ID3D11Buffer* cbuf,
 
     for (int idx : drawOrder) {
         auto& part = m_parts[idx];
-        XMMATRIX model;
+        XMMATRIX boneWorld;
         if (anim && part->boneNodeIdx >= 0 && part->boneNodeIdx < boneCount) {
-            model = animWorld[part->boneNodeIdx];
+            boneWorld = animWorld[part->boneNodeIdx];
         } else {
-            model = part->bindWorld;
+            boneWorld = part->bindWorld;
         }
+        // Apply per-part modelOffset before boneWorld.
+        // For L_ parts: modelOffset = identity → no change.
+        // For R_ parts sharing L_ VBs: modelOffset = L_bw @ mirrorX @ inv(R_bw),
+        // which maps L_local → L_world → mirror_X → R_local, then R_local → world.
+        XMMATRIX model = XMMatrixMultiply(part->modelOffset, boneWorld);
 
         XMMATRIX mvp = XMMatrixMultiply(model, vp);
         D3D11_MAPPED_SUBRESOURCE ms = {};
