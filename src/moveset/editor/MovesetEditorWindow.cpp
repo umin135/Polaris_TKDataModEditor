@@ -2129,6 +2129,9 @@ void MovesetEditorWindow::RenderMenuBar()
             m_refFinder.open = !m_refFinder.open;
         ImGui::Separator();
         bool animMgrOpen = m_animMgr != nullptr;
+        if (ImGui::MenuItem("Reference Finder",  nullptr, m_refFinder.open))
+            m_refFinder.open = !m_refFinder.open;
+        ImGui::Separator();
         if (ImGui::MenuItem("Animation Manager", nullptr, animMgrOpen))
         {
             if (!m_animMgr)
@@ -3255,7 +3258,12 @@ void MovesetEditorWindow::RenderSubWin_Cancels()
     {
         if (ImGui::BeginTabBar("##cantabs"))
         {
-            if (ImGui::BeginTabItem("Cancel List"))
+            const int pt = m_cancelsWin.pendingTab;
+            m_cancelsWin.pendingTab = -1;
+            ImGuiTabItemFlags f0 = (pt == 0) ? ImGuiTabItemFlags_SetSelected : 0;
+            ImGuiTabItemFlags f1 = (pt == 1) ? ImGuiTabItemFlags_SetSelected : 0;
+
+            if (ImGui::BeginTabItem("Cancel List", nullptr, f0))
             {
                 RenderCancelSection("##co","##ci","##cd",
                     m_data.cancelBlock, cancelGroups, m_cancelsWin.cancelSel,
@@ -3264,7 +3272,7 @@ void MovesetEditorWindow::RenderSubWin_Cancels()
                     m_data, m_dirty, false);
                 ImGui::EndTabItem();
             }
-            if (ImGui::BeginTabItem("Group Cancel List"))
+            if (ImGui::BeginTabItem("Group Cancel List", nullptr, f1))
             {
                 RenderCancelSection("##gco","##gci","##gcd",
                     m_data.groupCancelBlock, groupCancelGroups, m_cancelsWin.groupCancelSel,
@@ -5695,7 +5703,7 @@ void MovesetEditorWindow::RenderSubWin_ReferenceFinder()
                         }
                     }
 
-                    // Post-process: compute owningMoves for each hit.
+                    // Post-process: compute owningMoves for each Cancel/GroupCancel hit.
                     std::vector<uint32_t> cGStart(m_data.cancelBlock.size(), 0);
                     {
                         uint32_t gs = 0;
@@ -5715,7 +5723,7 @@ void MovesetEditorWindow::RenderSubWin_ReferenceFinder()
                         if (hit.type == HT2::Cancel) {
                             auto it = movesByCGStart.find(hit.groupFirst);
                             if (it != movesByCGStart.end()) hit.owningMoves = it->second;
-                        } else {
+                        } else if (hit.type == HT2::GroupCancel) {
                             for (uint32_t ci = 0; ci < (uint32_t)m_data.cancelBlock.size(); ++ci) {
                                 if (m_data.cancelBlock[ci].group_cancel_list_idx != hit.groupFirst) continue;
                                 uint32_t cgStart = cGStart[ci];
@@ -5782,47 +5790,47 @@ void MovesetEditorWindow::RenderSubWin_ReferenceFinder()
                     }
                     else
                     {
-                    const uint32_t A = h.groupFirst;
-                    const uint32_t B = h.blockIdx - h.groupFirst;
-                    const uint32_t C = h.blockIdx;
+                        const uint32_t A = h.groupFirst;
+                        const uint32_t B = h.blockIdx - h.groupFirst;
+                        const uint32_t C = h.blockIdx;
 
-                    const char* typeName = (h.type == HT::Cancel) ? "Cancel" : "Group Cancel";
-                    ImGui::Text("  %s List ID : %u | Item Idx : %u | Absolute ID : %u",
-                                typeName, A, B, C);
-                    ImGui::SameLine();
-                    if (ImGui::SmallButton(goId))
-                    {
-                        if (h.type == HT::Cancel) {
-                            m_cancelsWin.cancelSel.outer       = (int)h.groupOuter;
-                            m_cancelsWin.cancelSel.inner       = (int)B;
-                            m_cancelsWin.cancelSel.scrollOuter = true;
-                        } else {
-                            m_cancelsWin.groupCancelSel.outer       = (int)h.groupOuter;
-                            m_cancelsWin.groupCancelSel.inner       = (int)B;
-                            m_cancelsWin.groupCancelSel.scrollOuter = true;
-                        }
-                        m_cancelsWin.open         = true;
-                        m_cancelsWin.pendingFocus = true;
-                        m_cancelsWin.pendingTab   = (h.type == HT::Cancel) ? 0 : 1;
-                    }
-
-                    if (!h.owningMoves.empty()) {
-                        ImGui::Indent(16.0f);
-                        ImGui::TextDisabled("-> Referenced Move :");
-                        for (int mi : h.owningMoves) {
-                            const std::string& dname = (mi >= 0 && mi < (int)m_data.moves.size())
-                                                       ? m_data.moves[mi].displayName : "?";
-                            ImGui::Text("    - %s", dname.c_str());
-                            ImGui::SameLine();
-                            char mvGoId[32]; snprintf(mvGoId, sizeof(mvGoId), "Go >##rfmv%d_%d", ri, mi);
-                            if (ImGui::SmallButton(mvGoId)) {
-                                m_selectedIdx = mi;
-                                m_moveListScrollPending = true;
+                        const char* typeName = (h.type == HT::Cancel) ? "Cancel" : "Group Cancel";
+                        ImGui::Text("  %s List ID : %u | Item Idx : %u | Absolute ID : %u",
+                                    typeName, A, B, C);
+                        ImGui::SameLine();
+                        if (ImGui::SmallButton(goId))
+                        {
+                            if (h.type == HT::Cancel) {
+                                m_cancelsWin.cancelSel.outer       = (int)h.groupOuter;
+                                m_cancelsWin.cancelSel.inner       = (int)B;
+                                m_cancelsWin.cancelSel.scrollOuter = true;
+                            } else {
+                                m_cancelsWin.groupCancelSel.outer       = (int)h.groupOuter;
+                                m_cancelsWin.groupCancelSel.inner       = (int)B;
+                                m_cancelsWin.groupCancelSel.scrollOuter = true;
                             }
+                            m_cancelsWin.open         = true;
+                            m_cancelsWin.pendingFocus = true;
+                            m_cancelsWin.pendingTab   = (h.type == HT::Cancel) ? 0 : 1;
                         }
-                        ImGui::Unindent(16.0f);
+
+                        if (!h.owningMoves.empty()) {
+                            ImGui::Indent(16.0f);
+                            ImGui::TextDisabled("-> Referenced Move :");
+                            for (int mi : h.owningMoves) {
+                                const std::string& dname = (mi >= 0 && mi < (int)m_data.moves.size())
+                                                           ? m_data.moves[mi].displayName : "?";
+                                ImGui::Text("    - %s", dname.c_str());
+                                ImGui::SameLine();
+                                char mvGoId[32]; snprintf(mvGoId, sizeof(mvGoId), "Go >##rfmv%d_%d", ri, mi);
+                                if (ImGui::SmallButton(mvGoId)) {
+                                    m_selectedIdx = mi;
+                                    m_moveListScrollPending = true;
+                                }
+                            }
+                            ImGui::Unindent(16.0f);
+                        }
                     }
-                    } // end Cancel/GroupCancel branch
                 }
 
                 ImGui::EndChild();
