@@ -1565,11 +1565,14 @@ void MovesetEditorWindow::RenderSection_Overview(ParsedMove& m, bool& dirty)
             uint32_t resolvedKey = 0;
             const bool animValid = db && m_animNameDB.NameToAnimKey(m_animKeyBuf, resolvedKey);
             const bool hasKamui  = (kamuiAnimName != nullptr);
+            // kamui 이름이 있는 경우 버퍼가 정확히 그 이름과 일치해야만 유효
+            const bool bufMatchesKamui = hasKamui && (strcmp(m_animKeyBuf, kamuiAnimName) == 0);
+            const bool effectiveValid  = hasKamui ? bufMatchesKamui : animValid;
             const bool isComRef  = !hasKamui && db && !animValid
                                  && m_animKeyBuf[0] == '0'
                                  && (m_animKeyBuf[1] == 'x' || m_animKeyBuf[1] == 'X');
             static constexpr ImVec4 kYellow = {1.00f, 0.85f, 0.30f, 1.0f};
-            const ImVec4& lblCol = (hasKamui || animValid) ? kGreen : (!db ? kGray : (isComRef ? kYellow : kPink));
+            const ImVec4& lblCol = effectiveValid ? kGreen : (!db ? kGray : (isComRef ? kYellow : kPink));
 
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
@@ -1581,11 +1584,17 @@ void MovesetEditorWindow::RenderSection_Overview(ParsedMove& m, bool& dirty)
             ImGui::SetNextItemWidth(-(kBtnW + ImGui::GetStyle().ItemSpacing.x));
             if (db)
             {
+                const uint32_t prevAnimKey = m.anim_key;
                 if (ImGui::InputText("##animkeyinput", m_animKeyBuf, sizeof(m_animKeyBuf)))
                 {
                     uint32_t newKey = 0;
                     if (m_animNameDB.NameToAnimKey(m_animKeyBuf, newKey)) {
-                        m.anim_key = newKey; dirty = true;
+                        // Reject if the resolved key belongs to a kamui-recovered animation
+                        // but the buffer doesn't match its kamui name — must use kamui name
+                        const char* resolvedKamui = LabelDB::Get().GetMoveName(newKey);
+                        if (!resolvedKamui || strcmp(m_animKeyBuf, resolvedKamui) == 0) {
+                            m.anim_key = newKey; dirty = true;
+                        }
                     } else {
                         // Try KamuiHash reverse lookup (kamui dict name typed directly)
                         uint32_t kh = (uint32_t)KamuiHash::Compute(m_animKeyBuf);
@@ -1598,6 +1607,10 @@ void MovesetEditorWindow::RenderSection_Overview(ParsedMove& m, bool& dirty)
                         }
                     }
                 }
+                if (m.anim_key != prevAnimKey && m_animMgr) {
+                    int32_t tf = m_animMgr->GetTotalFramesForKey(m.anim_key);
+                    if (tf >= 0) m.anim_len = tf + 1;
+                }
             }
             else
             {
@@ -1605,7 +1618,7 @@ void MovesetEditorWindow::RenderSection_Overview(ParsedMove& m, bool& dirty)
                 ImGui::InputText("##animkey_ro", roBuf, sizeof(roBuf), ImGuiInputTextFlags_ReadOnly);
             }
             ImGui::SameLine();
-            if (GoButton("Go \xe2\x86\x92##animkey_go", animValid))
+            if (GoButton("Go \xe2\x86\x92##animkey_go", effectiveValid))
             {
                 if (!m_animMgr)
                 {
@@ -1670,10 +1683,11 @@ void MovesetEditorWindow::RenderSection_Overview(ParsedMove& m, bool& dirty)
           if (ImGui::InputInt("##transition", &tmp, 0, 0)) { m.transition = (uint16_t)((uint32_t)tmp & 0xFFFFu); dirty = true; }
           ImGui::SameLine(); if (GoButton("Go \xe2\x86\x92##trans_go", transValid)) clickTrans = true; }
 
-        // 9. anim_len
+        // 9. anim_len (auto-updated from PANM header when anim_key changes; game recalculates at runtime)
         FieldRow(AnimLen, FieldTT::Move::AnimLen);
-        { ImGui::SetNextItemWidth(-1.0f);
-          if (ImGui::InputInt("##anim_len", &m.anim_len, 0, 0)) dirty = true; }
+        { char alBuf[16]; snprintf(alBuf, sizeof(alBuf), "%d", m.anim_len);
+          ImGui::SetNextItemWidth(-1.0f);
+          ImGui::InputText("##anim_len", alBuf, sizeof(alBuf), ImGuiInputTextFlags_ReadOnly); }
 
         // 10. hit_condition_idx
         ImGui::TableNextRow();
