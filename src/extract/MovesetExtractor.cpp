@@ -7,6 +7,7 @@
 #include "moveset/data/AnimNameDB.h"
 #include "moveset/labels/LabelDB.h"
 #include "moveset/serialize/MotbinSerialize.h"
+#include "FbsDataDict.h"
 #include <windows.h>
 #include <cstring>
 #include <cstdio>
@@ -19,7 +20,7 @@ static void WriteIni(const std::string& folder, uint32_t charaId, const std::str
                      const std::string& gameVersion)
 {
     // Resolve character code from characterList.txt (id,name,code); fall back to raw name.
-    const char* mapped    = LabelDB::Get().CharaCode(charaId);
+    const char* mapped    = FbsDataDict::Get().CharaCode(charaId);
     const char* charaCode = mapped ? mapped : charaName.c_str();
 
     std::string path = folder + "\\moveset.ini";
@@ -249,7 +250,7 @@ bool MovesetExtractor::ReadSlot(int slotIndex, PlayerSlotInfo& slot)
     }
 
     // Character name from ID -- looked up via characterList.txt
-    const char* charaNamePtr = LabelDB::Get().CharaName(charaId);
+    const char* charaNamePtr = FbsDataDict::Get().CharName(charaId);
     if (charaNamePtr)
         slot.charaName = charaNamePtr;
     else {
@@ -387,7 +388,7 @@ bool MovesetExtractor::SaveMotbin(const std::vector<uint8_t>& bytes,
     }
 
     // Use charaCode (e.g. "grf") as filename, fall back to charaName
-    const char* cCode   = LabelDB::Get().CharaCode(charaId);
+    const char* cCode   = FbsDataDict::Get().CharaCode(charaId);
     const char* codeStr = cCode ? cCode : charaName.c_str();
     std::string path = folder + "\\" + codeStr + ".motbin";
     HANDLE h = CreateFileA(path.c_str(), GENERIC_WRITE, 0, nullptr,
@@ -923,7 +924,7 @@ bool MovesetExtractor::ExtractToFile(int slotIndex,
         snprintf(fullDateBuf, sizeof(fullDateBuf), "%08u.000000 00:00:00.000",   compileDate);
 
         // charName = CharaName (from characterList.txt lookup) + "_n"
-        const char* cn = LabelDB::Get().CharaName(slot.charaId);
+        const char* cn = FbsDataDict::Get().CharName(slot.charaId);
         names.charName    = std::string(cn ? cn : slot.charaName) + "_n";
         names.charCreator = "Polaris8";
         names.date        = std::string(dateBuf);
@@ -982,7 +983,7 @@ bool MovesetExtractor::ExtractToFile(int slotIndex,
     }
 
     // Extract companion files from tkdata.bin: {charaCode}.anmbin, com.anmbin, stllstb, mvl
-    const char* charaCode = LabelDB::Get().CharaCode(slot.charaId);
+    const char* charaCode = FbsDataDict::Get().CharaCode(slot.charaId);
     std::string tkInfo = TryExtractTkdataFiles(destFolder, charFolder, charaCode);
 
     // Bake: merge com.anmbin refs into {charaCode}.anmbin, set characterFlags,

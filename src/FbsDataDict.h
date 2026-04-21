@@ -32,6 +32,9 @@ public:
     const std::unordered_map<uint32_t, std::string>& GetCharMap() const { return m_chars; }
     const char* CharName(uint32_t id) const;
 
+    // character_code dict: uint32 id -> short code (e.g. "grl" for KAZUYA)
+    const char* CharaCode(uint32_t id) const;
+
     // customize_item_type dict: uint32 id -> name
     const std::unordered_map<uint32_t, std::string>& GetTypeMap() const { return m_types; }
     const char* TypeName(uint32_t id) const;
@@ -45,6 +48,7 @@ private:
     void ParseJson(const char* buf, size_t sz);
 
     std::unordered_map<uint32_t, std::string> m_chars;
+    std::unordered_map<uint32_t, std::string> m_codes;
     std::unordered_map<uint32_t, std::string> m_types;
     bool m_loaded = false;
 };

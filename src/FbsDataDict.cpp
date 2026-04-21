@@ -35,6 +35,12 @@ const char* FbsDataDict::TypeName(uint32_t id) const
     return it != m_types.end() ? it->second.c_str() : nullptr;
 }
 
+const char* FbsDataDict::CharaCode(uint32_t id) const
+{
+    auto it = m_codes.find(id);
+    return it != m_codes.end() ? it->second.c_str() : nullptr;
+}
+
 std::vector<std::pair<uint32_t, std::string>> FbsDataDict::SortedChars() const
 {
     std::vector<std::pair<uint32_t, std::string>> v(m_chars.begin(), m_chars.end());
@@ -58,7 +64,7 @@ std::vector<std::pair<uint32_t, std::string>> FbsDataDict::SortedTypes() const
 
 void FbsDataDict::ParseJson(const char* buf, size_t sz)
 {
-    enum class Section { None, Chars, Types };
+    enum class Section { None, Chars, Codes, Types };
     Section sec = Section::None;
 
     const char* end = buf + sz;
@@ -77,6 +83,8 @@ void FbsDataDict::ParseJson(const char* buf, size_t sz)
         // Detect section headers
         if (line.find("\"character_id\"") != std::string::npos)
         { sec = Section::Chars; continue; }
+        if (line.find("\"character_code\"") != std::string::npos)
+        { sec = Section::Codes; continue; }
         if (line.find("\"customize_item_type\"") != std::string::npos)
         { sec = Section::Types; continue; }
 
@@ -107,8 +115,9 @@ void FbsDataDict::ParseJson(const char* buf, size_t sz)
 
         try {
             uint32_t key = static_cast<uint32_t>(std::stoull(keyStr));
-            if (sec == Section::Chars)  m_chars[key] = valStr;
-            else                         m_types[key] = valStr;
+            if      (sec == Section::Chars) m_chars[key] = valStr;
+            else if (sec == Section::Codes) m_codes[key] = valStr;
+            else                            m_types[key] = valStr;
         } catch (...) {}
     }
 }
@@ -131,6 +140,7 @@ void FbsDataDict::Load(const std::string& jsonPath)
     fclose(f);
 
     m_chars.clear();
+    m_codes.clear();
     m_types.clear();
     ParseJson(buf.data(), buf.size());
     m_loaded = !m_chars.empty();
@@ -151,6 +161,7 @@ void FbsDataDict::LoadFromResources()
     if (!data || sz == 0) return;
 
     m_chars.clear();
+    m_codes.clear();
     m_types.clear();
     ParseJson(data, static_cast<size_t>(sz));
     m_loaded = !m_chars.empty();

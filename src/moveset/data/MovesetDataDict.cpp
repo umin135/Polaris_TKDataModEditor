@@ -2,6 +2,7 @@
 // Loads data/MovesetDatas/data.json and exposes per-category lookups.
 #include "MovesetDataDict.h"
 #include "moveset/labels/LabelDB.h"
+#include "FbsDataDict.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -453,7 +454,7 @@ const char* MovesetDataDict::GetParamLabel(uint32_t reqOrPropId, uint32_t pIndex
     case 227:
     {
         if (pIndex > 0) return "";
-        return LabelDB::Get().CharaName(param);
+        return FbsDataDict::Get().CharName(param);
     }
     // Character ID Checks (multiple)
     case 499:
@@ -465,7 +466,7 @@ const char* MovesetDataDict::GetParamLabel(uint32_t reqOrPropId, uint32_t pIndex
     case 505:
     case 506:
     {
-        return LabelDB::Get().CharaName(param);
+        return FbsDataDict::Get().CharName(param);
     }
     // Short Flag
     case 288:
