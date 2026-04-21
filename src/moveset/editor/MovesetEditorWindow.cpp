@@ -2838,21 +2838,65 @@ void MovesetEditorWindow::RenderCancelInnerDetail(
     // --- Block 1: command / extradata / requirements / move ---
     // Height: 4 × (TextLineH + FrameH + spacing×2) − spacing + padding×2
     float fH1     = ImGui::GetTextLineHeight() + ImGui::GetFrameHeight() + sty.ItemSpacing.y * 2.0f;
-    float block1H = fH1 * 4.0f - sty.ItemSpacing.y + sty.WindowPadding.y * 2.0f;
+    float block1H = fH1 * 5.0f - sty.ItemSpacing.y + sty.WindowPadding.y * 2.0f;
 
     ImGui::PushStyleColor(ImGuiCol_ChildBg, kBlockBg);
     if (ImGui::BeginChild("##cdt_b1", ImVec2(-1.0f, block1H), ImGuiChildFlags_Borders))
     {
-        // command (hex64, no navigation)
+        // command: searchable labeled combo + raw hex fallback
         ImGui::TextDisabled("%s", CancelLabel::Command); ShowFieldTooltip(FieldTT::Cancel::Command);
-        ImGui::SetNextItemWidth(-1.0f);
-        char cmdBuf[22]; snprintf(cmdBuf, sizeof(cmdBuf), "0x%016llX", (unsigned long long)c.command);
-        ImGui::InputText("##cmd", cmdBuf, sizeof(cmdBuf));
-        if (ImGui::IsItemDeactivatedAfterEdit()) {
-            const char* p = cmdBuf;
-            if (p[0]=='0' && (p[1]=='x'||p[1]=='X')) p += 2;
-            c.command = (uint64_t)strtoull(p, nullptr, 16);
-            m_dirty = true;
+        {
+            static std::vector<std::pair<uint64_t, std::string>> s_cmdList;
+            static bool s_cmdListBuilt = false;
+            if (!s_cmdListBuilt && LabelDB::Get().IsLoaded()) {
+                for (auto& [k, v] : LabelDB::Get().CmdMap())
+                    s_cmdList.push_back({ k, v });
+                std::sort(s_cmdList.begin(), s_cmdList.end(),
+                    [](const auto& a, const auto& b) { return a.second < b.second; });
+                s_cmdListBuilt = true;
+            }
+
+            static char s_cmdFilter[64] = {};
+            const char* curLabel = LabelDB::Get().Cmd(c.command);
+            char hexPreview[22];
+            snprintf(hexPreview, sizeof(hexPreview), "0x%016llX", (unsigned long long)c.command);
+
+            ImGui::SetNextItemWidth(-1.0f);
+            if (ImGui::BeginCombo("##cmd_combo", curLabel ? curLabel : hexPreview, ImGuiComboFlags_HeightLarge))
+            {
+                if (ImGui::IsWindowAppearing()) {
+                    ImGui::SetKeyboardFocusHere();
+                    s_cmdFilter[0] = '\0';
+                }
+                ImGui::SetNextItemWidth(-1.0f);
+                ImGui::InputText("##cmd_filter", s_cmdFilter, sizeof(s_cmdFilter));
+                ImGui::Separator();
+
+                for (auto& [val, name] : s_cmdList) {
+                    if (s_cmdFilter[0] != '\0' && strstr(name.c_str(), s_cmdFilter) == nullptr)
+                        continue;
+                    bool selected = (c.command == val);
+                    char itemBuf[80];
+                    snprintf(itemBuf, sizeof(itemBuf), "%s  [0x%llX]", name.c_str(), (unsigned long long)val);
+                    if (ImGui::Selectable(itemBuf, selected)) {
+                        c.command = val;
+                        m_dirty = true;
+                    }
+                    if (selected) ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+
+            // Raw hex input for manual entry / values not in the list
+            ImGui::SetNextItemWidth(-1.0f);
+            char cmdBuf[22]; snprintf(cmdBuf, sizeof(cmdBuf), "0x%016llX", (unsigned long long)c.command);
+            ImGui::InputText("##cmd_hex", cmdBuf, sizeof(cmdBuf));
+            if (ImGui::IsItemDeactivatedAfterEdit()) {
+                const char* p = cmdBuf;
+                if (p[0]=='0' && (p[1]=='x'||p[1]=='X')) p += 2;
+                c.command = (uint64_t)strtoull(p, nullptr, 16);
+                m_dirty = true;
+            }
         }
 
         // extradata (uint32_t, navigate to cancel-extra)

@@ -35,6 +35,9 @@ public:
     // Returns nullptr if ID not found.
     const char* Cmd(uint64_t cmd) const;
 
+    // All command entries (for building dropdown lists).
+    const std::unordered_map<uint64_t, std::string>& CmdMap() const { return m_cmd; }
+
     // Move name: name_key uint32 -> move name string, e.g. 391423 -> "Hw_66RK"
     // Loaded from name_keys.json.  Call AddNames() to merge additional JSON files
     // (e.g. supplement_name_keys.json) without clearing the existing map.
