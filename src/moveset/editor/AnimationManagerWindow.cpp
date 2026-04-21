@@ -192,11 +192,44 @@ std::string AnimationManagerWindow::GetNameForPoolIdx(int cat, int poolIdx)
     }
 
     char buf[64];
-    if (!m_charaCode.empty())
+    if (cat == 1)
+        snprintf(buf, sizeof(buf), "hnd_%d", poolIdx);
+    else if (!m_charaCode.empty())
         snprintf(buf, sizeof(buf), "anim_%s_%d", m_charaCode.c_str(), poolIdx);
     else
         snprintf(buf, sizeof(buf), "anim_%d", poolIdx);
     return buf;
+}
+
+// Hand-key index helpers — keyIdx is an index into moveList[1] ("handKeys"),
+// NOT into pool[1]. Resolves: moveList[1][keyIdx] → hash → pool[1][j].
+static int HandKeyIdxToPoolIdx(const AnmbinData& anmbin, int keyIdx)
+{
+    const auto& ml = anmbin.moveList[1];
+    if (keyIdx < 0 || keyIdx >= (int)ml.size()) return -1;
+    uint32_t hash = ml[keyIdx];
+    if (hash == 0) return -1;
+    const auto& pool = anmbin.pool[1];
+    for (int j = 0; j < (int)pool.size(); ++j)
+        if ((pool[j].animKey & 0xFFFFFFFF) == hash) return j;
+    return -1;
+}
+
+std::string AnimationManagerWindow::GetNameForHandKeyIdx(int keyIdx)
+{
+    TryLoad();
+    if (!m_anmbin.loaded) return "";
+    int poolIdx = HandKeyIdxToPoolIdx(m_anmbin, keyIdx);
+    if (poolIdx < 0) return "";
+    return GetNameForPoolIdx(1, poolIdx);
+}
+
+void AnimationManagerWindow::NavigateByHandKeyIdx(int keyIdx)
+{
+    TryLoad();
+    if (!m_anmbin.loaded) return;
+    int poolIdx = HandKeyIdxToPoolIdx(m_anmbin, keyIdx);
+    if (poolIdx >= 0) NavigateToPool(1, poolIdx);
 }
 
 void AnimationManagerWindow::NavigateToPool(int cat, int poolIdx)
@@ -400,6 +433,29 @@ void AnimationManagerWindow::DoAdd(int cat)
             m_scrollPending[cat] = true;
         }
         m_pendingTab = cat;
+
+        // For Hand animations, auto-assign the first free hand key index.
+        if (cat == 1) {
+            const auto& ml = m_anmbin.moveList[1];
+            int freeIdx = -1;
+            for (int k = 0; k < (int)ml.size(); ++k)
+                if (ml[k] == 0) { freeIdx = k; break; }
+            if (freeIdx < 0) freeIdx = (int)ml.size(); // extend
+
+            std::string assignErr;
+            if (AssignHandKeyInAnmbin(m_folderPath, freeIdx, crc32, assignErr))
+            {
+                snprintf(msg, sizeof(msg), "Added: %s  (0x%08X)  → Hand Key #%d",
+                         stem.c_str(), crc32, freeIdx);
+                ForceReload();
+            }
+            else
+            {
+                snprintf(msg, sizeof(msg), "Added: %s  — key assign failed: %s",
+                         stem.c_str(), assignErr.c_str());
+            }
+            m_statusMsg = msg;
+        }
     }
     else
     {
@@ -750,16 +806,18 @@ void AnimationManagerWindow::RenderTabContent(int cat)
         ImGui::SetTooltip("Filter by name");
 
     const bool isFullbody = (cat == 0);
+    const bool isHand     = (cat == 1);
+    const bool has3Cols   = (isFullbody || isHand);
     ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(4.f, 2.f));
-    if (ImGui::BeginTable("##anm_list", isFullbody ? 3 : 2,
+    if (ImGui::BeginTable("##anm_list", has3Cols ? 3 : 2,
         ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_RowBg |
         ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingFixedFit,
         ImVec2(0.f, 0.f)))
     {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("Name",     ImGuiTableColumnFlags_WidthStretch);
-        if (isFullbody)
-            ImGui::TableSetupColumn("Anim_Key", ImGuiTableColumnFlags_WidthFixed, 110.f);
+        if (has3Cols)
+            ImGui::TableSetupColumn("Anim_Key", ImGuiTableColumnFlags_WidthFixed, isHand ? 130.f : 110.f);
         ImGui::TableSetupColumn("Size",     ImGuiTableColumnFlags_WidthFixed,  72.f);
         ImGui::TableHeadersRow();
 
@@ -799,10 +857,14 @@ void AnimationManagerWindow::RenderTabContent(int cat)
             // Priority 3: generated pool-index name
             char buf[64];
             bool isCom = (pool[i].animDataPtr == 0);
-            if (!m_charaCode.empty() && !isCom)
+            if (isCom)
+                snprintf(buf, sizeof(buf), "com_%d", i);
+            else if (cat == 1)
+                snprintf(buf, sizeof(buf), "hnd_%d", i);   // pool-order index, distinct from fullbody
+            else if (!m_charaCode.empty())
                 snprintf(buf, sizeof(buf), "anim_%s_%d", m_charaCode.c_str(), i);
             else
-                snprintf(buf, sizeof(buf), isCom ? "com_%d" : "anim_%d", i);
+                snprintf(buf, sizeof(buf), "anim_%d", i);
             return buf;
         };
 
@@ -840,11 +902,45 @@ void AnimationManagerWindow::RenderTabContent(int cat)
             }
         }
 
-        // Helper: Anim_Key display
-        // For Fullbody (cat==0): show real motbin key; others: "unknown"
+        // Reverse map: pool[1] hash → list of moveList[1] indices referencing it
+        std::unordered_map<uint32_t, std::vector<int>> handKeyRefs;
+        if (isHand) {
+            const auto& ml = m_anmbin.moveList[1];
+            for (int k = 0; k < (int)ml.size(); ++k)
+                if (ml[k]) handKeyRefs[ml[k]].push_back(k);
+        }
+
+        // Helper: Anim_Key column display
         auto showAnimKey = [&](int i) {
-            if (cat != 0) { ImGui::TextDisabled("unknown"); return; }
             uint32_t hash32 = static_cast<uint32_t>(pool[i].animKey & 0xFFFFFFFF);
+            if (isHand) {
+                auto it = handKeyRefs.find(hash32);
+                if (it == handKeyRefs.end() || it->second.empty()) {
+                    ImGui::TextDisabled("-"); return;
+                }
+                const auto& refs = it->second;
+                // Build compact display string (up to 4 indices)
+                std::string disp;
+                int show = (int)refs.size() < 4 ? (int)refs.size() : 4;
+                for (int r = 0; r < show; ++r) {
+                    if (r) disp += ", ";
+                    disp += std::to_string(refs[r]);
+                }
+                if ((int)refs.size() > 4) disp += "...";
+                ImGui::TextUnformatted(disp.c_str());
+                if (refs.size() > 4 && ImGui::IsItemHovered()) {
+                    ImGui::BeginTooltip();
+                    std::string full;
+                    for (int r = 0; r < (int)refs.size(); ++r) {
+                        if (r) full += ", ";
+                        full += std::to_string(refs[r]);
+                    }
+                    ImGui::TextUnformatted(full.c_str());
+                    ImGui::EndTooltip();
+                }
+                return;
+            }
+            // Fullbody
             auto it = m_hashToAnimKey.find(hash32);
             if (it != m_hashToAnimKey.end())
             { ImGui::Text("0x%08X", it->second); return; }
@@ -914,12 +1010,12 @@ void AnimationManagerWindow::RenderTabContent(int cat)
 
             if (doScroll && selected) ImGui::SetScrollHereY(0.5f);
 
-            if (isFullbody) {
+            if (has3Cols) {
                 ImGui::TableSetColumnIndex(1);
                 showAnimKey(i);
             }
 
-            ImGui::TableSetColumnIndex(isFullbody ? 2 : 1);
+            ImGui::TableSetColumnIndex(has3Cols ? 2 : 1);
             if (panmSizes[i] > 0)
             {
                 char szBuf[32];
@@ -1303,7 +1399,7 @@ bool AnimationManagerWindow::Render()
         ImGui::EndTabBar();
     }
 
-    // ?? Remove confirmation modal ?????????????????????????????????????????????
+    // -- Remove confirmation modal -------------------------------------------
 
     if (m_removeConfirm.showing)
     {

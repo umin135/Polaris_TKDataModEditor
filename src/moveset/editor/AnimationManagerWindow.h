@@ -66,6 +66,11 @@ public:
     // Empty string if index is out of range or manager is not loaded.
     std::string GetNameForPoolIdx(int cat, int poolIdx);
 
+    // Hand-keys list accessors (moveList[1] — per-move hash array, "handKeys").
+    // keyIdx is an index into that array, NOT into pool[1].
+    std::string GetNameForHandKeyIdx(int keyIdx);   // "" = invalid/no anim
+    void        NavigateByHandKeyIdx(int keyIdx);   // opens Hand tab at the matching pool entry
+
     // Navigate to the pool entry for a given motbin anim_key.
     void NavigateByMotbinKey(int cat, uint32_t motbinAnimKey);
 
@@ -133,6 +138,7 @@ private:
         std::string animName;
     };
     RemoveConfirm m_removeConfirm;
+
 
     // 3D preview renderer (created lazily via SetD3DContext)
     std::unique_ptr<PreviewRenderer> m_preview;

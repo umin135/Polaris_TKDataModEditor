@@ -4418,15 +4418,12 @@ static void RenderPropSection(
             auto isHandAnimProp = [](uint32_t id) {
                 return id >= 0x860F && id <= 0x8613;
             };
-            auto isHandAnimNamedProp = [](uint32_t id) {
-                return id == 0x8610 || id == 0x8611;
-            };
             auto isHandPoseProp = [](uint32_t id) {
                 return id >= 0x860A && id <= 0x860D;
             };
-            if (isHandAnimNamedProp(e.id)) {
+            if (isHandAnimProp(e.id)) {
                 b2ContentH += fieldRowH + paramLabelRowH;  // 입력행 + 이름 힌트행
-            } else if (e.id == 0x877d || e.id == 0x827b || e.id == 0x868f || isHandAnimProp(e.id)) {
+            } else if (e.id == 0x877d || e.id == 0x827b || e.id == 0x868f) {
                 b2ContentH += fieldRowH;
             } else if (isHandPoseProp(e.id)) {
                 b2ContentH += 2 * fieldRowH + paramLabelRowH;  // pose combo + blend input + decoded label
@@ -4533,47 +4530,34 @@ static void RenderPropSection(
                             *navCtx.throwsWinOpen = true;
                         }
                     }
-                    else if (isHandAnimNamedProp(e.id))
+                    else if (isHandAnimProp(e.id))
                     {
                         bool hasMgr = navCtx.animMgr != nullptr;
                         ImGui::TableNextRow();
                         ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Hand Anim");
                         ImGui::TableSetColumnIndex(1); ImGui::SetNextItemWidth(-(kBtnW + sty.ItemSpacing.x));
                         int vtmp = (int)e.value;
-                        if (ImGui::InputInt("##ep_v1_handnamed", &vtmp, 0, 0)) { e.value = (uint32_t)vtmp; dirty = true; }
+                        if (ImGui::InputInt("##ep_v1_hand", &vtmp, 0, 0)) { e.value = (uint32_t)vtmp; dirty = true; }
                         ImGui::SameLine();
-                        if (GoButton("##handnamed_go", hasMgr)) {
+                        if (GoButton("##hand_go", hasMgr)) {
                             if (win) win->OpenAnimationManager();
-                            navCtx.animMgr->NavigateToPool(1, (int)e.value);
+                            navCtx.animMgr->NavigateByHandKeyIdx((int)e.value);
                         }
 
+                        // Name hint: resolve moveList[1][e.value] → pool[1] → name
                         ImGui::TableNextRow();
                         ImGui::TableSetColumnIndex(1);
                         std::string animName = hasMgr
-                            ? navCtx.animMgr->GetNameForPoolIdx(1, (int)e.value) : "";
+                            ? navCtx.animMgr->GetNameForHandKeyIdx((int)e.value) : "";
                         bool nameValid = !animName.empty();
                         ImGui::PushStyleColor(ImGuiCol_Text, nameValid ? kGreen : kPink);
                         char decodedHand[128];
                         if (nameValid)
-                            snprintf(decodedHand, sizeof(decodedHand), "Hand Anim #%u : %s", e.value, animName.c_str());
+                            snprintf(decodedHand, sizeof(decodedHand), "Hand Key #%u : %s", e.value, animName.c_str());
                         else
-                            snprintf(decodedHand, sizeof(decodedHand), "Hand Anim #%u : (invalid index)", e.value);
+                            snprintf(decodedHand, sizeof(decodedHand), "Hand Key #%u : (invalid index)", e.value);
                         ImGui::TextUnformatted(decodedHand);
                         ImGui::PopStyleColor();
-                    }
-                    else if (isHandAnimProp(e.id))
-                    {
-                        snprintf(p0lbl, sizeof(p0lbl), "%s   (Hand)", ExtraPropLabel::Param0);
-                        ImGui::TableNextRow();
-                        ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("%s", p0lbl);
-                        ImGui::TableSetColumnIndex(1); ImGui::SetNextItemWidth(-(kBtnW + sty.ItemSpacing.x));
-                        int vtmp = (int)e.value;
-                        if (ImGui::InputInt("##ep_v1_hand", &vtmp, 0, 0)) { e.value = (uint32_t)vtmp; dirty = true; }
-                        ImGui::SameLine();
-                        if (GoButton("##hand_go", navCtx.animMgr != nullptr)) {
-                            if (win) win->OpenAnimationManager();
-                            navCtx.animMgr->NavigateToPool(1, (int)e.value);
-                        }
                     }
                     else if (isHandPoseProp(e.id))
                     {

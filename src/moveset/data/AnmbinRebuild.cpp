@@ -837,3 +837,70 @@ bool RemoveAnimFromAnmbin(const std::string& folderPath,
 
     return WriteAnmbinBytes(anmbinPath, bytes, errorMsg);
 }
+
+// =============================================================================
+//  AssignHandKeyInAnmbin
+// =============================================================================
+
+bool AssignHandKeyInAnmbin(const std::string& folderPath,
+                           int                keyIdx,
+                           uint32_t           crc32,
+                           std::string&       errorMsg)
+{
+    if (keyIdx < 0) { errorMsg = "Invalid key index"; return false; }
+
+    std::string base = folderPath;
+    if (!base.empty() && base.back() != '\\' && base.back() != '/') base += '\\';
+    const std::string anmbinPath = base + "moveset.anmbin";
+
+    std::vector<uint8_t> bytes;
+    if (!ReadAnmbinBytes(anmbinPath, bytes, errorMsg)) return false;
+
+    auto rdU32 = [&](size_t o) -> uint32_t { uint32_t v; memcpy(&v,bytes.data()+o,4); return v; };
+    auto rdU64 = [&](size_t o) -> uint64_t { uint64_t v; memcpy(&v,bytes.data()+o,8); return v; };
+
+    // Hand = cat 1: moveCount at 0x20, moveListOffset at 0x70
+    uint32_t mlCount = rdU32(0x20);
+    uint64_t mlOff   = rdU64(0x70);
+
+    if (mlOff == 0 || mlCount == 0)
+    { errorMsg = "Hand moveList not present in anmbin"; return false; }
+
+    auto wrU32 = [&](size_t o, uint32_t v){ if(o+4<=bytes.size()) memcpy(bytes.data()+o,&v,4); };
+    auto wrU64 = [&](size_t o, uint64_t v){ if(o+8<=bytes.size()) memcpy(bytes.data()+o,&v,8); };
+
+    if ((uint32_t)keyIdx >= mlCount)
+    {
+        // Extend moveList[1]: relocate to end of file, zero-fill up to keyIdx+1.
+        size_t origOff  = static_cast<size_t>(mlOff);
+        size_t origSize = (size_t)mlCount * 4;
+
+        std::vector<uint8_t> ml;
+        if (origSize > 0 && origOff + origSize <= bytes.size())
+            ml.assign(bytes.data() + origOff, bytes.data() + origOff + origSize);
+        else
+            ml.resize(origSize, 0);
+
+        size_t newCount = (size_t)keyIdx + 1;
+        ml.resize(newCount * 4, 0);  // zero-fill new slots
+
+        uint64_t newOff = static_cast<uint64_t>(bytes.size());
+        bytes.insert(bytes.end(), ml.begin(), ml.end());
+
+        wrU32(0x20, (uint32_t)newCount);
+        wrU64(0x70, newOff);
+
+        // Write crc32 at the new location.
+        size_t writeOff = static_cast<size_t>(newOff) + (size_t)keyIdx * 4;
+        memcpy(bytes.data() + writeOff, &crc32, 4);
+    }
+    else
+    {
+        size_t writeOff = static_cast<size_t>(mlOff) + (size_t)keyIdx * 4;
+        if (writeOff + 4 > bytes.size())
+        { errorMsg = "Hand moveList offset out of file bounds"; return false; }
+        memcpy(bytes.data() + writeOff, &crc32, 4);
+    }
+
+    return WriteAnmbinBytes(anmbinPath, bytes, errorMsg);
+}
