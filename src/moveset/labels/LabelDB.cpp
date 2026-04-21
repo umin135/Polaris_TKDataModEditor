@@ -1,5 +1,6 @@
 ﻿// LabelDB.cpp
 #include "moveset/labels/LabelDB.h"
+#include "FbsDataDict.h"
 #include "resource.h"
 #include <windows.h>
 #include <fstream>
@@ -124,6 +125,14 @@ void LabelDB::Load(const std::string& dir)
             if (!name.empty()) m_charas[id]      = std::move(name);
             if (!code.empty()) m_charasCodes[id] = std::move(code);
         }
+    }
+
+    // FbsDataDict가 이미 로드됐으면 그 캐릭터 맵을 1순위로 덮어쓴다.
+    // (m_charasCodes는 characterList.txt에서만 오므로 유지)
+    if (FbsDataDict::Get().IsLoaded()) {
+        m_charas.clear();
+        for (const auto& kv : FbsDataDict::Get().GetCharMap())
+            m_charas[kv.first] = kv.second;
     }
 
     m_loaded = (!m_req.empty() || !m_prop.empty() || !m_cmd.empty());
@@ -428,6 +437,12 @@ void LabelDB::LoadFromResources()
     std::pair<const char*, size_t> chara = GetResourceData(IDR_DATA_CHARLIST);
     if (chara.first && chara.second)
         ParseCharaListBuffer(chara.first, chara.second, m_charas, m_charasCodes);
+
+    if (FbsDataDict::Get().IsLoaded()) {
+        m_charas.clear();
+        for (const auto& kv : FbsDataDict::Get().GetCharMap())
+            m_charas[kv.first] = kv.second;
+    }
 
     m_loaded = (!m_req.empty() || !m_prop.empty() || !m_cmd.empty());
 

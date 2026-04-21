@@ -4,6 +4,8 @@
 #include "GameStatic.h"
 #include "KamuiDictUpdater.h"
 #include "MovesetDataDictUpdater.h"
+#include "FbsDataDict.h"
+#include "FbsDataDictUpdater.h"
 #include "moveset/labels/LabelDB.h"
 #include "moveset/data/MovesetDataDict.h"
 #include "imgui/imgui.h"
@@ -206,6 +208,22 @@ App::App(ID3D11Device* device, ID3D11DeviceContext* ctx)
             exeDir + "\\..\\..\\data\\interfacedata",
             exeDir + "\\..\\..\\..\\data\\interfacedata",
         };
+        // FbsData dictionary (character_id, customize_item_type).
+        // Loaded before LabelDB so it can supply character data as primary source.
+        {
+            std::string fbsDataPath;
+            for (const auto& c : candidates)
+            {
+                std::string p = c + "\\..\\fbsdatas\\data.json";
+                FILE* f = nullptr; fopen_s(&f, p.c_str(), "rb");
+                if (f) { fclose(f); fbsDataPath = p; break; }
+            }
+            if (!fbsDataPath.empty())
+                FbsDataDict::Get().Load(fbsDataPath);
+            else
+                FbsDataDict::Get().LoadFromResources();
+        }
+
         bool loadedFromDisk = false;
         for (const auto& c : candidates)
         {
@@ -261,6 +279,11 @@ App::App(ID3D11Device* device, ID3D11DeviceContext* ctx)
                 std::string movesetDataPath = resDir + "\\MovesetDatas\\data.json";
                 FILE* mdf = nullptr; fopen_s(&mdf, movesetDataPath.c_str(), "rb");
                 if (mdf) { fclose(mdf); MovesetDataDict::Get().Load(movesetDataPath); }
+
+                FbsDataDictCheckAndUpdate(resDir);
+                std::string fbsDictPath = resDir + "\\fbsdatas\\data.json";
+                FILE* ffd = nullptr; fopen_s(&ffd, fbsDictPath.c_str(), "rb");
+                if (ffd) { fclose(ffd); FbsDataDict::Get().Load(fbsDictPath); }
             }
         }
     }

@@ -3,9 +3,11 @@
 #include "fbsdata/data/FieldNames.h"
 #include "fbsdata/io/TkmodIO.h"
 #include "fbsdata/editor/BinVisibility.h"
+#include "FbsDataDict.h"
 #include "imgui/imgui.h"
 #include <cstring>
 #include <cctype>
+#include <algorithm>
 
 // -----------------------------------------------------------------------------
 //  All fbsdata bin files with support status
@@ -320,6 +322,8 @@ void FbsDataView::RenderEditorArea()
         ImGui::TextDisabled("No editor available for this bin type.");
         break;
     }
+
+    RenderItemIdPopup();
 }
 
 // -----------------------------------------------------------------------------
@@ -419,7 +423,23 @@ void FbsDataView::RenderCustomizeItemCommonEditor(ContentsBinData& bin)
             ImGui::Checkbox(id, &v);
         };
 
-        ImGui::TableSetColumnIndex(1);  U32Cell("##iid",   e.item_id);
+        ImGui::TableSetColumnIndex(1);
+        {
+            char idLabel[32];
+            snprintf(idLabel, sizeof(idLabel), "%u##iid", e.item_id);
+            if (ImGui::Button(idLabel, ImVec2(-FLT_MIN, 0.f))) {
+                auto& s = m_itemIdEdit;
+                s.target = &e.item_id;
+                s.fixedA = 2;
+                uint32_t v = e.item_id;
+                s.XX = (v / 100000) % 100;
+                s.YY = (v / 1000) % 100;
+                s.ZZZ = v % 1000;
+                s.xxManual = false;
+                s.yyManual = false;
+                s.pendingOpen = true;
+            }
+        }
         ImGui::TableSetColumnIndex(2);  I32Cell("##ino",   e.item_no);
         ImGui::TableSetColumnIndex(3);  StrCell("##icode", e.item_code,      sizeof(e.item_code));
         ImGui::TableSetColumnIndex(4);  U32Cell("##h0",    e.hash_0);
@@ -1946,7 +1966,23 @@ void FbsDataView::RenderCustomizeItemUniqueListEditor(ContentsBinData& bin)
                         ImGui::Checkbox(id, &v);
                     };
 
-                    ImGui::TableSetColumnIndex( 1); U32Cell ("##cid",  e.char_item_id);
+                    ImGui::TableSetColumnIndex( 1);
+                    {
+                        char cidLabel[32];
+                        snprintf(cidLabel, sizeof(cidLabel), "%u##cid", e.char_item_id);
+                        if (ImGui::Button(cidLabel, ImVec2(-FLT_MIN, 0.f))) {
+                            auto& s = m_itemIdEdit;
+                            s.target = &e.char_item_id;
+                            s.fixedA = 1;
+                            uint32_t v = e.char_item_id;
+                            s.XX = (v / 100000) % 100;
+                            s.YY = (v / 1000) % 100;
+                            s.ZZZ = v % 1000;
+                            s.xxManual = false;
+                            s.yyManual = false;
+                            s.pendingOpen = true;
+                        }
+                    }
                     ImGui::TableSetColumnIndex( 2); StrCell ("##an",   e.asset_name,        sizeof(e.asset_name));
                     ImGui::TableSetColumnIndex( 3); U32Cell ("##ch",   e.character_hash);
                     ImGui::TableSetColumnIndex( 4); U32Cell ("##h1",   e.hash_1);
@@ -2024,8 +2060,22 @@ void FbsDataView::RenderCustomizeItemUniqueListEditor(ContentsBinData& bin)
                     ImGui::SetNextItemWidth(-FLT_MIN);
                     ImGui::InputText("##an", e.asset_name, sizeof(e.asset_name));
                     ImGui::TableSetColumnIndex(2);
-                    ImGui::SetNextItemWidth(-FLT_MIN);
-                    ImGui::InputScalar("##cid", ImGuiDataType_U32, &e.char_item_id);
+                    {
+                        char bcidLabel[32];
+                        snprintf(bcidLabel, sizeof(bcidLabel), "%u##bcid", e.char_item_id);
+                        if (ImGui::Button(bcidLabel, ImVec2(-FLT_MIN, 0.f))) {
+                            auto& s = m_itemIdEdit;
+                            s.target = &e.char_item_id;
+                            s.fixedA = 1;
+                            uint32_t v = e.char_item_id;
+                            s.XX = (v / 100000) % 100;
+                            s.YY = (v / 1000) % 100;
+                            s.ZZZ = v % 1000;
+                            s.xxManual = false;
+                            s.yyManual = false;
+                            s.pendingOpen = true;
+                        }
+                    }
 
                     ImGui::PopID();
                 }
@@ -3555,5 +3605,114 @@ void FbsDataView::RenderAssistInputListEditor(ContentsBinData& bin)
         bin.assistInputEntries.erase(bin.assistInputEntries.begin() + deleteIdx);
 
     ImGui::EndTable();
+}
+
+// -----------------------------------------------------------------------------
+//  Item ID popup editor  (AXXYYZZZ decomposed into XX/YY/ZZZ fields)
+// -----------------------------------------------------------------------------
+
+void FbsDataView::RenderItemIdPopup()
+{
+    if (m_itemIdEdit.pendingOpen) {
+        ImGui::OpenPopup("##item_id_edit");
+        m_itemIdEdit.pendingOpen = false;
+    }
+    if (!ImGui::BeginPopup("##item_id_edit")) return;
+
+    auto& s = m_itemIdEdit;
+
+    ImGui::Text("Type : %s (%d)", s.fixedA == 2 ? "Common" : "Unique", (int)s.fixedA);
+    ImGui::Separator();
+
+    // XX — character dropdown
+    ImGui::Text("Character (XX):");
+    ImGui::SameLine();
+    if (!s.xxManual) {
+        const char* charName = FbsDataDict::Get().CharName((uint32_t)s.XX);
+        char preview[48];
+        snprintf(preview, sizeof(preview), "%02d - %s", s.XX, charName ? charName : "?");
+        ImGui::SetNextItemWidth(220.f);
+        if (ImGui::BeginCombo("##xx_combo", preview)) {
+            for (const auto& kv : FbsDataDict::Get().SortedChars()) {
+                char item[48];
+                snprintf(item, sizeof(item), "%02u - %s", kv.first, kv.second.c_str());
+                if (ImGui::Selectable(item, (int)kv.first == s.XX))
+                    s.XX = (int)kv.first;
+            }
+            ImGui::Separator();
+            if (ImGui::Selectable("Enter directly...")) s.xxManual = true;
+            ImGui::EndCombo();
+        }
+    } else {
+        ImGui::SetNextItemWidth(80.f);
+        ImGui::InputText("##xx_manual", s.xxBuf, sizeof(s.xxBuf),
+                         ImGuiInputTextFlags_CharsDecimal);
+        ImGui::SameLine();
+        if (ImGui::SmallButton("OK##xx")) {
+            s.XX = std::atoi(s.xxBuf);
+            s.XX = std::max(0, std::min(99, s.XX));
+            s.xxManual = false;
+        }
+    }
+
+    // YY — item type dropdown
+    ImGui::Text("Item Type (YY):");
+    ImGui::SameLine();
+    if (!s.yyManual) {
+        const char* typeName = FbsDataDict::Get().TypeName((uint32_t)s.YY);
+        char preview[48];
+        if (typeName)
+            snprintf(preview, sizeof(preview), "%02d - %s", s.YY, typeName);
+        else
+            snprintf(preview, sizeof(preview), "%02d", s.YY);
+        ImGui::SetNextItemWidth(220.f);
+        if (ImGui::BeginCombo("##yy_combo", preview)) {
+            for (const auto& kv : FbsDataDict::Get().SortedTypes()) {
+                char item[48];
+                snprintf(item, sizeof(item), "%02u - %s", kv.first, kv.second.c_str());
+                if (ImGui::Selectable(item, (int)kv.first == s.YY))
+                    s.YY = (int)kv.first;
+            }
+            ImGui::Separator();
+            if (ImGui::Selectable("Enter directly...")) s.yyManual = true;
+            ImGui::EndCombo();
+        }
+    } else {
+        ImGui::SetNextItemWidth(80.f);
+        ImGui::InputText("##yy_manual", s.yyBuf, sizeof(s.yyBuf),
+                         ImGuiInputTextFlags_CharsDecimal);
+        ImGui::SameLine();
+        if (ImGui::SmallButton("OK##yy")) {
+            s.YY = std::atoi(s.yyBuf);
+            s.YY = std::max(0, std::min(99, s.YY));
+            s.yyManual = false;
+        }
+    }
+
+    // ZZZ — direct input
+    ImGui::Text("Item ID (ZZZ):");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(80.f);
+    ImGui::InputInt("##zzz", &s.ZZZ, 0, 0);
+    s.ZZZ = std::max(0, std::min(999, s.ZZZ));
+
+    // Preview
+    uint32_t previewVal = (uint32_t)s.fixedA * 10000000u
+                        + (uint32_t)s.XX     * 100000u
+                        + (uint32_t)s.YY     * 1000u
+                        + (uint32_t)s.ZZZ;
+    ImGui::Separator();
+    ImGui::Text("Preview : %u", previewVal);
+
+    ImGui::Spacing();
+    if (ImGui::Button("Save") && s.target) {
+        *s.target = previewVal;
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel"))
+        ImGui::CloseCurrentPopup();
+
+    ImGui::EndPopup();
 }
 
