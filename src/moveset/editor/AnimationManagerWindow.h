@@ -55,11 +55,16 @@ public:
     void SetD3DContext(ID3D11Device* dev, ID3D11DeviceContext* ctx);
 
     bool IsLoaded() const { return m_loaded && m_anmbin.loaded; }
+    void Show() { m_open = true; }  // resets close state so Render() will display the window
 
     std::string AnimKeyToName(uint32_t motbinAnimKey, int cat = 0);
     bool        NameToAnimKey(const std::string& name, uint32_t& outMotbinKey, int cat = 0);
     int         AnimKeyToPoolIdx(uint32_t motbinAnimKey, int cat = 0);
     void        NavigateToPool(int cat, int poolIdx);
+
+    // Returns the display name shown in the Animation Manager list for pool[cat][poolIdx].
+    // Empty string if index is out of range or manager is not loaded.
+    std::string GetNameForPoolIdx(int cat, int poolIdx);
 
     // Navigate to the pool entry for a given motbin anim_key.
     void NavigateByMotbinKey(int cat, uint32_t motbinAnimKey);

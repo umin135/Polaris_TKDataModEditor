@@ -172,6 +172,21 @@ int AnimationManagerWindow::AnimKeyToPoolIdx(uint32_t motbinAnimKey, int cat)
     return it != m_animKeyToPoolIdx[cat].end() ? it->second : -1;
 }
 
+std::string AnimationManagerWindow::GetNameForPoolIdx(int cat, int poolIdx)
+{
+    TryLoad();
+    if (!m_anmbin.loaded || cat < 0 || cat >= 6) return "";
+    const auto& pool = m_anmbin.pool[cat];
+    if (poolIdx < 0 || poolIdx >= (int)pool.size()) return "";
+    char buf[64];
+    bool isCom = (pool[poolIdx].animDataPtr == 0);
+    if (!m_charaCode.empty() && !isCom)
+        snprintf(buf, sizeof(buf), "anim_%s_%d", m_charaCode.c_str(), poolIdx);
+    else
+        snprintf(buf, sizeof(buf), isCom ? "com_%d" : "anim_%d", poolIdx);
+    return buf;
+}
+
 void AnimationManagerWindow::NavigateToPool(int cat, int poolIdx)
 {
     TryLoad();
@@ -315,9 +330,12 @@ void AnimationManagerWindow::DoAdd(int cat)
     if (!m_moves || !m_animNameDB) { m_statusMsg = "Not ready (no moves data)"; m_statusOk = false; return; }
 
     // Open file dialog
-    const char* filter = (cat == 0)
-        ? "Animation (*.bin)\0*.bin\0All files (*.*)\0*.*\0\0"
-        : "All files (*.*)\0*.*\0\0";
+    const char* filter;
+    switch (cat) {
+        case 0:  filter = "Fullbody Animation (*.bin)\0*.bin\0All files (*.*)\0*.*\0\0";    break;
+        case 1:  filter = "Hand Animation (*.anmhd)\0*.anmhd\0All files (*.*)\0*.*\0\0";   break;
+        default: filter = "All files (*.*)\0*.*\0\0"; break;
+    }
     char filePath[MAX_PATH] = {};
     OPENFILENAMEA ofn = {};
     ofn.lStructSize = sizeof(ofn);
@@ -675,7 +693,7 @@ void AnimationManagerWindow::SetD3DContext(ID3D11Device* dev, ID3D11DeviceContex
 {
     m_d3dDev = dev;
     m_d3dCtx = ctx;
-    if (dev && ctx) {
+    if (dev && ctx && !m_preview) {
         m_preview = std::make_unique<PreviewRenderer>();
         if (!m_preview->Init(dev, ctx)) {
             m_preview.reset();
@@ -1173,8 +1191,8 @@ bool AnimationManagerWindow::Render()
     if (ImGui::BeginPopup("##add_menu"))
     {
         if (ImGui::MenuItem("Fullbody"))  { DoAdd(0); ImGui::CloseCurrentPopup(); }
+        if (ImGui::MenuItem("Hand"))      { DoAdd(1); ImGui::CloseCurrentPopup(); }
         ImGui::BeginDisabled();
-        ImGui::MenuItem("Hand");
         ImGui::MenuItem("Facial");
         ImGui::MenuItem("Swing");
         ImGui::MenuItem("Camera");
