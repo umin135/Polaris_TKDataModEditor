@@ -66,6 +66,13 @@ MovesetEditorWindow::MovesetEditorWindow(const std::string& folderPath,
     snprintf(buf, sizeof(buf), "%s  -  Moveset Editor##msed%d",
              movesetName.c_str(), uid);
     m_windowTitle = buf;
+
+    // Pre-create AnimMgr instance so anmbin can be parsed on first access.
+    // Callbacks and member pointers are set in SetD3DContext(), which runs after
+    // this object has been moved into its final location in the editor window list.
+    m_animMgr = std::make_unique<AnimationManagerWindow>(
+                    m_data.folderPath, m_movesetName, m_uid);
+    // m_animMgrVisible remains false — window won't render until user opens it
 }
 
 // -------------------------------------------------------------
@@ -76,8 +83,29 @@ void MovesetEditorWindow::SetD3DContext(ID3D11Device* dev, ID3D11DeviceContext* 
 {
     m_d3dDev = dev;
     m_d3dCtx = ctx;
-    if (m_animMgr && dev && ctx)
-        m_animMgr->SetD3DContext(dev, ctx);
+    if (m_animMgr) {
+        // Complete AnimMgr setup here — after MovesetEditorWindow has been moved
+        // into its final location, so 'this' and all member addresses are stable.
+        {
+            std::vector<uint32_t> keys;
+            keys.reserve(m_data.moves.size());
+            for (const auto& mv : m_data.moves) keys.push_back(mv.anim_key);
+            m_animMgr->SetMotbinAnimKeys(keys);
+        }
+        m_animMgr->SetAnimNameDB(&m_animNameDB);
+        m_animMgr->SetCharaCode(m_data.charaCode);
+        m_animMgr->SetMoves(&m_data.moves);
+        m_animMgr->SetOnAnimAdded([this](int /*cat*/, const std::string& name, uint32_t crc32) {
+            m_animNameDB.AddEntry(m_data.folderPath, name, crc32);
+        });
+        m_animMgr->SetOnAnimRemoved([this](uint32_t removedHash) {
+            for (auto& mv : m_data.moves)
+                if (mv.anim_key == removedHash) mv.anim_key = 0;
+            m_dirty = true;
+        });
+        if (dev && ctx)
+            m_animMgr->SetD3DContext(dev, ctx);
+    }
 }
 
 // -------------------------------------------------------------
@@ -243,10 +271,10 @@ bool MovesetEditorWindow::Render()
     RenderSubWin_ReferenceFinder();
 
     // Animation Manager
-    if (m_animMgr)
+    if (m_animMgr && m_animMgrVisible)
     {
         if (!m_animMgr->Render())
-            m_animMgr.reset();
+            m_animMgrVisible = false;  // closed via X; keep instance alive for data lookups
     }
 
     // Overlay-style dialogs rendered LAST so they appear on top of all sub-windows.
@@ -1621,30 +1649,12 @@ void MovesetEditorWindow::RenderSection_Overview(ParsedMove& m, bool& dirty)
             ImGui::SameLine();
             if (GoButton("Go \xe2\x86\x92##animkey_go", effectiveValid))
             {
-                if (!m_animMgr)
-                {
-                    m_animMgr = std::make_unique<AnimationManagerWindow>(
-                                    m_data.folderPath, m_movesetName, m_uid);
-                    std::vector<uint32_t> keys;
-                    keys.reserve(m_data.moves.size());
-                    for (const auto& mv : m_data.moves) keys.push_back(mv.anim_key);
-                    m_animMgr->SetMotbinAnimKeys(keys);
-                    m_animMgr->SetAnimNameDB(&m_animNameDB);
-                    m_animMgr->SetCharaCode(m_data.charaCode);
-                    m_animMgr->SetMoves(&m_data.moves);
-                    m_animMgr->SetOnAnimAdded([this](int /*cat*/, const std::string& name, uint32_t crc32) {
-                        m_animNameDB.AddEntry(m_data.folderPath, name, crc32);
-                    });
-                    m_animMgr->SetOnAnimRemoved([this](uint32_t removedHash) {
-                        for (auto& mv : m_data.moves)
-                            if (mv.anim_key == removedHash) mv.anim_key = 0;
-                        m_dirty = true;
-                    });
-                    if (m_d3dDev && m_d3dCtx)
-                        m_animMgr->SetD3DContext(m_d3dDev, m_d3dCtx);
+                m_animMgrVisible = true;
+                if (m_animMgr) {
+                    m_animMgr->Show();
+                    if (m_selectedIdx >= 0 && m_selectedIdx < (int)m_data.moves.size())
+                        m_animMgr->NavigateByMotbinKey(0, m_data.moves[m_selectedIdx].anim_key);
                 }
-                if (m_selectedIdx >= 0 && m_selectedIdx < (int)m_data.moves.size())
-                    m_animMgr->NavigateByMotbinKey(0, m_data.moves[m_selectedIdx].anim_key);
             }
         }
 
@@ -2125,37 +2135,12 @@ void MovesetEditorWindow::RenderMenuBar()
 
     if (ImGui::BeginMenu("Tools"))
     {
+        if (ImGui::MenuItem("Animation Manager", nullptr, m_animMgrVisible)) {
+            m_animMgrVisible = !m_animMgrVisible;
+            if (m_animMgrVisible && m_animMgr) m_animMgr->Show();
+        }
         if (ImGui::MenuItem("Reference Finder", nullptr, m_refFinder.open))
             m_refFinder.open = !m_refFinder.open;
-        ImGui::Separator();
-        bool animMgrOpen = m_animMgr != nullptr;
-        if (ImGui::MenuItem("Animation Manager", nullptr, animMgrOpen))
-        {
-            if (!m_animMgr)
-            {
-                m_animMgr = std::make_unique<AnimationManagerWindow>(
-                                m_data.folderPath, m_movesetName, m_uid);
-                std::vector<uint32_t> keys;
-                keys.reserve(m_data.moves.size());
-                for (const auto& mv : m_data.moves) keys.push_back(mv.anim_key);
-                m_animMgr->SetMotbinAnimKeys(keys);
-                m_animMgr->SetAnimNameDB(&m_animNameDB);
-                m_animMgr->SetCharaCode(m_data.charaCode);
-                m_animMgr->SetMoves(&m_data.moves);
-                m_animMgr->SetOnAnimAdded([this](int /*cat*/, const std::string& name, uint32_t crc32) {
-                    m_animNameDB.AddEntry(m_data.folderPath, name, crc32);
-                });
-                m_animMgr->SetOnAnimRemoved([this](uint32_t removedHash) {
-                    for (auto& mv : m_data.moves)
-                        if (mv.anim_key == removedHash) mv.anim_key = 0;
-                    m_dirty = true;
-                });
-                if (m_d3dDev && m_d3dCtx)
-                    m_animMgr->SetD3DContext(m_d3dDev, m_d3dCtx);
-            }
-            else
-                m_animMgr.reset();
-        }
         ImGui::EndMenu();
     }
 
@@ -2323,7 +2308,7 @@ void MovesetEditorWindow::SaveEditorDatas()
 
 void MovesetEditorWindow::SaveToFile()
 {
-    if (!m_dirty || m_saveState != SaveState::Idle) return;
+    if (m_saveState == SaveState::Saving) return;
     m_saveState = SaveState::Saving;
 
     // Run save on a background thread so the UI keeps rendering.
@@ -2428,28 +2413,20 @@ void MovesetEditorWindow::RenderSavePopups()
     if (!edVp) edVp = ImGui::GetMainViewport();
     const ImVec2 vpPos  = edVp->Pos;
     const ImVec2 vpSize = edVp->Size;
+    const ImVec2 vpMax(vpPos.x + vpSize.x, vpPos.y + vpSize.y);
     const ImVec2 center(vpPos.x + vpSize.x * 0.5f, vpPos.y + vpSize.y * 0.5f);
 
-    constexpr ImGuiWindowFlags kOvFlags =
-        ImGuiWindowFlags_NoTitleBar     | ImGuiWindowFlags_NoResize    |
-        ImGuiWindowFlags_NoMove         | ImGuiWindowFlags_NoDocking   |
-        ImGuiWindowFlags_NoSavedSettings| ImGuiWindowFlags_NoScrollbar |
-        ImGuiWindowFlags_NoNav          | ImGuiWindowFlags_NoFocusOnAppearing;
+    ImDrawList* dl = ImGui::GetForegroundDrawList(edVp);
 
-    // -- Dim background (blocks input while saving/done) --
-    ImGui::SetNextWindowViewport(edVp->ID);
-    ImGui::SetNextWindowPos(vpPos);
-    ImGui::SetNextWindowSize(vpSize);
-    ImGui::SetNextWindowBgAlpha(0.28f);
-    ImGui::Begin(WinId("##sv_dim").c_str(), nullptr, kOvFlags);
-    ImGui::End();
+    // Dim overlay drawn directly — never suppressed by ImGui window management.
+    dl->AddRectFilled(vpPos, vpMax, IM_COL32(0, 0, 0, 72));
 
     const float pad   = ImGui::GetStyle().WindowPadding.x;
     const float lineH = ImGui::GetTextLineHeightWithSpacing();
+    const float fontSize = ImGui::GetFontSize();
 
     if (m_saveState == SaveState::Saving)
     {
-        // Poll the background save task; animate a spinner while waiting.
         bool done = m_saveFuture.valid() &&
                     m_saveFuture.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
 
@@ -2457,14 +2434,21 @@ void MovesetEditorWindow::RenderSavePopups()
         const int spinIdx = done ? 0 : (static_cast<int>(ImGui::GetTime() * 8.0) & 3);
         char spinMsg[64];
         snprintf(spinMsg, sizeof(spinMsg), "%c  Saving...", kSpin[spinIdx]);
-        const float boxW = ImGui::CalcTextSize(spinMsg).x + pad * 2.f + 16.f;
 
+        // Draw Saving box via ImGui window (works fine on all frames).
+        constexpr ImGuiWindowFlags kOvFlags =
+            ImGuiWindowFlags_NoTitleBar     | ImGuiWindowFlags_NoResize    |
+            ImGuiWindowFlags_NoMove         | ImGuiWindowFlags_NoDocking   |
+            ImGuiWindowFlags_NoSavedSettings| ImGuiWindowFlags_NoScrollbar |
+            ImGuiWindowFlags_NoNav          | ImGuiWindowFlags_NoFocusOnAppearing |
+            ImGuiWindowFlags_NoCollapse;
+        const float boxW = ImGui::CalcTextSize(spinMsg).x + pad * 2.f + 16.f;
         ImGui::SetNextWindowViewport(edVp->ID);
         ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
         ImGui::SetNextWindowSize(ImVec2(boxW, lineH + pad * 2.f + 8.f), ImGuiCond_Always);
         ImGui::SetNextWindowBgAlpha(0.96f);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.f);
-        ImGui::Begin(WinId("##sv_box").c_str(), nullptr, kOvFlags);
+        ImGui::Begin(WinId("##sv_spin").c_str(), nullptr, kOvFlags);
         ImGui::PopStyleVar();
         ImGui::SetCursorPosY(ImGui::GetStyle().WindowPadding.y + 4.f);
         ImGui::Text("%s", spinMsg);
@@ -2472,36 +2456,40 @@ void MovesetEditorWindow::RenderSavePopups()
 
         if (done)
         {
-            m_saveFuture.get(); // consume the future
-            m_dirty           = false;
-            m_saveState       = SaveState::Done;
-            m_donePoppedFirst = true;
+            try { m_saveFuture.get(); } catch (...) {}
+            m_dirty        = false;
+            m_saveState    = SaveState::Done;
+            m_doneShowTime = ImGui::GetTime();
         }
     }
-    else // SaveState::Done
+    else // SaveState::Done — draw entirely via foreground draw list (bypasses ImGui window state)
     {
         const char* msg  = "Saved";
         const char* hint = "(click to close)";
-        const float wMsg = ImGui::CalcTextSize(msg).x, wHint = ImGui::CalcTextSize(hint).x;
-        const float textW = wMsg > wHint ? wMsg : wHint;
-        const float boxW  = textW + pad * 2.f + 16.f;
-        const float boxH  = lineH * 2.f + pad * 2.f + 8.f;
+        const ImVec2 szMsg  = ImGui::CalcTextSize(msg);
+        const ImVec2 szHint = ImGui::CalcTextSize(hint);
+        const float innerW = (szMsg.x > szHint.x ? szMsg.x : szHint.x);
+        const float boxW   = innerW + pad * 2.f + 16.f;
+        const float boxH   = lineH * 2.f + pad * 2.f + 8.f;
+        const ImVec2 bMin(center.x - boxW * 0.5f, center.y - boxH * 0.5f);
+        const ImVec2 bMax(bMin.x + boxW, bMin.y + boxH);
 
-        ImGui::SetNextWindowViewport(edVp->ID);
-        ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-        ImGui::SetNextWindowSize(ImVec2(boxW, boxH), ImGuiCond_Always);
-        ImGui::SetNextWindowBgAlpha(0.96f);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.f);
-        ImGui::Begin(WinId("##sv_box").c_str(), nullptr, kOvFlags);
-        ImGui::PopStyleVar();
-        ImGui::SetCursorPosY(ImGui::GetStyle().WindowPadding.y + 4.f);
-        ImGui::TextColored(ImVec4(0.35f, 1.f, 0.50f, 1.f), "%s", msg);
-        ImGui::TextDisabled("%s", hint);
-        ImGui::End();
+        dl->AddRectFilled(bMin, bMax, IM_COL32(30, 30, 30, 245), 6.f);
+        dl->AddRect      (bMin, bMax, IM_COL32(120, 120, 120, 200), 6.f);
 
-        if (m_donePoppedFirst)
-            m_donePoppedFirst = false;
-        else if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+        const float textX = bMin.x + (boxW - szMsg.x)  * 0.5f;
+        const float hintX = bMin.x + (boxW - szHint.x) * 0.5f;
+        const float textY = bMin.y + pad + 4.f;
+        const float hintY = textY + lineH;
+
+        dl->AddText(ImGui::GetFont(), fontSize,
+                    ImVec2(textX, textY), IM_COL32(90, 255, 128, 255), msg);
+        dl->AddText(ImGui::GetFont(), fontSize * 0.9f,
+                    ImVec2(hintX, hintY), IM_COL32(160, 160, 160, 200), hint);
+
+        // Skip first ~0.3 s to avoid closing on the same click that opened Done.
+        if (ImGui::GetTime() - m_doneShowTime > 0.3 &&
+            ImGui::IsMouseClicked(ImGuiMouseButton_Left))
             m_saveState = SaveState::Idle;
     }
 }
@@ -4477,7 +4465,9 @@ static void RenderPropSection(
             auto isHandPoseProp = [](uint32_t id) {
                 return id >= 0x860A && id <= 0x860D;
             };
-            if (e.id == 0x877d || e.id == 0x827b || e.id == 0x868f || isHandAnimProp(e.id)) {
+            if (isHandAnimProp(e.id)) {
+                b2ContentH += fieldRowH + paramLabelRowH;  // 입력행 + 이름 힌트행
+            } else if (e.id == 0x877d || e.id == 0x827b || e.id == 0x868f) {
                 b2ContentH += fieldRowH;
             } else if (isHandPoseProp(e.id)) {
                 b2ContentH += 2 * fieldRowH + paramLabelRowH;  // pose combo + blend input + decoded label
@@ -4586,16 +4576,32 @@ static void RenderPropSection(
                     }
                     else if (isHandAnimProp(e.id))
                     {
-                        snprintf(p0lbl, sizeof(p0lbl), "%s   (Hand)", ExtraPropLabel::Param0);
-                        bool handValid = navCtx.animMgr && navCtx.animMgr->IsLoaded();
+                        bool hasMgr = navCtx.animMgr != nullptr;
                         ImGui::TableNextRow();
-                        ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("%s", p0lbl);
+                        ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Hand Anim");
                         ImGui::TableSetColumnIndex(1); ImGui::SetNextItemWidth(-(kBtnW + sty.ItemSpacing.x));
                         int vtmp = (int)e.value;
                         if (ImGui::InputInt("##ep_v1_hand", &vtmp, 0, 0)) { e.value = (uint32_t)vtmp; dirty = true; }
                         ImGui::SameLine();
-                        if (GoButton("##hand_go", handValid))
-                            navCtx.animMgr->NavigateToPool(1, (int)e.value);
+                        if (GoButton("##hand_go", hasMgr)) {
+                            if (win) win->OpenAnimationManager();
+                            navCtx.animMgr->NavigateByHandKeyIdx((int)e.value);
+                        }
+
+                        // Name hint: resolve moveList[1][e.value] → pool[1] → name
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(1);
+                        std::string animName = hasMgr
+                            ? navCtx.animMgr->GetNameForHandKeyIdx((int)e.value) : "";
+                        bool nameValid = !animName.empty();
+                        ImGui::PushStyleColor(ImGuiCol_Text, nameValid ? kGreen : kPink);
+                        char decodedHand[128];
+                        if (nameValid)
+                            snprintf(decodedHand, sizeof(decodedHand), "Hand Key #%u : %s", e.value, animName.c_str());
+                        else
+                            snprintf(decodedHand, sizeof(decodedHand), "Hand Key #%u : (invalid index)", e.value);
+                        ImGui::TextUnformatted(decodedHand);
+                        ImGui::PopStyleColor();
                     }
                     else if (isHandPoseProp(e.id))
                     {

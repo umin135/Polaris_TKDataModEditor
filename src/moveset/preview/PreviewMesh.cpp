@@ -79,6 +79,12 @@ struct PreviewMesh::MeshPart {
     // Bind-pose world matrix (D3D11 Y-up) — used when no animation is playing
     // or when the bone has no matching track in the current PANM.
     XMMATRIX      bindWorld;
+    // Per-part model-space correction applied BEFORE animWorld in Draw().
+    // Identity for L_ parts.  For R_ parts sharing an L_ VB:
+    //   modelOffset = L_bindWorld @ scale(-1,1,1) @ inv(R_bindWorld)
+    // This maps L_bone_local → L_world → mirror_X → R_bone_local,
+    // so the L_ geometry renders correctly at the R_ bone's animated position.
+    XMMATRIX      modelOffset;
     ID3D11Buffer* vb      = nullptr;
     int           vcount  = 0;
 
@@ -639,7 +645,7 @@ static bool BuildSkeleton(
         XMStoreFloat4(reinterpret_cast<XMFLOAT4*>(bn.aposeQuat),   apoQ);
     }
 
-    // ── Pass 3: create MeshPart for each bone that has an OBJ ────────────────
+    // ── Pass 3a: create MeshPart for each bone that has an OBJ ──────────────
     for (int i = 0; i < (int)rawBones.size(); ++i) {
         auto it = objMap.find(rawBones[i].name + ".obj");
         if (it == objMap.end()) continue;
@@ -655,8 +661,55 @@ static bool BuildSkeleton(
         part->boneName     = rawBones[i].name;
         part->boneNodeIdx  = i;
         part->bindWorld    = bindWorldVec[i];
+        part->modelOffset  = XMMatrixIdentity();
         part->vb           = vb;
         part->vcount       = vcount;
+        outParts.push_back(std::move(part));
+    }
+
+    // ── Pass 3b: for R_ bones without OBJ, share the matching L_ VB ─────────
+    // Build boneName → partIdx map from what was just created.
+    std::unordered_map<std::string, int> nameToPartIdx;
+    for (int i = 0; i < (int)outParts.size(); ++i)
+        nameToPartIdx[outParts[i]->boneName] = i;
+
+    // mirrorX: world-space X-axis reflection (L_ ↔ R_ symmetry plane)
+    const XMMATRIX mirrorX = XMMatrixScaling(-1.f, 1.f, 1.f);
+
+    for (int i = 0; i < (int)rawBones.size(); ++i) {
+        if (outSkeleton[i].partIdx >= 0) continue; // already has its own OBJ
+
+        const std::string& name = rawBones[i].name;
+        if (name.size() < 2 || name[0] != 'R' || name[1] != '_') continue;
+
+        std::string lName = "L_" + name.substr(2);
+        auto it = nameToPartIdx.find(lName);
+        if (it == nameToPartIdx.end()) continue;
+
+        int lBoneIdx = outParts[it->second]->boneNodeIdx;
+        XMMATRIX L_bw = bindWorldVec[lBoneIdx];
+        XMMATRIX R_bw = bindWorldVec[i];
+
+        // modelOffset = L_bindWorld @ mirrorX @ inv(R_bindWorld)
+        // Transforms: v (L_local) → L_world → mirror_X_world → R_local
+        // Draw() then multiplies by R_animWorld to get final world position.
+        XMMATRIX modelOffset = XMMatrixMultiply(
+            XMMatrixMultiply(L_bw, mirrorX),
+            XMMatrixInverse(nullptr, R_bw));
+
+        auto& src = outParts[it->second];
+        src->vb->AddRef(); // shared ownership: both parts release once
+
+        int partIdx = (int)outParts.size();
+        outSkeleton[i].partIdx = partIdx;
+
+        auto part         = std::make_unique<PreviewMesh::MeshPart>();
+        part->boneName    = name;
+        part->boneNodeIdx = i;
+        part->bindWorld   = bindWorldVec[i];
+        part->modelOffset = modelOffset;
+        part->vb          = src->vb;
+        part->vcount      = src->vcount;
         outParts.push_back(std::move(part));
     }
 
@@ -709,14 +762,8 @@ bool PreviewMesh::Load(ID3D11Device* dev, const std::string& meshFolder, bool is
             }
         }
 
-        // ── Helper: load Diffuse.png from disk → resource fallback ────
-        // Hand meshes always use a flat grey (0.5, 0.5, 0.5) colour; no texture lookup.
+        // ── Helper: load Diffuse.png from disk → resource → fallback ────
         auto LoadDiffuse = [&](const std::string& diskFolder) {
-            if (isHand) {
-                // 0x80 per channel ≈ 0.5 linear (hand meshes, no texture)
-                CreateSolidTexture(dev, &m_diffuseSRV, 0xFF808080u);
-                return;
-            }
             // Try disk first
             if (!diskFolder.empty()) {
                 std::string p = diskFolder + "/Diffuse.png";
@@ -730,14 +777,18 @@ bool PreviewMesh::Load(ID3D11Device* dev, const std::string& meshFolder, bool is
                     }
                 }
             }
-            // Try embedded resource
+            // Try embedded resource (pack contains Diffuse.png if texture was present at pack time)
             if (!resPack.pngData.empty())
                 if (LoadTextureWIC(dev, resPack.pngData.data(),
                                    resPack.pngData.size(), &m_diffuseSRV))
                     m_texLoaded = true;
-            // Last resort: 1x1 white (alpha=1, clip never fires)
-            if (!m_diffuseSRV)
-                CreateWhiteTexture(dev, &m_diffuseSRV);
+            // Fallback: grey for hand meshes, white for body
+            if (!m_diffuseSRV) {
+                if (isHand)
+                    CreateSolidTexture(dev, &m_diffuseSRV, 0xFF808080u);
+                else
+                    CreateWhiteTexture(dev, &m_diffuseSRV);
+            }
         };
 
         // ── Try disk geometry first (developer workflow) ───────────
@@ -804,7 +855,9 @@ cleanup:
 
 void PreviewMesh::Draw(ID3D11DeviceContext* ctx, ID3D11Buffer* cbuf,
                        const ParsedAnim* anim, uint32_t frame,
-                       const float viewProj[16])
+                       const float viewProj[16],
+                       const float eyePos[3],
+                       ID3D11DepthStencilState* dssNoDepth)
 {
     if (m_parts.empty() || !m_vs || !m_diffuseSRV) return;
 
@@ -967,13 +1020,19 @@ void PreviewMesh::Draw(ID3D11DeviceContext* ctx, ID3D11Buffer* cbuf,
     ctx->PSSetShaderResources(0, 1, &m_diffuseSRV);
 
     // ── Draw each mesh part ───────────────────────────────────────────────────
-    for (auto& part : m_parts) {
-        XMMATRIX model;
+    for (int idx = 0; idx < (int)m_parts.size(); ++idx) {
+        auto& part = m_parts[idx];
+        XMMATRIX boneWorld;
         if (anim && part->boneNodeIdx >= 0 && part->boneNodeIdx < boneCount) {
-            model = animWorld[part->boneNodeIdx];
+            boneWorld = animWorld[part->boneNodeIdx];
         } else {
-            model = part->bindWorld;
+            boneWorld = part->bindWorld;
         }
+        // Apply per-part modelOffset before boneWorld.
+        // For L_ parts: modelOffset = identity → no change.
+        // For R_ parts sharing L_ VBs: modelOffset = L_bw @ mirrorX @ inv(R_bw),
+        // which maps L_local → L_world → mirror_X → R_local, then R_local → world.
+        XMMATRIX model = XMMatrixMultiply(part->modelOffset, boneWorld);
 
         XMMATRIX mvp = XMMatrixMultiply(model, vp);
         D3D11_MAPPED_SUBRESOURCE ms = {};

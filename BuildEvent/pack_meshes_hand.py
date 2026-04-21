@@ -16,32 +16,43 @@ import struct
 import os
 import sys
 
-MESHES_DIR = "data/Meshes_hand"
-OUTPUT     = "data/Meshes_hand/preview_meshes_hand.pack"
+MESHES_DIR   = "data/Meshes_hand"
+SKELETON_SRC = "data/Meshes/skeleton.json"
+TEXTURE_SRC  = "data/Meshes_hand/texture.png"   # optional; packed as "Diffuse.png"
+OUTPUT       = "data/Meshes_hand/preview_meshes_hand.pack"
 
 def main():
     if not os.path.isdir(MESHES_DIR):
         print(f"WARNING: meshes folder not found: {MESHES_DIR}, skipping pack.")
         sys.exit(0)
-
-    files = sorted(
-        f for f in os.listdir(MESHES_DIR)
-        if f.endswith(".obj") or f == "skeleton.json"
-    )
-
-    if not files:
-        print("ERROR: no .obj / skeleton.json files found.")
+    if not os.path.isfile(SKELETON_SRC):
+        print(f"ERROR: skeleton.json not found: {SKELETON_SRC}")
         sys.exit(1)
+
+    obj_files = sorted(f for f in os.listdir(MESHES_DIR) if f.endswith(".obj"))
+
+    if not obj_files:
+        print("ERROR: no .obj files found.")
+        sys.exit(1)
+
+    # skeleton.json always comes from the fullbody Meshes folder
+    entries = [("skeleton.json", SKELETON_SRC)] + [(f, os.path.join(MESHES_DIR, f)) for f in obj_files]
+
+    # texture.png → stored as "Diffuse.png" so LoadDiffuse() picks it up automatically
+    if os.path.isfile(TEXTURE_SRC):
+        entries.append(("Diffuse.png", TEXTURE_SRC))
+        print("  texture.png found -- will be packed as Diffuse.png")
+    else:
+        print("  texture.png not found -- hand meshes will use grey fallback")
 
     os.makedirs(os.path.dirname(OUTPUT) or ".", exist_ok=True)
 
     with open(OUTPUT, "wb") as out:
-        out.write(b"PMSH")                       # magic
-        out.write(struct.pack("<I", 1))           # version
-        out.write(struct.pack("<I", len(files)))  # file_count
+        out.write(b"PMSH")                         # magic
+        out.write(struct.pack("<I", 1))             # version
+        out.write(struct.pack("<I", len(entries)))  # file_count
 
-        for fname in files:
-            fpath = os.path.join(MESHES_DIR, fname)
+        for fname, fpath in entries:
             with open(fpath, "rb") as f:
                 data = f.read()
             name = fname.encode("utf-8")
@@ -52,7 +63,7 @@ def main():
             print(f"  + {fname:30s}  {len(data):>8,} bytes")
 
     total = os.path.getsize(OUTPUT)
-    print(f"\nPacked {len(files)} files -> {OUTPUT}  ({total:,} bytes total)")
+    print(f"\nPacked {len(entries)} files -> {OUTPUT}  ({total:,} bytes total)")
 
 if __name__ == "__main__":
     main()

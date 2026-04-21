@@ -14,6 +14,7 @@ struct ID3D11PixelShader;
 struct ID3D11InputLayout;
 struct ID3D11SamplerState;
 struct ID3D11ShaderResourceView;
+struct ID3D11DepthStencilState;
 struct ParsedAnim;
 
 // Rigid per-bone mesh parts for the 3D preview.
@@ -52,9 +53,14 @@ public:
     //   anim     — current animation; nullptr draws in bind pose
     //   frame    — frame index within the animation
     //   viewProj — row-major 4x4 float array (view * projection)
+    // eyePos: if non-null, disables depth test and draws in reverse part order so
+    //         base segments paint last (on top). Pass any non-null sentinel for hand meshes.
+    // dssNoDepth: depth-test-off state; required when eyePos is non-null.
     void Draw(ID3D11DeviceContext* ctx, ID3D11Buffer* cbuf,
               const ParsedAnim* anim, uint32_t frame,
-              const float viewProj[16]);
+              const float viewProj[16],
+              const float eyePos[3]                    = nullptr,
+              ID3D11DepthStencilState* dssNoDepth      = nullptr);
 
     // Per-bone world-space info cached from the last Draw() call.
     // Used by PreviewRenderer to draw skeleton lines.

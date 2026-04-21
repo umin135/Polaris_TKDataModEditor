@@ -55,11 +55,21 @@ public:
     void SetD3DContext(ID3D11Device* dev, ID3D11DeviceContext* ctx);
 
     bool IsLoaded() const { return m_loaded && m_anmbin.loaded; }
+    void Show() { m_open = true; }  // resets close state so Render() will display the window
 
     std::string AnimKeyToName(uint32_t motbinAnimKey, int cat = 0);
     bool        NameToAnimKey(const std::string& name, uint32_t& outMotbinKey, int cat = 0);
     int         AnimKeyToPoolIdx(uint32_t motbinAnimKey, int cat = 0);
     void        NavigateToPool(int cat, int poolIdx);
+
+    // Returns the display name shown in the Animation Manager list for pool[cat][poolIdx].
+    // Empty string if index is out of range or manager is not loaded.
+    std::string GetNameForPoolIdx(int cat, int poolIdx);
+
+    // Hand-keys list accessors (moveList[1] — per-move hash array, "handKeys").
+    // keyIdx is an index into that array, NOT into pool[1].
+    std::string GetNameForHandKeyIdx(int keyIdx);   // "" = invalid/no anim
+    void        NavigateByHandKeyIdx(int keyIdx);   // opens Hand tab at the matching pool entry
 
     // Navigate to the pool entry for a given motbin anim_key.
     void NavigateByMotbinKey(int cat, uint32_t motbinAnimKey);
@@ -98,6 +108,7 @@ private:
     bool        m_open             = true;
     int         m_selRow[6]        = {};
     int         m_pendingTab       = -1;
+    int         m_activeCat        = -1;  // tab currently visible; -1 before first render
     bool        m_scrollPending[6] = {};
 
     std::vector<uint32_t>                  m_motbinAnimKeys;
@@ -127,6 +138,7 @@ private:
         std::string animName;
     };
     RemoveConfirm m_removeConfirm;
+
 
     // 3D preview renderer (created lazily via SetD3DContext)
     std::unique_ptr<PreviewRenderer> m_preview;

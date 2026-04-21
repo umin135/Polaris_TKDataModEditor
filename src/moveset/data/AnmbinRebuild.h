@@ -69,3 +69,15 @@ bool RemoveAnimFromAnmbin(const std::string& folderPath,
                           int                poolIdx,
                           uint32_t&          outRemovedHash,
                           std::string&       errorMsg);
+
+// -------------------------------------------------------------
+//  AssignHandKeyInAnmbin  --  set moveList[1][keyIdx] = crc32
+//
+//  Directly patches one u32 in the Hand (cat=1) moveList so that
+//  hand key index <keyIdx> references the animation with <crc32>.
+//  Returns true on success; false if keyIdx is out of range.
+// -------------------------------------------------------------
+bool AssignHandKeyInAnmbin(const std::string& folderPath,
+                           int                keyIdx,
+                           uint32_t           crc32,
+                           std::string&       errorMsg);

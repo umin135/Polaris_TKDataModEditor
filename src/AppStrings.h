@@ -10,8 +10,8 @@ namespace AppStr
     // ── Tool version (shown bottom-left of sidebar) ───────────────────────────
     // APPSTR_VERSION is a macro so adjacent string literals can compose it at
     // compile time (e.g. "Title - " APPSTR_VERSION).  Update only this one line.
-#define APPSTR_VERSION   "v0.1.2b"
-#define APPSTR_VERSION_W L"v0.1.2b"
+#define APPSTR_VERSION   "v0.1.6b"
+#define APPSTR_VERSION_W L"v0.1.6b"
     static constexpr const char* Version       = APPSTR_VERSION;
 
     // ── Sidebar header text (top of the sidebar) ─────────────────────────────
