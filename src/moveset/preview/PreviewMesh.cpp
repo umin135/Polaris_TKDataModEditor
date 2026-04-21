@@ -18,7 +18,6 @@
 #include "resource.h"
 
 #include <algorithm>
-#include <numeric>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -1021,17 +1020,7 @@ void PreviewMesh::Draw(ID3D11DeviceContext* ctx, ID3D11Buffer* cbuf,
     ctx->PSSetShaderResources(0, 1, &m_diffuseSRV);
 
     // ── Draw each mesh part ───────────────────────────────────────────────────
-    // Hand meshes: disable depth test so all finger segments remain visible
-    // even when they share depth with adjacent bones (Ring0/Pinky0 occlusion fix).
-    // Draw in reverse part order so base segments (boneIndex0) paint last = on top.
-    std::vector<int> drawOrder(m_parts.size());
-    std::iota(drawOrder.begin(), drawOrder.end(), 0);
-    if (eyePos && dssNoDepth) {
-        ctx->OMSetDepthStencilState(dssNoDepth, 0);
-        std::reverse(drawOrder.begin(), drawOrder.end());
-    }
-
-    for (int idx : drawOrder) {
+    for (int idx = 0; idx < (int)m_parts.size(); ++idx) {
         auto& part = m_parts[idx];
         XMMATRIX boneWorld;
         if (anim && part->boneNodeIdx >= 0 && part->boneNodeIdx < boneCount) {

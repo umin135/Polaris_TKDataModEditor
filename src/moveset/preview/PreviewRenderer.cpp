@@ -345,14 +345,13 @@ void PreviewRenderer::Render()
     float vpRaw[16];
     memcpy(vpRaw, &mvp, sizeof(vpRaw));   // view*proj (model=I for grid)
     if (m_mesh && m_mesh->IsLoaded()) {
-        float eyeRaw[3] = {};
-        XMStoreFloat3(reinterpret_cast<XMFLOAT3*>(eyeRaw), eye);
-        if (m_meshIsHand)
-            m_mesh->Draw(m_ctx, m_cbuf, m_anim, m_frame, vpRaw, eyeRaw, m_dssNoDepth);
-        else
-            m_mesh->Draw(m_ctx, m_cbuf, m_anim, m_frame, vpRaw);
-        // Restore depth state and topology
-        m_ctx->OMSetDepthStencilState(m_dss, 0);
+        if (m_meshIsHand) {
+            // Clear depth before hand meshes so they aren't occluded by floor/axes,
+            // but keep depth test ON so finger segments correctly occlude each other.
+            m_ctx->ClearDepthStencilView(m_dsv, D3D11_CLEAR_DEPTH, 1.f, 0);
+        }
+        m_mesh->Draw(m_ctx, m_cbuf, m_anim, m_frame, vpRaw);
+        // Restore topology
         m_ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
 
         // Cache focus bone world position for the next frame's character-focus camera.
