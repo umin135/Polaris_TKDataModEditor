@@ -18,6 +18,7 @@ import sys
 
 MESHES_DIR   = "data/Meshes_hand"
 SKELETON_SRC = "data/Meshes/skeleton.json"
+TEXTURE_SRC  = "data/Meshes_hand/texture.png"   # optional; packed as "Diffuse.png"
 OUTPUT       = "data/Meshes_hand/preview_meshes_hand.pack"
 
 def main():
@@ -36,6 +37,13 @@ def main():
 
     # skeleton.json always comes from the fullbody Meshes folder
     entries = [("skeleton.json", SKELETON_SRC)] + [(f, os.path.join(MESHES_DIR, f)) for f in obj_files]
+
+    # texture.png → stored as "Diffuse.png" so LoadDiffuse() picks it up automatically
+    if os.path.isfile(TEXTURE_SRC):
+        entries.append(("Diffuse.png", TEXTURE_SRC))
+        print("  texture.png found -- will be packed as Diffuse.png")
+    else:
+        print("  texture.png not found -- hand meshes will use grey fallback")
 
     os.makedirs(os.path.dirname(OUTPUT) or ".", exist_ok=True)
 

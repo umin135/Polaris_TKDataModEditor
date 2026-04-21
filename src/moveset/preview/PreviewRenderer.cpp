@@ -355,14 +355,14 @@ void PreviewRenderer::Render()
         m_ctx->OMSetDepthStencilState(m_dss, 0);
         m_ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
 
-        // Cache Spine1 world position for the next frame's character-focus camera.
+        // Cache focus bone world position for the next frame's character-focus camera.
         if (m_charFocus)
         {
             std::vector<PreviewMesh::BonePoseInfo> poses;
             m_mesh->GetBonePoses(poses);
             for (const auto& bp : poses)
             {
-                if (bp.name == "Spine1")
+                if (bp.name == m_focusBoneName)
                 {
                     m_charFocusPos[0] = bp.pos[0];
                     m_charFocusPos[1] = bp.pos[1];

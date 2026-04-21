@@ -98,6 +98,7 @@ private:
     bool        m_open             = true;
     int         m_selRow[6]        = {};
     int         m_pendingTab       = -1;
+    int         m_activeCat        = -1;  // tab currently visible; -1 before first render
     bool        m_scrollPending[6] = {};
 
     std::vector<uint32_t>                  m_motbinAnimKeys;

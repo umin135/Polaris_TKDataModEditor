@@ -74,10 +74,11 @@ public:
     // Controls which bones are shown in the x-ray skeleton overlay.
     void SetAnimCategory(int cat) { m_animCat = cat; }
 
-    // Character focus: orbit around Spine1 world position instead of the floor origin.
+    // Character focus: orbit around a named bone's world position instead of the floor origin.
     // Keeps the character in view even when root motion moves it far from origin.
-    void SetCharacterFocus(bool v) { m_charFocus = v; }
-    bool GetCharacterFocus() const { return m_charFocus; }
+    void SetCharacterFocus(bool v)              { m_charFocus = v; }
+    bool GetCharacterFocus()              const  { return m_charFocus; }
+    void SetFocusBone(const std::string& name)  { m_focusBoneName = name; }
 
     // Diagnostics
     int  GetMeshPartCount()    const;
@@ -133,8 +134,9 @@ private:
     float m_dist  = 250.f;    // distance in scene units (cm)
 
     // Character focus mode
-    bool  m_charFocus      = false;
-    float m_charFocusPos[3] = { 0.f, 115.f + 100.f, 0.f }; // Spine1 world pos (previous frame)
+    bool        m_charFocus      = false;
+    std::string m_focusBoneName  = "Spine1";
+    float       m_charFocusPos[3] = { 0.f, 115.f + 100.f, 0.f }; // focus bone world pos (previous frame)
 
     // Part meshes (Phase 5+)
     // Raw pointer: unique_ptr<PreviewMesh> triggers MSVC C2338 when

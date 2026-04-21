@@ -763,14 +763,8 @@ bool PreviewMesh::Load(ID3D11Device* dev, const std::string& meshFolder, bool is
             }
         }
 
-        // ── Helper: load Diffuse.png from disk → resource fallback ────
-        // Hand meshes always use a flat grey (0.5, 0.5, 0.5) colour; no texture lookup.
+        // ── Helper: load Diffuse.png from disk → resource → fallback ────
         auto LoadDiffuse = [&](const std::string& diskFolder) {
-            if (isHand) {
-                // 0x80 per channel ≈ 0.5 linear (hand meshes, no texture)
-                CreateSolidTexture(dev, &m_diffuseSRV, 0xFF808080u);
-                return;
-            }
             // Try disk first
             if (!diskFolder.empty()) {
                 std::string p = diskFolder + "/Diffuse.png";
@@ -784,14 +778,18 @@ bool PreviewMesh::Load(ID3D11Device* dev, const std::string& meshFolder, bool is
                     }
                 }
             }
-            // Try embedded resource
+            // Try embedded resource (pack contains Diffuse.png if texture was present at pack time)
             if (!resPack.pngData.empty())
                 if (LoadTextureWIC(dev, resPack.pngData.data(),
                                    resPack.pngData.size(), &m_diffuseSRV))
                     m_texLoaded = true;
-            // Last resort: 1x1 white (alpha=1, clip never fires)
-            if (!m_diffuseSRV)
-                CreateWhiteTexture(dev, &m_diffuseSRV);
+            // Fallback: grey for hand meshes, white for body
+            if (!m_diffuseSRV) {
+                if (isHand)
+                    CreateSolidTexture(dev, &m_diffuseSRV, 0xFF808080u);
+                else
+                    CreateWhiteTexture(dev, &m_diffuseSRV);
+            }
         };
 
         // ── Try disk geometry first (developer workflow) ───────────

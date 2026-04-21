@@ -631,6 +631,22 @@ void AnimationManagerWindow::LoadSelectedAnim(int cat, int poolIdx)
         EnsurePreviewMeshes(cat);
         m_preview->SetAnimCategory(cat);
         m_preview->SetAnim(&m_currentAnim, 0);
+
+        if (cat == 1) {
+            // Auto-focus: count L_ vs R_ animated bones to pick the dominant hand.
+            int lCount = 0, rCount = 0;
+            for (const auto& bt : m_currentAnim.bones) {
+                if (bt.name.size() >= 2) {
+                    if (bt.name[0] == 'L' && bt.name[1] == '_') ++lCount;
+                    else if (bt.name[0] == 'R' && bt.name[1] == '_') ++rCount;
+                }
+            }
+            const std::string focusBone = (rCount > lCount) ? "R_Hand" : "L_Hand";
+            m_preview->SetFocusBone(focusBone);
+            m_preview->SetCharacterFocus(true);
+        } else {
+            m_preview->SetFocusBone("Spine1");
+        }
     }
 }
 
@@ -1085,16 +1101,18 @@ void AnimationManagerWindow::RenderPreviewPanel(int cat)
             if (ImGui::Button("Set##floorH") && m_preview)
                 m_preview->SetFloorHeight(m_floorHeightInput);
 
-            // Row 3: Character Focus [checkbox]
-            ImGui::Text("Char Focus");
-            ImGui::SameLine(kLabelW);
-            {
-                bool charFocus = m_preview ? m_preview->GetCharacterFocus() : false;
-                if (ImGui::Checkbox("##charfocus", &charFocus) && m_preview)
-                    m_preview->SetCharacterFocus(charFocus);
+            // Row 3: Character Focus [checkbox] — hidden for Hand (auto-managed)
+            if (m_previewCat != 1) {
+                ImGui::Text("Char Focus");
+                ImGui::SameLine(kLabelW);
+                {
+                    bool charFocus = m_preview ? m_preview->GetCharacterFocus() : false;
+                    if (ImGui::Checkbox("##charfocus", &charFocus) && m_preview)
+                        m_preview->SetCharacterFocus(charFocus);
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+                    ImGui::SetTooltip("Orbit camera around Spine1 (tracks character root motion)");
             }
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
-                ImGui::SetTooltip("Orbit camera around Spine1 (tracks character root motion)");
 
             // ?? Right column ?????????????????????????????????????
             ImGui::TableSetColumnIndex(1);
@@ -1214,6 +1232,17 @@ bool AnimationManagerWindow::Render()
             if (ImGui::BeginTabItem(tabLabel, nullptr, tabFlags))
             {
                 if (m_pendingTab == cat) m_pendingTab = -1;
+                if (m_activeCat != cat) {
+                    m_activeCat = cat;
+                    if (m_preview) {
+                        m_preview->ResetCamera();
+                        m_preview->SetAnim(nullptr, 0);
+                    }
+                    m_animLoaded   = false;
+                    m_playing      = false;
+                    m_currentFrame = 0;
+                    m_playTime     = 0.f;
+                }
                 EnsurePreviewMeshes(cat);
 
                 float availW = ImGui::GetContentRegionAvail().x;
