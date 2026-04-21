@@ -2837,10 +2837,10 @@ void MovesetEditorWindow::RenderCancelInnerDetail(
             static std::vector<std::pair<uint64_t, std::string>> s_cmdList;
             static bool s_cmdListBuilt = false;
             if (!s_cmdListBuilt && LabelDB::Get().IsLoaded()) {
-                for (auto& [k, v] : LabelDB::Get().CmdMap())
-                    s_cmdList.push_back({ k, v });
+                for (auto it = LabelDB::Get().CmdMap().begin(); it != LabelDB::Get().CmdMap().end(); ++it)
+                    s_cmdList.push_back({ it->first, it->second });
                 std::sort(s_cmdList.begin(), s_cmdList.end(),
-                    [](const auto& a, const auto& b) { return a.second < b.second; });
+                    [](const std::pair<uint64_t,std::string>& a, const std::pair<uint64_t,std::string>& b) { return a.second < b.second; });
                 s_cmdListBuilt = true;
             }
 
@@ -2860,12 +2860,14 @@ void MovesetEditorWindow::RenderCancelInnerDetail(
                 ImGui::InputText("##cmd_filter", s_cmdFilter, sizeof(s_cmdFilter));
                 ImGui::Separator();
 
-                for (auto& [val, name] : s_cmdList) {
-                    if (s_cmdFilter[0] != '\0' && strstr(name.c_str(), s_cmdFilter) == nullptr)
+                for (size_t i = 0; i < s_cmdList.size(); ++i) {
+                    uint64_t    val  = s_cmdList[i].first;
+                    const char* name = s_cmdList[i].second.c_str();
+                    if (s_cmdFilter[0] != '\0' && strstr(name, s_cmdFilter) == nullptr)
                         continue;
                     bool selected = (c.command == val);
                     char itemBuf[80];
-                    snprintf(itemBuf, sizeof(itemBuf), "%s  [0x%llX]", name.c_str(), (unsigned long long)val);
+                    snprintf(itemBuf, sizeof(itemBuf), "%s  [0x%llX]", name, (unsigned long long)val);
                     if (ImGui::Selectable(itemBuf, selected)) {
                         c.command = val;
                         m_dirty = true;
