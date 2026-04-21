@@ -178,12 +178,24 @@ std::string AnimationManagerWindow::GetNameForPoolIdx(int cat, int poolIdx)
     if (!m_anmbin.loaded || cat < 0 || cat >= 6) return "";
     const auto& pool = m_anmbin.pool[cat];
     if (poolIdx < 0 || poolIdx >= (int)pool.size()) return "";
+    if (pool[poolIdx].animDataPtr == 0) return "";
+
+    // Try AnimNameDB first (picks up import stem names stored by DoAdd).
+    if (m_animNameDB) {
+        BuildAnimKeyMap();
+        uint32_t hash32 = static_cast<uint32_t>(pool[poolIdx].animKey & 0xFFFFFFFF);
+        auto hit = m_hashToAnimKey.find(hash32);
+        uint32_t motbinKey = (hit != m_hashToAnimKey.end()) ? hit->second : hash32;
+        std::string n = m_animNameDB->AnimKeyToName(motbinKey);
+        if (n.empty() && motbinKey != hash32) n = m_animNameDB->AnimKeyToName(hash32);
+        if (!n.empty()) return n;
+    }
+
     char buf[64];
-    bool isCom = (pool[poolIdx].animDataPtr == 0);
-    if (!m_charaCode.empty() && !isCom)
+    if (!m_charaCode.empty())
         snprintf(buf, sizeof(buf), "anim_%s_%d", m_charaCode.c_str(), poolIdx);
     else
-        snprintf(buf, sizeof(buf), isCom ? "com_%d" : "anim_%d", poolIdx);
+        snprintf(buf, sizeof(buf), "anim_%d", poolIdx);
     return buf;
 }
 
@@ -380,6 +392,14 @@ void AnimationManagerWindow::DoAdd(int cat)
         m_statusMsg = msg;
         m_statusOk  = true;
         ForceReload();
+        // Navigate to the newly added entry (last in pool after reload).
+        TryLoad();
+        int newIdx = (int)m_anmbin.pool[cat].size() - 1;
+        if (newIdx >= 0) {
+            m_selRow[cat] = newIdx;
+            m_scrollPending[cat] = true;
+        }
+        m_pendingTab = cat;
     }
     else
     {
@@ -762,10 +782,10 @@ void AnimationManagerWindow::RenderTabContent(int cat)
                 if (kamuiName) return kamuiName;
             }
 
-            // Priority 2: AnimNameDB pool-based name (anim_grl_N) — Fullbody only.
-            // Non-Fullbody pools are not indexed the same way; using AnimNameDB there
-            // produces Fullbody-pool names at wrong indices and causes duplicates.
-            if (cat == 0 && m_animNameDB)
+            // Priority 2: AnimNameDB CRC lookup — all categories.
+            // For Fullbody (cat==0) this resolves motbin-keyed names (anim_grl_N).
+            // For other cats (Hand etc.) this resolves import stem names stored by DoAdd.
+            if (m_animNameDB)
             {
                 std::string n = m_animNameDB->AnimKeyToName(motbinKey);
                 if (!n.empty()) return n;
