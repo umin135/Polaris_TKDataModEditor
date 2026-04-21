@@ -165,6 +165,7 @@ private:
     void RenderSubWin_Dialogues();
     void RenderSubWin_ReferenceFinder();
     void RenderRemoveConfirmModal();
+    void RenderCommandCreator();
 
     // Returns a per-instance ImGui window/popup ID: "Label##tag_<uid>"
     // Prevents ID collisions when multiple MovesetEditorWindows are open.
@@ -218,6 +219,17 @@ private:
     bool                 m_dialogueWinOpen = false;
     int                  m_dialogueSel     = 0;
     RefFinderState       m_refFinder;
+
+    struct CommandCreatorState {
+        bool      open             = false;
+        bool      pendingOpen      = false;
+        uint32_t  callerViewportId = 0;
+        uint64_t  value            = 0;
+        int       activeTab        = 0;
+        uint64_t* target           = nullptr; // null = standalone (copies to clipboard)
+        bool*     dirtyFlag        = nullptr;
+    };
+    CommandCreatorState  m_cmdCreator;
 
     // Animation name DB (anim_N <-> motbin anim_key, loaded from .tkedit/anim_names.json)
     AnimNameDB           m_animNameDB;

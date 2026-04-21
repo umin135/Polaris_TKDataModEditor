@@ -269,6 +269,7 @@ bool MovesetEditorWindow::Render()
     RenderSubWin_ParryableMoves();
     RenderSubWin_Dialogues();
     RenderSubWin_ReferenceFinder();
+    RenderCommandCreator();
 
     // Animation Manager
     if (m_animMgr && m_animMgrVisible)
@@ -2141,6 +2142,15 @@ void MovesetEditorWindow::RenderMenuBar()
         }
         if (ImGui::MenuItem("Reference Finder", nullptr, m_refFinder.open))
             m_refFinder.open = !m_refFinder.open;
+        ImGui::Separator();
+        if (ImGui::MenuItem("Command Creator")) {
+            m_cmdCreator.pendingOpen      = true;
+            m_cmdCreator.callerViewportId = ImGui::GetWindowViewport()->ID;
+            m_cmdCreator.value            = 0;
+            m_cmdCreator.target           = nullptr;
+            m_cmdCreator.dirtyFlag        = nullptr;
+            m_cmdCreator.activeTab        = 0;
+        }
         ImGui::EndMenu();
     }
 
@@ -2826,67 +2836,21 @@ void MovesetEditorWindow::RenderCancelInnerDetail(
     // --- Block 1: command / extradata / requirements / move ---
     // Height: 4 × (TextLineH + FrameH + spacing×2) − spacing + padding×2
     float fH1     = ImGui::GetTextLineHeight() + ImGui::GetFrameHeight() + sty.ItemSpacing.y * 2.0f;
-    float block1H = fH1 * 5.0f - sty.ItemSpacing.y + sty.WindowPadding.y * 2.0f;
+    float block1H = fH1 * 4.0f - sty.ItemSpacing.y + sty.WindowPadding.y * 2.0f;
 
     ImGui::PushStyleColor(ImGuiCol_ChildBg, kBlockBg);
     if (ImGui::BeginChild("##cdt_b1", ImVec2(-1.0f, block1H), ImGuiChildFlags_Borders))
     {
-        // command: searchable labeled combo + raw hex fallback
+        // command (hex64, no navigation)
         ImGui::TextDisabled("%s", CancelLabel::Command); ShowFieldTooltip(FieldTT::Cancel::Command);
-        {
-            static std::vector<std::pair<uint64_t, std::string>> s_cmdList;
-            static bool s_cmdListBuilt = false;
-            if (!s_cmdListBuilt && LabelDB::Get().IsLoaded()) {
-                for (auto it = LabelDB::Get().CmdMap().begin(); it != LabelDB::Get().CmdMap().end(); ++it)
-                    s_cmdList.push_back({ it->first, it->second });
-                std::sort(s_cmdList.begin(), s_cmdList.end(),
-                    [](const std::pair<uint64_t,std::string>& a, const std::pair<uint64_t,std::string>& b) { return a.second < b.second; });
-                s_cmdListBuilt = true;
-            }
-
-            static char s_cmdFilter[64] = {};
-            const char* curLabel = LabelDB::Get().Cmd(c.command);
-            char hexPreview[22];
-            snprintf(hexPreview, sizeof(hexPreview), "0x%016llX", (unsigned long long)c.command);
-
-            ImGui::SetNextItemWidth(-1.0f);
-            if (ImGui::BeginCombo("##cmd_combo", curLabel ? curLabel : hexPreview, ImGuiComboFlags_HeightLarge))
-            {
-                if (ImGui::IsWindowAppearing()) {
-                    ImGui::SetKeyboardFocusHere();
-                    s_cmdFilter[0] = '\0';
-                }
-                ImGui::SetNextItemWidth(-1.0f);
-                ImGui::InputText("##cmd_filter", s_cmdFilter, sizeof(s_cmdFilter));
-                ImGui::Separator();
-
-                for (size_t i = 0; i < s_cmdList.size(); ++i) {
-                    uint64_t    val  = s_cmdList[i].first;
-                    const char* name = s_cmdList[i].second.c_str();
-                    if (s_cmdFilter[0] != '\0' && strstr(name, s_cmdFilter) == nullptr)
-                        continue;
-                    bool selected = (c.command == val);
-                    char itemBuf[80];
-                    snprintf(itemBuf, sizeof(itemBuf), "%s  [0x%llX]", name, (unsigned long long)val);
-                    if (ImGui::Selectable(itemBuf, selected)) {
-                        c.command = val;
-                        m_dirty = true;
-                    }
-                    if (selected) ImGui::SetItemDefaultFocus();
-                }
-                ImGui::EndCombo();
-            }
-
-            // Raw hex input for manual entry / values not in the list
-            ImGui::SetNextItemWidth(-1.0f);
-            char cmdBuf[22]; snprintf(cmdBuf, sizeof(cmdBuf), "0x%016llX", (unsigned long long)c.command);
-            ImGui::InputText("##cmd_hex", cmdBuf, sizeof(cmdBuf));
-            if (ImGui::IsItemDeactivatedAfterEdit()) {
-                const char* p = cmdBuf;
-                if (p[0]=='0' && (p[1]=='x'||p[1]=='X')) p += 2;
-                c.command = (uint64_t)strtoull(p, nullptr, 16);
-                m_dirty = true;
-            }
+        ImGui::SetNextItemWidth(-1.0f);
+        char cmdBuf[22]; snprintf(cmdBuf, sizeof(cmdBuf), "0x%016llX", (unsigned long long)c.command);
+        ImGui::InputText("##cmd", cmdBuf, sizeof(cmdBuf));
+        if (ImGui::IsItemDeactivatedAfterEdit()) {
+            const char* p = cmdBuf;
+            if (p[0]=='0' && (p[1]=='x'||p[1]=='X')) p += 2;
+            c.command = (uint64_t)strtoull(p, nullptr, 16);
+            m_dirty = true;
         }
 
         // extradata (uint32_t, navigate to cancel-extra)
@@ -5891,4 +5855,458 @@ void MovesetEditorWindow::RenderSubWin_ReferenceFinder()
     }
 
     ImGui::End();
+}
+
+// =============================================================
+//  RenderCommandCreator
+//  Modal popup for building cancel command values visually.
+// =============================================================
+
+// -------------------------------------------------------------
+//  Command label helpers
+// -------------------------------------------------------------
+
+static void FillBtnStr(char* dst, int dstSz, uint64_t mask)
+{
+    static const char*   kBtnNames[] = { "1","2","3","4","H","SS","RA" };
+    static const uint64_t kBtnBits[] = { 1,   2,  4,  8, 16,  32,  64 };
+    bool first = true;
+    for (int i = 0; i < 7; ++i) {
+        if (mask & kBtnBits[i]) {
+            int len = (int)strlen(dst);
+            snprintf(dst + len, dstSz - len, "%s%s", first ? "" : "+", kBtnNames[i]);
+            first = false;
+        }
+    }
+}
+
+// Converts a full 64-bit cancel command to a short human-readable label.
+// Tries exact LabelDB match first, then decomposes direction + button bits.
+static void CmdToLabel(char* out, int outSz, uint64_t cmd)
+{
+    const char* exact = LabelDB::Get().Cmd(cmd);
+    if (exact) { snprintf(out, outSz, "%s", exact); return; }
+
+    uint64_t dirBits = cmd & 0x3FEULL;
+    uint64_t pressed = (cmd >> 32) & 0x7F;
+    uint64_t held    = (cmd >> 40) & 0x7F;
+    uint64_t rel     = (cmd >> 48) & 0x7F;
+
+    char dirBuf[16] = "Any";
+    if (dirBits) {
+        const char* dl = LabelDB::Get().Cmd(dirBits);
+        if (dl) snprintf(dirBuf, sizeof(dirBuf), "%s", dl);
+        else    snprintf(dirBuf, sizeof(dirBuf), "0x%llX", (unsigned long long)dirBits);
+    }
+
+    char pressBuf[32] = {}; FillBtnStr(pressBuf, sizeof(pressBuf), pressed);
+    char heldBuf[32]  = {}; FillBtnStr(heldBuf,  sizeof(heldBuf),  held);
+    char relBuf[32]   = {}; FillBtnStr(relBuf,   sizeof(relBuf),   rel);
+
+    snprintf(out, outSz, "%s", dirBuf);
+    if (pressBuf[0]) { int l = (int)strlen(out); snprintf(out+l, outSz-l, "+%s",   pressBuf); }
+    if (heldBuf[0])  { int l = (int)strlen(out); snprintf(out+l, outSz-l, " h:%s", heldBuf);  }
+    if (relBuf[0])   { int l = (int)strlen(out); snprintf(out+l, outSz-l, " r:%s", relBuf);   }
+}
+
+static constexpr uint64_t kCCModeMask    = 0xFF00000000000000ULL;
+static constexpr uint64_t kCCModeReg     = 0x4000000000000000ULL;
+static constexpr uint64_t kCCModePartial = 0x2000000000000000ULL;
+static constexpr uint64_t kCCModeDirOnly = 0x8000000000000000ULL;
+static constexpr uint64_t kCCDirMask     = 0x00000000000003FEULL;
+static constexpr uint64_t kCCBtnMaskAll  =
+    (uint64_t(0x7F) << 32) | (uint64_t(0x7F) << 40) | (uint64_t(0x7F) << 48);
+
+void MovesetEditorWindow::RenderCommandCreator()
+{
+    if (!m_cmdCreator.pendingOpen && !m_cmdCreator.open) return;
+
+    // Resolve target viewport
+    ImGuiViewport* vp = nullptr;
+    if (m_cmdCreator.callerViewportId)
+        vp = ImGui::FindViewportByID(m_cmdCreator.callerViewportId);
+    if (!vp && m_viewportId)
+        vp = ImGui::FindViewportByID(m_viewportId);
+    if (!vp) vp = ImGui::GetMainViewport();
+    const ImVec2 vpCenter(vp->Pos.x + vp->Size.x * 0.5f, vp->Pos.y + vp->Size.y * 0.5f);
+
+    // 1×1 invisible host window on the correct viewport
+    constexpr ImGuiWindowFlags kHostF =
+        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+        ImGuiWindowFlags_NoDocking  | ImGuiWindowFlags_NoSavedSettings |
+        ImGuiWindowFlags_NoScrollbar| ImGuiWindowFlags_NoNav |
+        ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoBackground |
+        ImGuiWindowFlags_NoMouseInputs;
+    ImGui::SetNextWindowViewport(vp->ID);
+    ImGui::SetNextWindowPos(ImVec2(vp->Pos.x - 100.f, vp->Pos.y - 100.f));
+    ImGui::SetNextWindowSize(ImVec2(1.f, 1.f));
+    std::string hostId   = WinId("##cc_host");
+    std::string popupId  = WinId("Command Creator##cc");
+    ImGui::Begin(hostId.c_str(), nullptr, kHostF);
+
+    if (m_cmdCreator.pendingOpen) {
+        ImGui::OpenPopup(popupId.c_str());
+        m_cmdCreator.pendingOpen = false;
+        m_cmdCreator.open        = true;
+    }
+
+    ImGui::SetNextWindowSize(ImVec2(530.f, 670.f), ImGuiCond_Always);
+    ImGui::SetNextWindowPos(vpCenter, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    bool keepOpen = true;
+    bool popupVis = ImGui::BeginPopupModal(popupId.c_str(), &keepOpen,
+        ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings);
+
+    if (!popupVis) {
+        if (!keepOpen) m_cmdCreator.open = false;
+        ImGui::End(); // host window
+        return;
+    }
+    if (!keepOpen) {
+        m_cmdCreator.open = false;
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+        ImGui::End(); // host window
+        return;
+    }
+
+    uint64_t&    val  = m_cmdCreator.value;
+    ImGuiStyle&  sty  = ImGui::GetStyle();
+    const ImVec4 kGreen (0.20f, 1.00f, 0.40f, 1.0f);
+    const ImVec4 kBlue  (0.40f, 0.80f, 1.00f, 1.0f);
+    const ImVec4 kPurple(0.50f, 0.15f, 0.80f, 1.0f);
+    const ImVec4 kBtnOn (0.15f, 0.35f, 0.70f, 1.0f);
+
+    // ---- Standalone banner ----
+    if (!m_cmdCreator.target) {
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.25f, 0.15f, 0.0f, 1.0f));
+        if (ImGui::BeginChild("##cc_banner", ImVec2(-1, 42), ImGuiChildFlags_Borders)) {
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 4);
+            ImGui::TextColored(ImVec4(1.f, 0.85f, 0.f, 1.f), "Standalone Mode:");
+            ImGui::SameLine();
+            ImGui::TextUnformatted("Clicking \"Save\" will copy the command value to your clipboard.");
+        }
+        ImGui::EndChild();
+        ImGui::PopStyleColor();
+        ImGui::Spacing();
+    }
+
+    // ---- Raw value display ----
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.10f, 0.10f, 0.12f, 1.0f));
+    if (ImGui::BeginChild("##cc_hdr", ImVec2(-1, 98), ImGuiChildFlags_Borders)) {
+        float avail = ImGui::GetContentRegionAvail().x;
+
+        // "RAW VALUE (HEX)" left, "Mode: 0xXX" right
+        ImGui::TextDisabled("RAW VALUE (HEX)");
+        uint8_t modeByte = (uint8_t)(val >> 56);
+        char modeBuf[16]; snprintf(modeBuf, sizeof(modeBuf), "Mode: 0x%02X", modeByte);
+        float modeW = ImGui::CalcTextSize(modeBuf).x;
+        ImGui::SameLine(avail - modeW);
+        ImGui::TextDisabled("%s", modeBuf);
+
+        // Editable hex (green, centered)
+        char hexBuf[20]; snprintf(hexBuf, sizeof(hexBuf), "%016llX", (unsigned long long)val);
+        float hexW = 300.0f;
+        ImGui::SetCursorPosX((avail - hexW) * 0.5f + sty.WindowPadding.x);
+        ImGui::PushStyleColor(ImGuiCol_Text, kGreen);
+        ImGui::SetNextItemWidth(hexW);
+        if (ImGui::InputText("##cc_hexinput", hexBuf, sizeof(hexBuf),
+            ImGuiInputTextFlags_CharsHexadecimal | ImGuiInputTextFlags_AutoSelectAll))
+            val = (uint64_t)strtoull(hexBuf, nullptr, 16);
+        ImGui::PopStyleColor();
+
+        // Decimal
+        char decBuf[40]; snprintf(decBuf, sizeof(decBuf), "Decimal: %llu", (unsigned long long)val);
+        float decW = ImGui::CalcTextSize(decBuf).x;
+        ImGui::SetCursorPosX((avail - decW) * 0.5f + sty.WindowPadding.x);
+        ImGui::TextDisabled("%s", decBuf);
+
+        // Command label
+        const char* cmdLbl = LabelDB::Get().Cmd(val);
+        char cmdLblBuf[64]; snprintf(cmdLblBuf, sizeof(cmdLblBuf), "Command: %s", cmdLbl ? cmdLbl : "Any");
+        float cmdLblW = ImGui::CalcTextSize(cmdLblBuf).x;
+        ImGui::SetCursorPosX((avail - cmdLblW) * 0.5f + sty.WindowPadding.x);
+        ImGui::TextColored(kBlue, "%s", cmdLblBuf);
+    }
+    ImGui::EndChild();
+    ImGui::PopStyleColor();
+    ImGui::Spacing();
+
+    // ---- Main content area (tabs), leave room for footer ----
+    const float footerH = ImGui::GetFrameHeight() + sty.ItemSpacing.y * 2 + sty.WindowPadding.y;
+    if (ImGui::BeginChild("##cc_main", ImVec2(-1, ImGui::GetContentRegionAvail().y - footerH),
+        false, ImGuiWindowFlags_NoScrollbar))
+    {
+        if (ImGui::BeginTabBar("##cc_tabs"))
+        {
+            // =================== LINEAR INPUT ===================
+            if (ImGui::BeginTabItem("Linear Input"))
+            {
+                if (ImGui::BeginChild("##cc_linear", ImVec2(-1, -1), false))
+                {
+                    // Input Mode
+                    ImGui::TextUnformatted("INPUT MODE");
+                    ImGui::Spacing();
+                    struct ModeOpt { const char* label; const char* hexStr; uint64_t bits; };
+                    static const ModeOpt kModes[3] = {
+                        { "Regular",        "(0x40)", kCCModeReg     },
+                        { "Partial",        "(0x20)", kCCModePartial },
+                        { "Direction Only", "(0x80)", kCCModeDirOnly },
+                    };
+                    float modeW3 = (ImGui::GetContentRegionAvail().x - sty.ItemSpacing.x * 2) / 3.0f;
+                    uint64_t curMode = val & kCCModeMask;
+                    for (int m = 0; m < 3; ++m) {
+                        if (m > 0) ImGui::SameLine();
+                        bool active = (curMode == kModes[m].bits);
+                        if (active) ImGui::PushStyleColor(ImGuiCol_Button, kPurple);
+                        char bid[32]; snprintf(bid, sizeof(bid), "%s\n%s##mode%d",
+                            kModes[m].label, kModes[m].hexStr, m);
+                        if (ImGui::Button(bid, ImVec2(modeW3, 42)))
+                            val = (val & ~kCCModeMask) | kModes[m].bits;
+                        if (active) ImGui::PopStyleColor();
+                    }
+                    ImGui::TextDisabled("Select a mode to define strictness.");
+                    ImGui::Spacing();
+                    ImGui::Separator();
+                    ImGui::Spacing();
+
+                    // Direction + Buttons side by side
+                    float colW = (ImGui::GetContentRegionAvail().x - sty.ItemSpacing.x) * 0.5f;
+
+                    // Direction column
+                    ImGui::BeginGroup();
+                    ImGui::TextColored(kBlue, "Direction");
+                    {
+                        float cx = ImGui::GetCursorPosX() + colW
+                                   - ImGui::CalcTextSize("Clear").x
+                                   - sty.FramePadding.x * 2 - sty.ItemSpacing.x;
+                        ImGui::SameLine(cx);
+                    }
+                    if (ImGui::SmallButton("Clear##dirclr")) val &= ~kCCDirMask;
+                    ImGui::Separator();
+                    ImGui::Spacing();
+
+                    struct DirDef { const char* lbl; uint64_t bit; };
+                    static const DirDef kDirGrid[3][3] = {
+                        {{"ub",0x80ULL},  {"u", 0x100ULL}, {"uf",0x200ULL}},
+                        {{"b", 0x10ULL},  {"n", 0x020ULL}, {"f", 0x040ULL}},
+                        {{"db",0x02ULL},  {"d", 0x004ULL}, {"df",0x008ULL}},
+                    };
+                    float dirBtnW = (colW - sty.ItemSpacing.x * 2) / 3.0f;
+                    float dirBtnH = dirBtnW * 0.65f;
+                    for (int row = 0; row < 3; ++row) {
+                        for (int col = 0; col < 3; ++col) {
+                            if (col > 0) ImGui::SameLine();
+                            const DirDef& de = kDirGrid[row][col];
+                            bool on = (val & de.bit) != 0;
+                            if (on) ImGui::PushStyleColor(ImGuiCol_Button, kBtnOn);
+                            char bid[16]; snprintf(bid, sizeof(bid), "%s##d%d%d", de.lbl, row, col);
+                            if (ImGui::Button(bid, ImVec2(dirBtnW, dirBtnH))) {
+                                if (on) val &= ~de.bit; else val |= de.bit;
+                            }
+                            if (on) ImGui::PopStyleColor();
+                        }
+                    }
+                    ImGui::EndGroup();
+                    ImGui::SameLine();
+
+                    // Buttons column
+                    ImGui::BeginGroup();
+                    ImGui::TextColored(ImVec4(1.f, 0.4f, 0.4f, 1.f), "Buttons");
+                    {
+                        float cx = ImGui::GetCursorPosX() + colW
+                                   - ImGui::CalcTextSize("Clear").x
+                                   - sty.FramePadding.x * 2 - sty.ItemSpacing.x;
+                        ImGui::SameLine(cx);
+                    }
+                    if (ImGui::SmallButton("Clear##btnclr")) val &= ~kCCBtnMaskAll;
+                    ImGui::Separator();
+                    ImGui::Spacing();
+
+                    struct BtnDef { const char* lbl; uint64_t bit; };
+                    static const BtnDef kBtns[7] = {
+                        {"1",0x01},{"2",0x02},{"3",0x04},{"4",0x08},
+                        {"H",0x10},{"SS",0x20},{"RA",0x40},
+                    };
+                    static const int   kShifts[3]    = { 32, 40, 48 };
+                    static const char* kSecLbls[3]   = { "PRESSED","HELD","NOT HELD (RELEASE)" };
+
+                    float smBtnW = (colW - sty.ItemSpacing.x * 4) / 5.0f;
+                    for (int s = 0; s < 3; ++s) {
+                        ImGui::TextDisabled("%s", kSecLbls[s]);
+                        int shift = kShifts[s];
+                        for (int b = 0; b < 5; ++b) {
+                            if (b > 0) ImGui::SameLine();
+                            bool on = ((val >> shift) & kBtns[b].bit) != 0;
+                            if (on) ImGui::PushStyleColor(ImGuiCol_Button, kBtnOn);
+                            char bid[16]; snprintf(bid, sizeof(bid), "%s##b%d%d", kBtns[b].lbl, s, b);
+                            if (ImGui::Button(bid, ImVec2(smBtnW, 0))) {
+                                uint64_t mask = uint64_t(kBtns[b].bit) << shift;
+                                if (on) val &= ~mask; else val |= mask;
+                            }
+                            if (on) ImGui::PopStyleColor();
+                        }
+                        for (int b = 5; b < 7; ++b) {
+                            if (b > 5) ImGui::SameLine();
+                            bool on = ((val >> shift) & kBtns[b].bit) != 0;
+                            if (on) ImGui::PushStyleColor(ImGuiCol_Button, kBtnOn);
+                            char bid[16]; snprintf(bid, sizeof(bid), "%s##b%d%d", kBtns[b].lbl, s, b);
+                            if (ImGui::Button(bid, ImVec2(smBtnW * 1.6f, 0))) {
+                                uint64_t mask = uint64_t(kBtns[b].bit) << shift;
+                                if (on) val &= ~mask; else val |= mask;
+                            }
+                            if (on) ImGui::PopStyleColor();
+                        }
+                        if (s < 2) ImGui::Spacing();
+                    }
+                    ImGui::EndGroup();
+                }
+                ImGui::EndChild();
+                ImGui::EndTabItem();
+            }
+
+            // =================== PRESETS ===================
+            if (ImGui::BeginTabItem("Presets"))
+            {
+                if (ImGui::BeginChild("##cc_presets", ImVec2(-1, -1), false))
+                {
+                    struct CmdPreset { const char* name; const char* hexStr; uint64_t value; };
+                    static const CmdPreset kPresets[] = {
+                        { "End of List (EOL)",  "0x8000", 0x8000ULL },
+                        { "Double Tap F",       "0x8001", 0x8001ULL },
+                        { "Double Tap B",       "0x8002", 0x8002ULL },
+                        { "Double Tap F (Alt)", "0x8003", 0x8003ULL },
+                        { "Double Tap B (Alt)", "0x8004", 0x8004ULL },
+                        { "Double Tap U",       "0x8005", 0x8005ULL },
+                        { "Double Tap D",       "0x8006", 0x8006ULL },
+                        { "Double Tap UF",      "0x8007", 0x8007ULL },
+                        { "Double Tap DB",      "0x8008", 0x8008ULL },
+                        { "Double Tap UB",      "0x8009", 0x8009ULL },
+                        { "Double Tap DF",      "0x800A", 0x800AULL },
+                        { "Group Cancel Start", "0x8012", 0x8012ULL },
+                        { "Group Cancel End",   "0x8013", 0x8013ULL },
+                    };
+                    static const int kPresetCount = (int)(sizeof(kPresets) / sizeof(kPresets[0]));
+
+                    float cardW = (ImGui::GetContentRegionAvail().x - sty.ItemSpacing.x) * 0.5f;
+                    for (int i = 0; i < kPresetCount; ++i) {
+                        if (i % 2 != 0) ImGui::SameLine();
+                        bool selected = (val == kPresets[i].value);
+                        ImGui::PushID(i + 1000);
+                        ImGui::PushStyleColor(ImGuiCol_ChildBg,
+                            selected ? ImVec4(0.10f, 0.28f, 0.10f, 1.0f)
+                                     : ImVec4(0.14f, 0.14f, 0.14f, 1.0f));
+                        if (ImGui::BeginChild("##preset_card", ImVec2(cardW, 52), ImGuiChildFlags_Borders)) {
+                            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 4);
+                            ImGui::TextUnformatted(kPresets[i].name);
+                            ImGui::TextDisabled("%s", kPresets[i].hexStr);
+                        }
+                        ImGui::EndChild();
+                        if (ImGui::IsItemClicked()) val = kPresets[i].value;
+                        ImGui::PopStyleColor();
+                        ImGui::PopID();
+                    }
+                }
+                ImGui::EndChild();
+                ImGui::EndTabItem();
+            }
+
+            // =================== INPUT SEQUENCES ===================
+            if (ImGui::BeginTabItem("Input Sequences"))
+            {
+                if (ImGui::BeginChild("##cc_inseq", ImVec2(-1, -1), false))
+                {
+                    ImGui::TextWrapped(
+                        "Select an Input Sequence from the list below. "
+                        "This will set the command to reference the sequence index.");
+                    ImGui::Spacing();
+
+                    uint32_t seqBase = GameStatic::Get().data.inputSeqStart;
+                    const std::vector<ParsedInputSequence>& seqs   = m_data.inputSequenceBlock;
+                    const std::vector<ParsedInput>&         inputs = m_data.inputBlock;
+
+                    if (seqs.empty()) {
+                        ImGui::TextDisabled("No input sequences in this moveset.");
+                    } else {
+                        for (size_t i = 0; i < seqs.size(); ++i) {
+                            const ParsedInputSequence& seq = seqs[i];
+                            uint64_t seqCmd = (uint64_t)(seqBase + (uint32_t)i);
+                            bool selected   = (val == seqCmd);
+
+                            // Build "step > step" description
+                            char desc[256] = {};
+                            int  descLen   = 0;
+                            if (seq.input_start_idx != 0xFFFFFFFF) {
+                                for (uint16_t k = 0; k < seq.input_amount && k < 8; ++k) {
+                                    uint32_t idx = seq.input_start_idx + k;
+                                    if (idx >= (uint32_t)inputs.size()) break;
+                                    char lbl[48] = {};
+                                    CmdToLabel(lbl, sizeof(lbl), inputs[idx].command);
+                                    char step[56];
+                                    snprintf(step, sizeof(step), "%s%s", k > 0 ? " > " : "", lbl);
+                                    int sl = (int)strlen(step);
+                                    if (descLen + sl < (int)sizeof(desc) - 1) {
+                                        memcpy(desc + descLen, step, sl);
+                                        descLen += sl;
+                                    }
+                                }
+                            }
+                            if (descLen == 0) snprintf(desc, sizeof(desc), "(empty)");
+
+                            ImGui::PushID((int)i + 2000);
+                            ImGui::PushStyleColor(ImGuiCol_ChildBg,
+                                selected ? ImVec4(0.10f, 0.25f, 0.10f, 1.0f)
+                                         : ImVec4(0.12f, 0.12f, 0.12f, 1.0f));
+                            if (ImGui::BeginChild("##seq_row", ImVec2(-1, 32), ImGuiChildFlags_Borders)) {
+                                ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 6);
+                                ImGui::TextColored(kGreen, "#%d", (int)i);
+                                ImGui::SameLine(48);
+                                ImGui::TextDisabled("0x%04X", (unsigned)(seqBase + i));
+                                ImGui::SameLine(110);
+                                ImGui::TextColored(kGreen, "%s", desc);
+                            }
+                            ImGui::EndChild();
+                            if (ImGui::IsItemClicked()) val = seqCmd;
+                            ImGui::PopStyleColor();
+                            ImGui::PopID();
+                        }
+                    }
+                }
+                ImGui::EndChild();
+                ImGui::EndTabItem();
+            }
+
+            ImGui::EndTabBar();
+        }
+    }
+    ImGui::EndChild(); // ##cc_main
+
+    // ---- Footer ----
+    ImGui::Separator();
+    float saveBtnW   = 130.0f;
+    float cancelBtnW = 80.0f;
+    float btnX = ImGui::GetContentRegionAvail().x - saveBtnW - cancelBtnW - sty.ItemSpacing.x;
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + btnX);
+    if (ImGui::Button("Cancel##cc_cancel", ImVec2(cancelBtnW, 0))) {
+        m_cmdCreator.open = false;
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.15f, 0.40f, 0.90f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.25f, 0.55f, 1.00f, 1.0f));
+    if (ImGui::Button("Save Command##cc_save", ImVec2(saveBtnW, 0))) {
+        if (m_cmdCreator.target) {
+            *m_cmdCreator.target = val;
+            if (m_cmdCreator.dirtyFlag) *m_cmdCreator.dirtyFlag = true;
+        } else {
+            char clip[22]; snprintf(clip, sizeof(clip), "0x%016llX", (unsigned long long)val);
+            ImGui::SetClipboardText(clip);
+        }
+        m_cmdCreator.open = false;
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::PopStyleColor(2);
+
+    ImGui::EndPopup();
+    ImGui::End(); // host window
 }
