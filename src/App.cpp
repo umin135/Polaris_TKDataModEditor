@@ -243,10 +243,8 @@ App::App(ID3D11Device* device, ID3D11DeviceContext* ctx)
             LabelDB::Get().LoadFromResources();
         }
 
-        // Kamui hash dictionary (move/anim/voiceclip name recovery).
-        // Always loaded from res/kamui-hashes/data.json next to the exe.
-        // The build event copies data/kamui-hashes/ to $(OutDir)res/kamui-hashes/.
-        // On startup, the remote version is checked and data.json is updated if newer.
+        // All three remote dictionaries live under res/ next to the exe.
+        // Find that directory once, then run each updater independently.
         {
             const std::string resCandidates[] = {
                 exeDir + "\\res",
@@ -254,36 +252,39 @@ App::App(ID3D11Device* device, ID3D11DeviceContext* ctx)
                 exeDir + "\\..\\..\\res",
                 exeDir + "\\..\\..\\..\\res",
             };
-            std::string kamuiDataPath;
-            for (const auto& res : resCandidates)
+            std::string resDir;
+            for (const auto& r : resCandidates)
             {
-                std::string p = res + "\\kamui-hashes\\data.json";
-                FILE* f = nullptr; fopen_s(&f, p.c_str(), "rb");
-                if (f) { fclose(f); kamuiDataPath = p; break; }
+                DWORD attr = GetFileAttributesA(r.c_str());
+                if (attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY))
+                { resDir = r; break; }
             }
 
-            // Check remote for a newer version and update if available.
-            // Uses the first candidate res/ dir that contained data.json.
-            if (!kamuiDataPath.empty())
+            if (!resDir.empty())
             {
-                std::string resDir = kamuiDataPath.substr(0, kamuiDataPath.rfind("\\kamui-hashes"));
-                if (KamuiDictCheckAndUpdate(resDir))
+                // kamui-hashes: move/anim/voiceclip name hashes
+                KamuiDictCheckAndUpdate(resDir);
                 {
-                    // data.json was updated; reload from the same path
+                    std::string p = resDir + "\\kamui-hashes\\data.json";
+                    FILE* f = nullptr; fopen_s(&f, p.c_str(), "rb");
+                    if (f) { fclose(f); LabelDB::Get().AddNames(p); }
                 }
-                LabelDB::Get().AddNames(kamuiDataPath);
 
-                // MovesetDatas dictionary (req/property/etc. descriptions).
-                // Lives at res/MovesetDatas/data.json alongside kamui-hashes.
+                // MovesetDatas: req/property/command descriptions
                 MovesetDataDictCheckAndUpdate(resDir);
-                std::string movesetDataPath = resDir + "\\MovesetDatas\\data.json";
-                FILE* mdf = nullptr; fopen_s(&mdf, movesetDataPath.c_str(), "rb");
-                if (mdf) { fclose(mdf); MovesetDataDict::Get().Load(movesetDataPath); }
+                {
+                    std::string p = resDir + "\\MovesetDatas\\data.json";
+                    FILE* f = nullptr; fopen_s(&f, p.c_str(), "rb");
+                    if (f) { fclose(f); MovesetDataDict::Get().Load(p); }
+                }
 
+                // fbsdatas: character_id / customize_item_type dicts
                 FbsDataDictCheckAndUpdate(resDir);
-                std::string fbsDictPath = resDir + "\\fbsdatas\\data.json";
-                FILE* ffd = nullptr; fopen_s(&ffd, fbsDictPath.c_str(), "rb");
-                if (ffd) { fclose(ffd); FbsDataDict::Get().Load(fbsDictPath); }
+                {
+                    std::string p = resDir + "\\fbsdatas\\data.json";
+                    FILE* f = nullptr; fopen_s(&f, p.c_str(), "rb");
+                    if (f) { fclose(f); FbsDataDict::Get().Load(p); }
+                }
             }
         }
     }
