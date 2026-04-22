@@ -279,7 +279,9 @@ App::App(ID3D11Device* device, ID3D11DeviceContext* ctx)
                 }
 
                 // fbsdatas: character_id / customize_item_type dicts
-                FbsDataDictCheckAndUpdate(resDir);
+                // Only reload from res if the update actually succeeded;
+                // otherwise keep the data loaded from data/fbsdatas/data.json above.
+                if (FbsDataDictCheckAndUpdate(resDir))
                 {
                     std::string p = resDir + "\\fbsdatas\\data.json";
                     FILE* f = nullptr; fopen_s(&f, p.c_str(), "rb");
