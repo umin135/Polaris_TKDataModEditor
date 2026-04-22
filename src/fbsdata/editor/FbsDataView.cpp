@@ -403,23 +403,25 @@ void FbsDataView::RenderCustomizeItemCommonEditor(ContentsBinData& bin)
         ImGuiTableFlags_Hideable         |
         ImGuiTableFlags_SizingFixedFit;
 
-    // Column count: 1 (row/delete) + 18 fields = 19
-    if (!ImGui::BeginTable("##CICLTable", 19, tFlags,
+    // Column count: 1 (row/delete) + 26 fields = 27
+    if (!ImGui::BeginTable("##CICLTable", 27, tFlags,
                            ImGui::GetContentRegionAvail()))
         return;
 
     // Freeze first column (row controls) and header row
     ImGui::TableSetupScrollFreeze(1, 1);
 
-    // Columns shown in the regular editor (subset of 26 -- unknown fields omitted)
-    // Schema id -> display width
+    // All 26 schema fields (id 0..25)
     static const struct { int id; float w; } k_Cols[] = {
         {  0, 95.0f }, {  1, 62.0f }, {  2, 195.0f },
         {  3, 95.0f }, {  4, 95.0f }, {  5, 215.0f },
-        {  6, 115.0f }, {  7, 115.0f },
-        {  9, 95.0f }, { 10, 78.0f }, { 12, 82.0f },
-        { 14, 95.0f }, { 15, 95.0f }, { 16, 60.0f },
-        { 18, 95.0f }, { 23, 95.0f }, { 24, 62.0f }, { 25, 82.0f },
+        {  6, 115.0f }, {  7, 115.0f }, {  8, 75.0f },
+        {  9, 95.0f }, { 10, 78.0f }, { 11, 75.0f },
+        { 12, 82.0f }, { 13, 60.0f }, { 14, 95.0f },
+        { 15, 95.0f }, { 16, 60.0f }, { 17, 75.0f },
+        { 18, 95.0f }, { 19, 75.0f }, { 20, 75.0f },
+        { 21, 75.0f }, { 22, 75.0f }, { 23, 95.0f },
+        { 24, 62.0f }, { 25, 82.0f },
     };
     constexpr int k_ColCount = (int)(sizeof(k_Cols) / sizeof(k_Cols[0]));
     ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 52.0f);
@@ -491,16 +493,24 @@ void FbsDataView::RenderCustomizeItemCommonEditor(ContentsBinData& bin)
         ImGui::TableSetColumnIndex(6);  StrCell("##tkey",  e.text_key,       sizeof(e.text_key));
         ImGui::TableSetColumnIndex(7);  StrCell("##pkid",  e.package_id,     sizeof(e.package_id));
         ImGui::TableSetColumnIndex(8);  StrCell("##pksu",  e.package_sub_id, sizeof(e.package_sub_id));
-        ImGui::TableSetColumnIndex(9);  I32Cell("##ssid",  e.shop_sort_id);
-        ImGui::TableSetColumnIndex(10); BoolCell("##enb",  e.is_enabled);
-        ImGui::TableSetColumnIndex(11); I32Cell("##prc",   e.price);
-        ImGui::TableSetColumnIndex(12); I32Cell("##cno",   e.category_no);
-        ImGui::TableSetColumnIndex(13); U32Cell("##h2",    e.hash_2);
-        ImGui::TableSetColumnIndex(14); BoolCell("##u16",  e.unk_16);
-        ImGui::TableSetColumnIndex(15); U32Cell("##h3",    e.hash_3);
-        ImGui::TableSetColumnIndex(16); U32Cell("##h4",    e.hash_4);
-        ImGui::TableSetColumnIndex(17); I32Cell("##rar",   e.rarity);
-        ImGui::TableSetColumnIndex(18); I32Cell("##sgrp",  e.sort_group);
+        ImGui::TableSetColumnIndex(9);  U32Cell("##u8",    e.unk_8);
+        ImGui::TableSetColumnIndex(10); I32Cell("##ssid",  e.shop_sort_id);
+        ImGui::TableSetColumnIndex(11); BoolCell("##enb",  e.is_enabled);
+        ImGui::TableSetColumnIndex(12); U32Cell("##u11",   e.unk_11);
+        ImGui::TableSetColumnIndex(13); I32Cell("##prc",   e.price);
+        ImGui::TableSetColumnIndex(14); BoolCell("##u13",  e.unk_13);
+        ImGui::TableSetColumnIndex(15); I32Cell("##cno",   e.category_no);
+        ImGui::TableSetColumnIndex(16); U32Cell("##h2",    e.hash_2);
+        ImGui::TableSetColumnIndex(17); BoolCell("##u16",  e.unk_16);
+        ImGui::TableSetColumnIndex(18); U32Cell("##u17",   e.unk_17);
+        ImGui::TableSetColumnIndex(19); U32Cell("##h3",    e.hash_3);
+        ImGui::TableSetColumnIndex(20); U32Cell("##u19",   e.unk_19);
+        ImGui::TableSetColumnIndex(21); U32Cell("##u20",   e.unk_20);
+        ImGui::TableSetColumnIndex(22); U32Cell("##u21",   e.unk_21);
+        ImGui::TableSetColumnIndex(23); U32Cell("##u22",   e.unk_22);
+        ImGui::TableSetColumnIndex(24); U32Cell("##h4",    e.hash_4);
+        ImGui::TableSetColumnIndex(25); I32Cell("##rar",   e.rarity);
+        ImGui::TableSetColumnIndex(26); I32Cell("##sgrp",  e.sort_group);
 
         ImGui::PopID();
     }

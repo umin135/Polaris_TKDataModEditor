@@ -41,7 +41,7 @@ namespace FieldNames
         "unk_21",          // id: 21 | uint32  (unknown)
         "unk_22",          // id: 22 | uint32  (unknown)
         "hash_4",          // id: 23 | uint32
-        "unk_24",          // id: 24 | uint32
+        "unk_24",          // id: 24 | uint32  (unknown)
         "sort_group",      // id: 25 | uint32
     };
     constexpr int CommonItemCount = 26;
