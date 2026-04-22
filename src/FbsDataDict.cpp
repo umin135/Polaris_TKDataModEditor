@@ -64,61 +64,97 @@ std::vector<std::pair<uint32_t, std::string>> FbsDataDict::SortedTypes() const
 
 void FbsDataDict::ParseJson(const char* buf, size_t sz)
 {
-    enum class Section { None, Chars, Codes, Types };
+    enum class Section { None, Characters, Types };
     Section sec = Section::None;
+
+    // Extract unquoted uint32 after "key": N  (returns UINT32_MAX on failure)
+    auto findUint = [](const std::string& s, const char* key) -> uint32_t {
+        std::string pat = std::string("\"") + key + "\"";
+        size_t p = s.find(pat);
+        if (p == std::string::npos) return UINT32_MAX;
+        size_t c = s.find(':', p + pat.size());
+        if (c == std::string::npos) return UINT32_MAX;
+        ++c;
+        while (c < s.size() && (s[c] == ' ' || s[c] == '\t')) ++c;
+        if (c >= s.size() || !(s[c] >= '0' && s[c] <= '9')) return UINT32_MAX;
+        return static_cast<uint32_t>(std::atoi(s.c_str() + c));
+    };
+
+    // Extract quoted string after "key": "value"
+    auto findStr = [](const std::string& s, const char* key) -> std::string {
+        std::string pat = std::string("\"") + key + "\"";
+        size_t p = s.find(pat);
+        if (p == std::string::npos) return {};
+        size_t c = s.find(':', p + pat.size());
+        if (c == std::string::npos) return {};
+        size_t q1 = s.find('"', c + 1);
+        if (q1 == std::string::npos) return {};
+        size_t q2 = s.find('"', q1 + 1);
+        if (q2 == std::string::npos) return {};
+        return s.substr(q1 + 1, q2 - q1 - 1);
+    };
 
     const char* end = buf + sz;
     while (buf < end)
     {
-        // Read one line
         const char* lineEnd = buf;
         while (lineEnd < end && *lineEnd != '\n') ++lineEnd;
         std::string line(buf, lineEnd);
         buf = (lineEnd < end) ? lineEnd + 1 : end;
 
-        // Trim trailing CR
         while (!line.empty() && (line.back() == '\r' || line.back() == '\n'))
             line.pop_back();
 
-        // Detect section headers
-        if (line.find("\"character_id\"") != std::string::npos)
-        { sec = Section::Chars; continue; }
-        if (line.find("\"character_code\"") != std::string::npos)
-        { sec = Section::Codes; continue; }
+        // Section headers
+        if (line.find("\"characters\"") != std::string::npos)
+        { sec = Section::Characters; continue; }
         if (line.find("\"customize_item_type\"") != std::string::npos)
         { sec = Section::Types; continue; }
 
-        // Closing brace resets section
-        if (line.find('}') != std::string::npos)
+        // End of characters array
+        if (sec == Section::Characters && line.find(']') != std::string::npos)
+        { sec = Section::None; continue; }
+
+        // End of types object
+        if (sec == Section::Types && line.find('}') != std::string::npos)
         { sec = Section::None; continue; }
 
         if (sec == Section::None) continue;
 
-        // Parse "key": "value" on this line
-        size_t q1 = line.find('"');
-        if (q1 == std::string::npos) continue;
-        size_t q2 = line.find('"', q1 + 1);
-        if (q2 == std::string::npos) continue;
-        size_t q3 = line.find('"', q2 + 1);
-        if (q3 == std::string::npos) continue;
-        size_t q4 = line.find('"', q3 + 1);
-        if (q4 == std::string::npos) continue;
+        if (sec == Section::Characters)
+        {
+            // Parse: { "id": N, "name": "...", "code": "..." }
+            uint32_t id = findUint(line, "id");
+            if (id == UINT32_MAX) continue;
+            std::string name = findStr(line, "name");
+            std::string code = findStr(line, "code");
+            if (!name.empty()) m_chars[id] = std::move(name);
+            if (!code.empty()) m_codes[id] = std::move(code);
+        }
+        else // Types: "N": "value"
+        {
+            size_t q1 = line.find('"');
+            if (q1 == std::string::npos) continue;
+            size_t q2 = line.find('"', q1 + 1);
+            if (q2 == std::string::npos) continue;
+            size_t q3 = line.find('"', q2 + 1);
+            if (q3 == std::string::npos) continue;
+            size_t q4 = line.find('"', q3 + 1);
+            if (q4 == std::string::npos) continue;
 
-        std::string keyStr = line.substr(q1 + 1, q2 - q1 - 1);
-        std::string valStr = line.substr(q3 + 1, q4 - q3 - 1);
-        if (keyStr.empty() || valStr.empty()) continue;
+            std::string keyStr = line.substr(q1 + 1, q2 - q1 - 1);
+            std::string valStr = line.substr(q3 + 1, q4 - q3 - 1);
+            if (keyStr.empty() || valStr.empty()) continue;
 
-        // Key must be a non-negative integer
-        bool allDigits = true;
-        for (char c : keyStr) { if (c < '0' || c > '9') { allDigits = false; break; } }
-        if (!allDigits) continue;
+            bool allDigits = true;
+            for (char c : keyStr) { if (c < '0' || c > '9') { allDigits = false; break; } }
+            if (!allDigits) continue;
 
-        try {
-            uint32_t key = static_cast<uint32_t>(std::stoull(keyStr));
-            if      (sec == Section::Chars) m_chars[key] = valStr;
-            else if (sec == Section::Codes) m_codes[key] = valStr;
-            else                            m_types[key] = valStr;
-        } catch (...) {}
+            try {
+                uint32_t key = static_cast<uint32_t>(std::stoull(keyStr));
+                m_types[key] = std::move(valStr);
+            } catch (...) {}
+        }
     }
 }
 
