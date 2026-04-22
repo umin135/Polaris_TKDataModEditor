@@ -56,8 +56,11 @@ const char* FbsDataDict::CharaCode(uint32_t id) const
 
 uint32_t FbsDataDict::CharHash(uint32_t id) const
 {
-    auto it = m_hashes.find(id);
-    return it != m_hashes.end() ? it->second : UINT32_MAX;
+    auto it = m_codes.find(id);
+    if (it == m_codes.end()) return UINT32_MAX;
+    std::string upper = it->second;
+    for (char& c : upper) c = static_cast<char>(toupper(static_cast<unsigned char>(c)));
+    return static_cast<uint32_t>(KamuiHash::Compute(upper.c_str()));
 }
 
 std::vector<std::pair<uint32_t, std::string>> FbsDataDict::SortedChars() const
@@ -170,10 +173,8 @@ void FbsDataDict::ParseJson(const char* buf, size_t sz)
             if (id == UINT32_MAX) continue;
             std::string name = findStr(line, "name");
             std::string code = findStr(line, "code");
-            uint32_t    hash = findUint(line, "hash");
-            if (!name.empty()) m_chars[id]  = std::move(name);
-            if (!code.empty()) m_codes[id]  = std::move(code);
-            if (hash != UINT32_MAX) m_hashes[id] = hash;
+            if (!name.empty()) m_chars[id] = std::move(name);
+            if (!code.empty()) m_codes[id] = std::move(code);
         }
         else // Types: "N": "value"
         {
@@ -232,7 +233,6 @@ void FbsDataDict::Load(const std::string& jsonPath)
 
     m_chars.clear();
     m_codes.clear();
-    m_hashes.clear();
     m_types.clear();
     m_typeCodes.clear();
     m_typeHashes.clear();
@@ -257,7 +257,6 @@ void FbsDataDict::LoadFromResources()
 
     m_chars.clear();
     m_codes.clear();
-    m_hashes.clear();
     m_types.clear();
     m_typeCodes.clear();
     m_typeHashes.clear();

@@ -36,8 +36,8 @@ public:
     // character_code dict: uint32 id -> short code (e.g. "grl" for KAZUYA)
     const char* CharaCode(uint32_t id) const;
 
-    // character hash: uint32 id -> hash value (hash_0 / character_hash field)
-    // Returns UINT32_MAX if not found.
+    // Computes hash_0 / character_hash for a given character id via KamuiHash(code.toUpperCase()).
+    // Returns UINT32_MAX if the character code is unknown.
     uint32_t CharHash(uint32_t id) const;
 
     // customize_item_type dict: uint32 id -> name
@@ -63,7 +63,6 @@ private:
 
     std::unordered_map<uint32_t, std::string>  m_chars;
     std::unordered_map<uint32_t, std::string>  m_codes;
-    std::unordered_map<uint32_t, uint32_t>     m_hashes;
     std::unordered_map<uint32_t, std::string>  m_types;
     std::unordered_map<uint32_t, std::string>  m_typeCodes;
     std::unordered_map<uint32_t, uint32_t>     m_typeHashes;
