@@ -8,6 +8,13 @@
 #include <cstring>
 #include <cctype>
 #include <algorithm>
+#define NOMINMAX
+#include <windows.h>
+#include <commdlg.h>
+#pragma comment(lib, "comdlg32.lib")
+#include <cstdio>
+#include <string>
+#include <sstream>
 
 // -----------------------------------------------------------------------------
 //  All fbsdata bin files with support status
@@ -369,6 +376,131 @@ void FbsDataView::RenderEditorArea()
 }
 
 // -----------------------------------------------------------------------------
+//  customize_item_common_list TSV export / import helpers
+// -----------------------------------------------------------------------------
+
+static std::string OpenTsvSaveDialog(const wchar_t* defaultName)
+{
+    wchar_t szFile[1024] = {};
+    wcscpy_s(szFile, defaultName);
+    OPENFILENAMEW ofn    = {};
+    ofn.lStructSize  = sizeof(ofn);
+    ofn.lpstrFile    = szFile;
+    ofn.nMaxFile     = (DWORD)std::size(szFile);
+    ofn.lpstrFilter  = L"Tab-Separated Values\0*.tsv\0All Files\0*.*\0";
+    ofn.lpstrDefExt  = L"tsv";
+    ofn.Flags        = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST;
+    if (!GetSaveFileNameW(&ofn)) return {};
+    int n = WideCharToMultiByte(CP_UTF8, 0, szFile, -1, nullptr, 0, nullptr, nullptr);
+    std::string out(n - 1, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, szFile, -1, &out[0], n, nullptr, nullptr);
+    return out;
+}
+
+static std::string OpenTsvOpenDialog()
+{
+    wchar_t szFile[1024] = {};
+    OPENFILENAMEW ofn    = {};
+    ofn.lStructSize  = sizeof(ofn);
+    ofn.lpstrFile    = szFile;
+    ofn.nMaxFile     = (DWORD)std::size(szFile);
+    ofn.lpstrFilter  = L"Tab-Separated Values\0*.tsv\0All Files\0*.*\0";
+    ofn.Flags        = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+    if (!GetOpenFileNameW(&ofn)) return {};
+    int n = WideCharToMultiByte(CP_UTF8, 0, szFile, -1, nullptr, 0, nullptr, nullptr);
+    std::string out(n - 1, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, szFile, -1, &out[0], n, nullptr, nullptr);
+    return out;
+}
+
+static void ExportCommonListTsv(const std::vector<CustomizeItemCommonEntry>& entries,
+                                const std::string& path)
+{
+    FILE* f = nullptr;
+    fopen_s(&f, path.c_str(), "wb");
+    if (!f) return;
+
+    for (const auto& e : entries)
+    {
+        char line[2048];
+        int n = snprintf(line, sizeof(line),
+            "%u\t%d\t%s\t%u\t%u\t%s\t%s\t%s\t%u\t%d\t%s\t%u\t%d\t%s\t%d\t%u\t%s\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%d\t%d\n",
+            e.item_id, e.item_no, e.item_code,
+            e.hash_0, e.hash_1, e.text_key, e.package_id, e.package_sub_id,
+            e.unk_8, e.shop_sort_id,
+            e.is_enabled ? "TRUE" : "FALSE",
+            e.unk_11, e.price,
+            e.unk_13 ? "TRUE" : "FALSE",
+            e.category_no, e.hash_2,
+            e.unk_16 ? "TRUE" : "FALSE",
+            e.unk_17, e.hash_3,
+            e.unk_19, e.unk_20, e.unk_21, e.unk_22,
+            e.hash_4, e.rarity, e.sort_group);
+        fwrite(line, 1, n, f);
+    }
+    fclose(f);
+}
+
+static bool ParseBool(const char* s) { return _stricmp(s, "true") == 0 || strcmp(s, "1") == 0; }
+
+static std::vector<CustomizeItemCommonEntry> ImportCommonListTsv(const std::string& path)
+{
+    std::vector<CustomizeItemCommonEntry> result;
+    FILE* f = nullptr;
+    fopen_s(&f, path.c_str(), "rb");
+    if (!f) return result;
+
+    char line[2048];
+    while (fgets(line, sizeof(line), f))
+    {
+        // strip \r\n
+        int len = (int)strlen(line);
+        while (len > 0 && (line[len-1] == '\r' || line[len-1] == '\n')) line[--len] = '\0';
+        if (len == 0) continue;
+
+        // split by tab
+        char* cols[26] = {};
+        int col = 0;
+        char* p = line;
+        cols[col++] = p;
+        for (; *p && col < 26; ++p)
+            if (*p == '\t') { *p = '\0'; cols[col++] = p + 1; }
+        if (col < 26) continue; // skip malformed rows
+
+        CustomizeItemCommonEntry e;
+        e.item_id      = (uint32_t)strtoul(cols[0],  nullptr, 10);
+        e.item_no      = (int32_t)strtol (cols[1],  nullptr, 10);
+        strncpy_s(e.item_code,      cols[2],  _TRUNCATE);
+        e.hash_0       = (uint32_t)strtoul(cols[3],  nullptr, 10);
+        e.hash_1       = (uint32_t)strtoul(cols[4],  nullptr, 10);
+        strncpy_s(e.text_key,       cols[5],  _TRUNCATE);
+        strncpy_s(e.package_id,     cols[6],  _TRUNCATE);
+        strncpy_s(e.package_sub_id, cols[7],  _TRUNCATE);
+        e.unk_8        = (uint32_t)strtoul(cols[8],  nullptr, 10);
+        e.shop_sort_id = (int32_t)strtol (cols[9],  nullptr, 10);
+        e.is_enabled   = ParseBool(cols[10]);
+        e.unk_11       = (uint32_t)strtoul(cols[11], nullptr, 10);
+        e.price        = (int32_t)strtol (cols[12], nullptr, 10);
+        e.unk_13       = ParseBool(cols[13]);
+        e.category_no  = (int32_t)strtol (cols[14], nullptr, 10);
+        e.hash_2       = (uint32_t)strtoul(cols[15], nullptr, 10);
+        e.unk_16       = ParseBool(cols[16]);
+        e.unk_17       = (uint32_t)strtoul(cols[17], nullptr, 10);
+        e.hash_3       = (uint32_t)strtoul(cols[18], nullptr, 10);
+        e.unk_19       = (uint32_t)strtoul(cols[19], nullptr, 10);
+        e.unk_20       = (uint32_t)strtoul(cols[20], nullptr, 10);
+        e.unk_21       = (uint32_t)strtoul(cols[21], nullptr, 10);
+        e.unk_22       = (uint32_t)strtoul(cols[22], nullptr, 10);
+        e.hash_4       = (uint32_t)strtoul(cols[23], nullptr, 10);
+        e.rarity       = (int32_t)strtol (cols[24], nullptr, 10);
+        e.sort_group   = (int32_t)strtol (cols[25], nullptr, 10);
+        result.push_back(e);
+    }
+    fclose(f);
+    return result;
+}
+
+// -----------------------------------------------------------------------------
 //  customize_item_common_list table editor
 // -----------------------------------------------------------------------------
 
@@ -383,11 +515,36 @@ void FbsDataView::RenderCustomizeItemCommonEditor(ContentsBinData& bin)
     ImGui::Text("(%d entries)", (int)bin.commonEntries.size());
     ImGui::PopStyleColor();
 
-    // -- Add Entry button (right-aligned) --
-    const float addBtnW = 100.0f;
-    ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
+    // -- Export / Import / Add Entry buttons (right-aligned) --
+    const float addBtnW    = 100.0f;
+    const float ioGap      = 4.0f;
+    const float exportBtnW = 70.0f;
+    const float importBtnW = 70.0f;
+    const float totalW     = exportBtnW + ioGap + importBtnW + ioGap + addBtnW;
+    ImGui::SameLine(ImGui::GetContentRegionAvail().x - totalW + ImGui::GetCursorPosX());
+
+    if (ImGui::Button("Export", ImVec2(exportBtnW, 0)))
+    {
+        std::string path = OpenTsvSaveDialog(L"customize_item_common_list.tsv");
+        if (!path.empty())
+            ExportCommonListTsv(bin.commonEntries, path);
+    }
+    ImGui::SameLine(0, ioGap);
+    if (ImGui::Button("Import", ImVec2(importBtnW, 0)))
+    {
+        std::string path = OpenTsvOpenDialog();
+        if (!path.empty())
+        {
+            auto imported = ImportCommonListTsv(path);
+            if (!imported.empty())
+                bin.commonEntries = std::move(imported);
+        }
+    }
+    ImGui::SameLine(0, ioGap);
     if (ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
-        bin.commonEntries.push_back(CustomizeItemCommonEntry{});
+        bin.commonEntries.push_back(bin.commonEntries.empty()
+            ? CustomizeItemCommonEntry{}
+            : bin.commonEntries.back());
 
     ImGui::Separator();
 
