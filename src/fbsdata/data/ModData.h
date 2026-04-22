@@ -67,21 +67,31 @@ struct CustomizeItemCommonEntry
 
     // Default-constructs with the reference entry from the example JSON
     CustomizeItemCommonEntry()
-        : item_id(20000001), item_no(1)
-        , hash_0(2802412287u), hash_1(2325958612u)
-        , unk_8(0)
-        , shop_sort_id(1000000), is_enabled(true)
-        , unk_11(0), price(30000), unk_13(false)
-        , category_no(102)
-        , hash_2(3229833922u), unk_16(true)
-        , unk_17(0)
-        , hash_3(2609503483u)
-        , unk_19(0), unk_20(0), unk_21(0), unk_22(0)
-        , hash_4(1611006924u)
-        , rarity(2), sort_group(100)
+        : item_id(20006001), 
+        item_no(1), 
+        hash_0(2802412287u), 
+        hash_1(952745790u),
+        unk_8(0), 
+        shop_sort_id(1000000), 
+        is_enabled(true), 
+        unk_11(0), 
+        price(30000), 
+        unk_13(false), 
+        category_no(102), 
+        hash_2(3229833922u),
+        unk_16(true), 
+        unk_17(0), 
+        hash_3(2609503483u), 
+        unk_19(0), 
+        unk_20(0), 
+        unk_21(0), 
+        unk_22(0), 
+        hash_4(1611006924u), 
+        rarity(2), 
+        sort_group(100)
     {
-        strcpy_s(item_code,      "IP_grf_hed_hachimaki");
-        strcpy_s(text_key,       "TEXT_UI_000_cmn_hed_hachimaki");
+        strcpy_s(item_code,      "IP_grf_bdf_custom");
+        strcpy_s(text_key,       "TEXT_000_UI_STORYMENU_COMMON_004");
         strcpy_s(package_id,     "PAU_CUS_001");
         strcpy_s(package_sub_id, "PAU_CUS_001");
     }

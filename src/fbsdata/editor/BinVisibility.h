@@ -48,7 +48,7 @@ namespace BinVisibility {
         { "customize_item_common_list.bin",            true  },
         { "customize_item_exclusive_list.bin",         false  },
         { "customize_item_prohibit_drama_list.bin",    false  },
-        { "customize_item_unique_list.bin",            true  },
+        { "customize_item_unique_list.bin",            false  },
         { "drama_player_start_list.bin",               false  },
         { "fate_drama_player_start_list.bin",          false  },
         { "jukebox_list.bin",                          true  },
