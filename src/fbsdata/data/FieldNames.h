@@ -20,7 +20,7 @@ namespace FieldNames
         "item_id",         // id:  0 | uint32
         "item_no",         // id:  1 | uint32
         "item_code",       // id:  2 | string
-        "hash_0",          // id:  3 | uint32
+        "char_hash",       // id:  3 | uint32  (character hash, same as hash_0)
         "hash_1",          // id:  4 | uint32
         "text_key",        // id:  5 | string
         "package_id",      // id:  6 | string
@@ -337,7 +337,7 @@ namespace FieldNames
     constexpr const char* CustomizeItemUnique[22] = {
         "char_item_id",    // id:  0 | uint32
         "asset_name",      // id:  1 | string
-        "character_hash",  // id:  2 | uint32
+        "char_hash",       // id:  2 | uint32  (character hash)
         "hash_1",          // id:  3 | uint32
         "text_key",        // id:  4 | string
         "extra_text_key_1",// id:  5 | string

@@ -732,11 +732,21 @@ struct ContentsBinData
     std::vector<AssistInputEntry>            assistInputEntries;
 };
 
+// -- Mod metadata (written to mod_info.json) ----------------------------------
+struct ModInfo
+{
+    char author[256]      = {};
+    char description[512] = {};
+    char version[64]      = {};
+};
+
 // -- Top-level mod data container ---------------------------------------------
 struct ModData
 {
     std::vector<ContentsBinData> contents;
-    int selectedIndex = -1;
+    int     selectedIndex = -1;
+    ModInfo info;
+    bool    isNew = true;  // true = created via New, false = loaded from .tkmod
 
     bool HasBin(BinType type) const
     {

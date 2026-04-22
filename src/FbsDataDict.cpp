@@ -1,6 +1,7 @@
 // FbsDataDict.cpp
 // Loads data/fbsdatas/data.json — character_id and customize_item_type dicts.
 #include "FbsDataDict.h"
+#include "moveset/data/KamuiHash.h"
 #include "resource.h"
 #define NOMINMAX
 #include <windows.h>
@@ -35,10 +36,28 @@ const char* FbsDataDict::TypeName(uint32_t id) const
     return it != m_types.end() ? it->second.c_str() : nullptr;
 }
 
+const char* FbsDataDict::TypeCode(uint32_t id) const
+{
+    auto it = m_typeCodes.find(id);
+    return it != m_typeCodes.end() ? it->second.c_str() : nullptr;
+}
+
+uint32_t FbsDataDict::TypeHash(uint32_t id) const
+{
+    auto it = m_typeHashes.find(id);
+    return it != m_typeHashes.end() ? it->second : UINT32_MAX;
+}
+
 const char* FbsDataDict::CharaCode(uint32_t id) const
 {
     auto it = m_codes.find(id);
     return it != m_codes.end() ? it->second.c_str() : nullptr;
+}
+
+uint32_t FbsDataDict::CharHash(uint32_t id) const
+{
+    auto it = m_hashes.find(id);
+    return it != m_hashes.end() ? it->second : UINT32_MAX;
 }
 
 std::vector<std::pair<uint32_t, std::string>> FbsDataDict::SortedChars() const
@@ -64,7 +83,7 @@ std::vector<std::pair<uint32_t, std::string>> FbsDataDict::SortedTypes() const
 
 void FbsDataDict::ParseJson(const char* buf, size_t sz)
 {
-    enum class Section { None, Characters, Types };
+    enum class Section { None, Characters, Types, GameIds };
     Section sec = Section::None;
 
     // Extract unquoted uint32 after "key": N  (returns UINT32_MAX on failure)
@@ -110,9 +129,12 @@ void FbsDataDict::ParseJson(const char* buf, size_t sz)
         { sec = Section::Characters; continue; }
         if (line.find("\"customize_item_type\"") != std::string::npos)
         { sec = Section::Types; continue; }
+        if (line.find("\"game_item_ids\"") != std::string::npos)
+        { sec = Section::GameIds; continue; }
 
-        // End of characters array
-        if (sec == Section::Characters && line.find(']') != std::string::npos)
+        // End of array sections
+        if ((sec == Section::Characters || sec == Section::GameIds) &&
+            line.find(']') != std::string::npos)
         { sec = Section::None; continue; }
 
         // End of types object
@@ -121,15 +143,37 @@ void FbsDataDict::ParseJson(const char* buf, size_t sz)
 
         if (sec == Section::None) continue;
 
-        if (sec == Section::Characters)
+        if (sec == Section::GameIds)
         {
-            // Parse: { "id": N, "name": "...", "code": "..." }
+            // Supports: plain integers and "start-end" ranges (quoted or unquoted)
+            const char* p = line.c_str();
+            const char* e = p + line.size();
+            while (p < e) {
+                while (p < e && (*p < '0' || *p > '9')) ++p;
+                if (p >= e) break;
+                uint32_t start = 0;
+                while (p < e && *p >= '0' && *p <= '9') { start = start * 10 + (uint32_t)(*p++ - '0'); }
+                if (p < e && *p == '-') {
+                    ++p;
+                    uint32_t end = 0;
+                    while (p < e && *p >= '0' && *p <= '9') { end = end * 10 + (uint32_t)(*p++ - '0'); }
+                    for (uint32_t v = start; v <= end; ++v) m_gameIds.insert(v);
+                } else {
+                    if (start > 0) m_gameIds.insert(start);
+                }
+            }
+        }
+        else if (sec == Section::Characters)
+        {
+            // Parse: { "id": N, "name": "...", "code": "...", "hash": N }
             uint32_t id = findUint(line, "id");
             if (id == UINT32_MAX) continue;
             std::string name = findStr(line, "name");
             std::string code = findStr(line, "code");
-            if (!name.empty()) m_chars[id] = std::move(name);
-            if (!code.empty()) m_codes[id] = std::move(code);
+            uint32_t    hash = findUint(line, "hash");
+            if (!name.empty()) m_chars[id]  = std::move(name);
+            if (!code.empty()) m_codes[id]  = std::move(code);
+            if (hash != UINT32_MAX) m_hashes[id] = hash;
         }
         else // Types: "N": "value"
         {
@@ -152,7 +196,18 @@ void FbsDataDict::ParseJson(const char* buf, size_t sz)
 
             try {
                 uint32_t key = static_cast<uint32_t>(std::stoull(keyStr));
+                // Extract short code from "Name (code)" — text inside last parentheses
+                std::string code;
+                size_t p1 = valStr.rfind('(');
+                size_t p2 = valStr.rfind(')');
+                if (p1 != std::string::npos && p2 != std::string::npos && p2 > p1 + 1)
+                    code = valStr.substr(p1 + 1, p2 - p1 - 1);
                 m_types[key] = std::move(valStr);
+                if (!code.empty()) {
+                    m_typeHashes[key] = static_cast<uint32_t>(
+                        KamuiHash::Compute(code.c_str()));
+                    m_typeCodes[key] = std::move(code);
+                }
             } catch (...) {}
         }
     }
@@ -177,7 +232,11 @@ void FbsDataDict::Load(const std::string& jsonPath)
 
     m_chars.clear();
     m_codes.clear();
+    m_hashes.clear();
     m_types.clear();
+    m_typeCodes.clear();
+    m_typeHashes.clear();
+    m_gameIds.clear();
     ParseJson(buf.data(), buf.size());
     m_loaded = !m_chars.empty();
 }
@@ -198,7 +257,11 @@ void FbsDataDict::LoadFromResources()
 
     m_chars.clear();
     m_codes.clear();
+    m_hashes.clear();
     m_types.clear();
+    m_typeCodes.clear();
+    m_typeHashes.clear();
+    m_gameIds.clear();
     ParseJson(data, static_cast<size_t>(sz));
     m_loaded = !m_chars.empty();
 }

@@ -265,13 +265,59 @@ static std::string BuildCustomizeItemCommonJson(const ContentsBinData& bin)
     return j;
 }
 
-static std::string BuildModInfoJson()
+static std::string EscapeJsonStr(const char* s)
 {
-    return "{\n"
-           "  \"Author\": \"\",\n"
-           "  \"Description\": \"\",\n"
-           "  \"Version\": \"1.0.0\"\n"
-           "}\n";
+    std::string r;
+    for (const char* p = s; *p; ++p)
+    {
+        if      (*p == '"')  r += "\\\"";
+        else if (*p == '\\') r += "\\\\";
+        else if (*p == '\n') r += "\\n";
+        else if (*p == '\r') r += "\\r";
+        else                 r += *p;
+    }
+    return r;
+}
+
+static std::string BuildModInfoJson(const ModInfo& info)
+{
+    std::string j = "{\n";
+    j += "  \"Author\": \""      + EscapeJsonStr(info.author)      + "\",\n";
+    j += "  \"Description\": \"" + EscapeJsonStr(info.description) + "\",\n";
+    j += "  \"Version\": \""     + EscapeJsonStr(info.version)     + "\"\n";
+    j += "}\n";
+    return j;
+}
+
+static void ParseModInfoJson(const char* buf, size_t sz, ModInfo& info)
+{
+    std::string s(buf, sz);
+    auto findStr = [&](const char* key, char* out, size_t outSz) {
+        std::string pat = std::string("\"") + key + "\"";
+        size_t p = s.find(pat);
+        if (p == std::string::npos) return;
+        size_t c = s.find(':', p + pat.size());
+        if (c == std::string::npos) return;
+        size_t q1 = s.find('"', c + 1);
+        if (q1 == std::string::npos) return;
+        std::string val;
+        size_t q = q1 + 1;
+        while (q < s.size() && s[q] != '"') {
+            if (s[q] == '\\' && q + 1 < s.size()) {
+                ++q;
+                if      (s[q] == 'n')  val += '\n';
+                else if (s[q] == 'r')  val += '\r';
+                else                   val += s[q];
+            } else {
+                val += s[q];
+            }
+            ++q;
+        }
+        strncpy_s(out, outSz, val.c_str(), _TRUNCATE);
+    };
+    findStr("Author",      info.author,      sizeof(info.author));
+    findStr("Description", info.description, sizeof(info.description));
+    findStr("Version",     info.version,     sizeof(info.version));
 }
 
 // ???????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????//  JSON parser helpers (minimal, for known structures)
@@ -2451,7 +2497,7 @@ namespace TkmodIO
         {
             ZipEntry e;
             e.name = "mod_info.json";
-            const std::string json = BuildModInfoJson();
+            const std::string json = BuildModInfoJson(data.info);
             e.data.assign(json.begin(), json.end());
             entries.push_back(std::move(e));
         }
@@ -2529,7 +2575,11 @@ namespace TkmodIO
 
         for (const auto& zf : zipFiles)
         {
-            if (zf.name == "mod_info.json") continue;  // future: parse author/desc/ver
+            if (zf.name == "mod_info.json") {
+                ParseModInfoJson(reinterpret_cast<const char*>(zf.data.data()),
+                                 zf.data.size(), loaded.info);
+                continue;
+            }
 
             // Expect "fbsdata_mod/<binname>.json"
             const std::string prefix = "fbsdata_mod/";
@@ -2769,6 +2819,7 @@ namespace TkmodIO
 
         if (loaded.contents.empty()) return false;
 
+        loaded.isNew = false;
         data = std::move(loaded);
         return true;
     }

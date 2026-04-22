@@ -126,16 +126,36 @@ static const float LIST_WIDTH = 290.0f;  // Contents List panel width
 //  Top toolbar
 // -----------------------------------------------------------------------------
 
+void FbsDataView::DoSave()
+{
+    m_lastSaveOk     = TkmodIO::SaveDialog(m_data);
+    m_showSaveResult = true;
+    m_statusTimer    = 3.0f;
+}
+
 void FbsDataView::RenderToolbar()
 {
     ImGui::SetCursorPos(ImVec2(10.0f, 8.0f));
 
+    if (ImGui::Button("  New  "))
+    {
+        m_data      = ModData{};
+        m_modActive = true;
+    }
+    ImGui::SameLine(0, 6.0f);
+
+    if (!m_modActive) ImGui::BeginDisabled();
     if (ImGui::Button("  Save  "))
     {
-        m_lastSaveOk     = TkmodIO::SaveDialog(m_data);
-        m_showSaveResult = true;
-        m_statusTimer    = 3.0f;
+        bool infoEmpty = (m_data.info.author[0]      == '\0' &&
+                          m_data.info.description[0]  == '\0' &&
+                          m_data.info.version[0]      == '\0');
+        if (infoEmpty)
+            m_saveConfirmPending = true;
+        else
+            DoSave();
     }
+    if (!m_modActive) ImGui::EndDisabled();
     ImGui::SameLine(0, 6.0f);
 
     if (ImGui::Button("  Load  "))
@@ -143,11 +163,12 @@ void FbsDataView::RenderToolbar()
         ModData loaded;
         if (TkmodIO::LoadDialog(loaded))
         {
-            m_data = std::move(loaded);
+            m_data      = std::move(loaded);
+            m_modActive = true;
         }
     }
 
-    // Transient status message after save
+    // Transient status message
     if (m_showSaveResult)
     {
         ImGui::SameLine(0, 16.0f);
@@ -162,9 +183,21 @@ void FbsDataView::RenderToolbar()
             ImGui::Text("Save failed.");
         }
         ImGui::PopStyleColor();
-
         m_statusTimer -= ImGui::GetIO().DeltaTime;
         if (m_statusTimer <= 0.0f) m_showSaveResult = false;
+    }
+
+    // Right-aligned: Information Edit button (only when a mod is active)
+    if (m_modActive)
+    {
+        const float infoBtnW = 160.0f;
+        const float rightX   = ImGui::GetWindowWidth() - infoBtnW - 10.0f;
+        if (rightX > ImGui::GetCursorPosX())
+        {
+            ImGui::SameLine(rightX);
+            if (ImGui::Button("Information Edit", ImVec2(infoBtnW, 0.f)))
+                m_infoEditPending = true;
+        }
     }
 }
 
@@ -177,7 +210,8 @@ bool FbsDataView::LoadFromPath(const std::string& path)
     ModData loaded;
     if (!TkmodIO::LoadFromPath(path, loaded))
         return false;
-    m_data = std::move(loaded);
+    m_data      = std::move(loaded);
+    m_modActive = true;
     return true;
 }
 
@@ -194,6 +228,8 @@ void FbsDataView::Render()
     const float totalH = ImGui::GetContentRegionAvail().y;
     const float totalW = ImGui::GetContentRegionAvail().x;
     const float editorW = totalW - LIST_WIDTH - 1.0f;
+
+    if (!m_modActive) ImGui::BeginDisabled();
 
     // -- Editor area (left) --
     ImGui::BeginChild("##FbsEditor", ImVec2(editorW, totalH), false,
@@ -218,6 +254,12 @@ void FbsDataView::Render()
     ImGui::PopStyleColor();
     RenderContentsList(LIST_WIDTH);
     ImGui::EndChild();
+
+    if (!m_modActive) ImGui::EndDisabled();
+
+    // Popups at the top-level window context (not inside child windows)
+    RenderInfoEditPopup();
+    RenderSaveConfirmPopup();
 }
 
 // -----------------------------------------------------------------------------
@@ -429,7 +471,9 @@ void FbsDataView::RenderCustomizeItemCommonEditor(ContentsBinData& bin)
             snprintf(idLabel, sizeof(idLabel), "%u##iid", e.item_id);
             if (ImGui::Button(idLabel, ImVec2(-FLT_MIN, 0.f))) {
                 auto& s = m_itemIdEdit;
-                s.target = &e.item_id;
+                s.target      = &e.item_id;
+                s.hashTarget  = &e.hash_0;
+                s.hash1Target = &e.hash_1;
                 s.fixedA = 2;
                 uint32_t v = e.item_id;
                 s.XX = (v / 100000) % 100;
@@ -1972,7 +2016,9 @@ void FbsDataView::RenderCustomizeItemUniqueListEditor(ContentsBinData& bin)
                         snprintf(cidLabel, sizeof(cidLabel), "%u##cid", e.char_item_id);
                         if (ImGui::Button(cidLabel, ImVec2(-FLT_MIN, 0.f))) {
                             auto& s = m_itemIdEdit;
-                            s.target = &e.char_item_id;
+                            s.target      = &e.char_item_id;
+                            s.hashTarget  = &e.character_hash;
+                            s.hash1Target = &e.hash_1;
                             s.fixedA = 1;
                             uint32_t v = e.char_item_id;
                             s.XX = (v / 100000) % 100;
@@ -2065,7 +2111,9 @@ void FbsDataView::RenderCustomizeItemUniqueListEditor(ContentsBinData& bin)
                         snprintf(bcidLabel, sizeof(bcidLabel), "%u##bcid", e.char_item_id);
                         if (ImGui::Button(bcidLabel, ImVec2(-FLT_MIN, 0.f))) {
                             auto& s = m_itemIdEdit;
-                            s.target = &e.char_item_id;
+                            s.target      = &e.char_item_id;
+                            s.hashTarget  = nullptr;
+                            s.hash1Target = nullptr;
                             s.fixedA = 1;
                             uint32_t v = e.char_item_id;
                             s.XX = (v / 100000) % 100;
@@ -3703,10 +3751,24 @@ void FbsDataView::RenderItemIdPopup()
                         + (uint32_t)s.ZZZ;
     ImGui::Separator();
     ImGui::Text("Preview : %u", previewVal);
+    if (FbsDataDict::Get().IsGameItemId(previewVal))
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.3f, 0.3f, 1.0f));
+        ImGui::TextUnformatted("Caution: The item ID conflicts with the base game.");
+        ImGui::PopStyleColor();
+    }
 
     ImGui::Spacing();
     if (ImGui::Button("Save") && s.target) {
         *s.target = previewVal;
+        if (s.hashTarget) {
+            uint32_t h = FbsDataDict::Get().CharHash((uint32_t)s.XX);
+            if (h != UINT32_MAX) *s.hashTarget = h;
+        }
+        if (s.hash1Target) {
+            uint32_t h = FbsDataDict::Get().TypeHash((uint32_t)s.YY);
+            if (h != UINT32_MAX) *s.hash1Target = h;
+        }
         ImGui::CloseCurrentPopup();
     }
     ImGui::SameLine();
@@ -3716,3 +3778,76 @@ void FbsDataView::RenderItemIdPopup()
     ImGui::EndPopup();
 }
 
+// -----------------------------------------------------------------------------
+//  Mod info edit popup
+// -----------------------------------------------------------------------------
+
+void FbsDataView::RenderInfoEditPopup()
+{
+    if (m_infoEditPending) {
+        ImGui::OpenPopup("##info_edit");
+        m_infoEditPending = false;
+    }
+    if (!ImGui::BeginPopup("##info_edit")) return;
+
+    ModInfo& info    = m_data.info;
+    const bool isNew = m_data.isNew;
+
+    ImGui::Text("Mod Information");
+    ImGui::Separator();
+
+    // Author
+    ImGui::Text("Author");
+    ImGui::SameLine(100.0f);
+    ImGui::SetNextItemWidth(260.0f);
+    if (!isNew) ImGui::BeginDisabled();
+    ImGui::InputText("##info_author", info.author, sizeof(info.author));
+    if (!isNew) ImGui::EndDisabled();
+
+    // Description
+    ImGui::Text("Description");
+    ImGui::SameLine(100.0f);
+    ImGui::SetNextItemWidth(260.0f);
+    if (!isNew) ImGui::BeginDisabled();
+    ImGui::InputText("##info_desc", info.description, sizeof(info.description));
+    if (!isNew) ImGui::EndDisabled();
+
+    // Version (always editable)
+    ImGui::Text("Version");
+    ImGui::SameLine(100.0f);
+    ImGui::SetNextItemWidth(260.0f);
+    ImGui::InputText("##info_ver", info.version, sizeof(info.version));
+
+    ImGui::Spacing();
+    if (ImGui::Button("Close"))
+        ImGui::CloseCurrentPopup();
+
+    ImGui::EndPopup();
+}
+
+// -----------------------------------------------------------------------------
+//  Save confirmation popup (shown when mod info is empty)
+// -----------------------------------------------------------------------------
+
+void FbsDataView::RenderSaveConfirmPopup()
+{
+    if (m_saveConfirmPending) {
+        ImGui::OpenPopup("##save_confirm");
+        m_saveConfirmPending = false;
+    }
+    if (!ImGui::BeginPopupModal("##save_confirm", nullptr,
+                                ImGuiWindowFlags_AlwaysAutoResize)) return;
+
+    ImGui::TextUnformatted("Mod info is not filled in. Save anyway?");
+    ImGui::Spacing();
+
+    if (ImGui::Button("Confirm", ImVec2(100.0f, 0.f))) {
+        ImGui::CloseCurrentPopup();
+        DoSave();
+    }
+    ImGui::SameLine(0, 8.0f);
+    if (ImGui::Button("Cancel", ImVec2(100.0f, 0.f)))
+        ImGui::CloseCurrentPopup();
+
+    ImGui::EndPopup();
+}

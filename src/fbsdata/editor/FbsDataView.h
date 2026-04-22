@@ -15,6 +15,8 @@ struct ItemIdEditState {
     char      xxBuf[8]    = {};
     char      yyBuf[8]    = {};
     uint32_t* target      = nullptr;
+    uint32_t* hashTarget  = nullptr; // pointer to hash_0 / character_hash field, auto-updated on Save
+    uint32_t* hash1Target = nullptr; // pointer to hash_1 field, auto-updated on Save
 };
 
 // FbsData editor view -- loads/saves .tkmod files and renders per-bin editors.
@@ -35,6 +37,9 @@ private:
     void RenderContentsList(float listWidth);
     void RenderAddPopup();
     void RenderItemIdPopup();
+    void RenderInfoEditPopup();
+    void RenderSaveConfirmPopup();
+    void DoSave();
 
     // Per-type editors
     void RenderCustomizeItemCommonEditor(ContentsBinData& bin);
@@ -69,7 +74,10 @@ public:
     ModData& GetModData() { return m_data; }
 
 private:
-    bool    m_showSaveResult = false;
-    bool    m_lastSaveOk     = false;
-    float   m_statusTimer    = 0.0f;
+    bool    m_modActive          = false; // true after New or successful Load
+    bool    m_showSaveResult    = false;
+    bool    m_lastSaveOk        = false;
+    float   m_statusTimer       = 0.0f;
+    bool    m_infoEditPending   = false;  // open info edit popup next frame
+    bool    m_saveConfirmPending = false; // open save-without-info confirm popup next frame
 };
