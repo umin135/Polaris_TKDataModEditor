@@ -25,8 +25,8 @@ namespace DefaultValues
         strcpy_s(e.package_id,     "PAU_CUS_001");
         strcpy_s(e.package_sub_id, "PAU_CUS_001");
         e.unk_8        = 0;
-        e.shop_sort_id = 1000000;
-        e.is_enabled   = true;
+        e.shop_sort_id = 0;
+        e.is_enabled   = true;              // Visibility
         e.unk_11       = 0;
         e.price        = 30000;
         e.unk_13       = false;
@@ -56,21 +56,21 @@ namespace DefaultValues
         strcpy_s(e.text_key,         "TEXT_000_UI_STORYMENU_COMMON_004");
         strcpy_s(e.extra_text_key_1, "PAU_CUS_001");
         strcpy_s(e.extra_text_key_2, "PAU_CUS_001");
-        e.flag_7         = false;
-        e.unk_8          = 0;
-        e.flag_9         = false;
-        e.unk_10         = 0;
-        e.price          = 0;
+        e.flag_7         = false;               // Default
+        e.unk_8          = 0;                   // 
+        e.flag_9         = true;               // Visibility
+        e.unk_10         = 0;                   // Rarity
+        e.price          = 0;                   // Price
         e.unk_12         = 0;
         e.unk_13         = 0;
-        e.hash_2         = 0;
+        e.hash_2         = 3229833922;           // hash 
         e.flag_15        = false;
         e.unk_16         = 0;
-        e.hash_3         = 0;
+        e.hash_3         = 637302416;
         e.unk_18         = 0;
         e.unk_19         = 0;
         e.unk_20         = 0;
-        e.unk_21         = 0;
+        e.unk_21         = 100;
         return e;
     }
 

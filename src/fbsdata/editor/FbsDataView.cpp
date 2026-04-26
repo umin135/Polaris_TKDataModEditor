@@ -2,6 +2,7 @@
 #include "fbsdata/editor/FbsDataView.h"
 #include "fbsdata/data/FieldNames.h"
 #include "fbsdata/data/DefaultValues.h"
+#include "fbsdata/editor/ColumnWidths.h"
 #include "fbsdata/io/TkmodIO.h"
 #include "fbsdata/editor/BinVisibility.h"
 #include "FbsDataDict.h"
@@ -759,22 +760,16 @@ void FbsDataView::RenderCustomizeItemCommonEditor(ContentsBinData& bin)
     ImGui::TableSetupScrollFreeze(1, 1);
 
     // All 26 schema fields (id 0..25)
-    static const struct { int id; float w; } k_Cols[] = {
-        {  0, 95.0f }, {  1, 62.0f }, {  2, 195.0f },
-        {  3, 95.0f }, {  4, 95.0f }, {  5, 215.0f },
-        {  6, 115.0f }, {  7, 115.0f }, {  8, 75.0f },
-        {  9, 95.0f }, { 10, 78.0f }, { 11, 75.0f },
-        { 12, 82.0f }, { 13, 60.0f }, { 14, 95.0f },
-        { 15, 95.0f }, { 16, 60.0f }, { 17, 75.0f },
-        { 18, 95.0f }, { 19, 75.0f }, { 20, 75.0f },
-        { 21, 75.0f }, { 22, 75.0f }, { 23, 95.0f },
-        { 24, 62.0f }, { 25, 82.0f },
+    static const int k_ColIds[] = {
+         0,  1,  2,  3,  4,  5,  6,  7,  8,  9,
+        10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+        20, 21, 22, 23, 24, 25,
     };
-    constexpr int k_ColCount = (int)(sizeof(k_Cols) / sizeof(k_Cols[0]));
-    ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 52.0f);
+    constexpr int k_ColCount = (int)(sizeof(k_ColIds) / sizeof(k_ColIds[0]));
+    ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
     for (int ci = 0; ci < k_ColCount; ++ci)
-        ImGui::TableSetupColumn(FieldNames::CommonItem[k_Cols[ci].id],
-                                ImGuiTableColumnFlags_WidthFixed, k_Cols[ci].w);
+        ImGui::TableSetupColumn(FieldNames::CommonItem[k_ColIds[ci]],
+                                ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kCommon[k_ColIds[ci]]);
     ImGui::TableHeadersRow();
 
     // Build duplicate-id detection map (hash → count)
@@ -914,27 +909,10 @@ void FbsDataView::RenderCharacterListEditor(ContentsBinData& bin)
 
     ImGui::TableSetupScrollFreeze(1, 1);
 
-    static const float k_CharWidths[15] = {
-        130.0f,  // id  0
-         95.0f,  // id  1
-         78.0f,  // id  2
-         88.0f,  // id  3
-        100.0f,  // id  4
-        105.0f,  // id  5
-         78.0f,  // id  6
-         82.0f,  // id  7
-        170.0f,  // id  8
-        150.0f,  // id  9
-        150.0f,  // id 10
-        150.0f,  // id 11
-        155.0f,  // id 12
-        130.0f,  // id 13
-        130.0f,  // id 14
-    };
-    ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 52.0f);
+    ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
     for (int fi = 0; fi < FieldNames::CharacterCount; ++fi)
         ImGui::TableSetupColumn(FieldNames::Character[fi],
-                                ImGuiTableColumnFlags_WidthFixed, k_CharWidths[fi]);
+                                ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kCharacter[fi]);
     ImGui::TableHeadersRow();
 
     int deleteIdx = -1;
@@ -1038,11 +1016,10 @@ void FbsDataView::RenderCustomizeItemExclusiveListEditor(ContentsBinData& bin)
             return;
 
         ImGui::TableSetupScrollFreeze(1, 1);
-        static const float k_RuleW[4] = { 95.0f, 95.0f, 82.0f, 95.0f };
-        ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 52.0f);
+        ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
         for (int fi = 0; fi < FieldNames::ExclusiveRuleCount; ++fi)
             ImGui::TableSetupColumn(FieldNames::ExclusiveRule[fi],
-                                    ImGuiTableColumnFlags_WidthFixed, k_RuleW[fi]);
+                                    ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kExclusiveRule[fi]);
         ImGui::TableHeadersRow();
 
         int deleteIdx = -1;
@@ -1096,11 +1073,10 @@ void FbsDataView::RenderCustomizeItemExclusiveListEditor(ContentsBinData& bin)
             return;
 
         ImGui::TableSetupScrollFreeze(1, 1);
-        static const float k_PairW[3] = { 95.0f, 95.0f, 82.0f };
-        ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 52.0f);
+        ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
         for (int fi = 0; fi < FieldNames::ExclusivePairCount; ++fi)
             ImGui::TableSetupColumn(FieldNames::ExclusivePair[fi],
-                                    ImGuiTableColumnFlags_WidthFixed, k_PairW[fi]);
+                                    ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kExclusivePair[fi]);
         ImGui::TableHeadersRow();
 
         int deleteIdx = -1;
@@ -1410,9 +1386,9 @@ void FbsDataView::RenderAreaListEditor(ContentsBinData& bin)
         return;
 
     ImGui::TableSetupScrollFreeze(1, 1);
-    ImGui::TableSetupColumn("#",                            ImGuiTableColumnFlags_WidthFixed, 52.0f);
-    ImGui::TableSetupColumn(FieldNames::AreaEntry[0],       ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::AreaEntry[1],       ImGuiTableColumnFlags_WidthFixed, 200.0f);
+    ImGui::TableSetupColumn("#",                            ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+    ImGui::TableSetupColumn(FieldNames::AreaEntry[0],       ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kArea[0]);
+    ImGui::TableSetupColumn(FieldNames::AreaEntry[1],       ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kArea[1]);
     ImGui::TableHeadersRow();
 
     int deleteIdx = -1;
@@ -1489,9 +1465,9 @@ void FbsDataView::RenderBattleSubtitleInfoEditor(ContentsBinData& bin)
         return;
 
     ImGui::TableSetupScrollFreeze(1, 1);
-    ImGui::TableSetupColumn("#",                                 ImGuiTableColumnFlags_WidthFixed, 52.0f);
-    ImGui::TableSetupColumn(FieldNames::BattleSubtitleInfo[0],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::BattleSubtitleInfo[1],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
+    ImGui::TableSetupColumn("#",                                 ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+    ImGui::TableSetupColumn(FieldNames::BattleSubtitleInfo[0],   ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBattleSubtitle[0]);
+    ImGui::TableSetupColumn(FieldNames::BattleSubtitleInfo[1],   ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBattleSubtitle[1]);
     ImGui::TableHeadersRow();
 
     int deleteIdx = -1;
@@ -1564,12 +1540,12 @@ void FbsDataView::RenderFateDramaPlayerStartListEditor(ContentsBinData& bin)
         return;
 
     ImGui::TableSetupScrollFreeze(1, 1);
-    ImGui::TableSetupColumn("#",                                   ImGuiTableColumnFlags_WidthFixed, 52.0f);
-    ImGui::TableSetupColumn(FieldNames::FateDramaPlayerStart[0],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::FateDramaPlayerStart[1],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::FateDramaPlayerStart[2],   ImGuiTableColumnFlags_WidthFixed, 80.0f);
-    ImGui::TableSetupColumn(FieldNames::FateDramaPlayerStart[3],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::FateDramaPlayerStart[4],   ImGuiTableColumnFlags_WidthFixed, 78.0f);
+    ImGui::TableSetupColumn("#",                                   ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+    ImGui::TableSetupColumn(FieldNames::FateDramaPlayerStart[0],   ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kFateDramaPlayerStart[0]);
+    ImGui::TableSetupColumn(FieldNames::FateDramaPlayerStart[1],   ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kFateDramaPlayerStart[1]);
+    ImGui::TableSetupColumn(FieldNames::FateDramaPlayerStart[2],   ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kFateDramaPlayerStart[2]);
+    ImGui::TableSetupColumn(FieldNames::FateDramaPlayerStart[3],   ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kFateDramaPlayerStart[3]);
+    ImGui::TableSetupColumn(FieldNames::FateDramaPlayerStart[4],   ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kFateDramaPlayerStart[4]);
     ImGui::TableHeadersRow();
 
     int deleteIdx = -1;
@@ -1647,16 +1623,9 @@ void FbsDataView::RenderJukeboxListEditor(ContentsBinData& bin)
         return;
 
     ImGui::TableSetupScrollFreeze(1, 1);
-    ImGui::TableSetupColumn("#",                           ImGuiTableColumnFlags_WidthFixed, 52.0f);
-    ImGui::TableSetupColumn(FieldNames::JukeboxEntry[0],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::JukeboxEntry[1],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::JukeboxEntry[2],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::JukeboxEntry[3],   ImGuiTableColumnFlags_WidthFixed, 200.0f);
-    ImGui::TableSetupColumn(FieldNames::JukeboxEntry[4],   ImGuiTableColumnFlags_WidthFixed, 200.0f);
-    ImGui::TableSetupColumn(FieldNames::JukeboxEntry[5],   ImGuiTableColumnFlags_WidthFixed, 200.0f);
-    ImGui::TableSetupColumn(FieldNames::JukeboxEntry[6],   ImGuiTableColumnFlags_WidthFixed, 200.0f);
-    ImGui::TableSetupColumn(FieldNames::JukeboxEntry[7],   ImGuiTableColumnFlags_WidthFixed, 200.0f);
-    ImGui::TableSetupColumn(FieldNames::JukeboxEntry[8],   ImGuiTableColumnFlags_WidthFixed, 200.0f);
+    ImGui::TableSetupColumn("#",                           ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+    for (int fi = 0; fi < 9; ++fi)
+        ImGui::TableSetupColumn(FieldNames::JukeboxEntry[fi], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kJukebox[fi]);
     ImGui::TableHeadersRow();
 
     int deleteIdx = -1;
@@ -1740,12 +1709,9 @@ void FbsDataView::RenderSeriesListEditor(ContentsBinData& bin)
         return;
 
     ImGui::TableSetupScrollFreeze(1, 1);
-    ImGui::TableSetupColumn("#",                           ImGuiTableColumnFlags_WidthFixed, 52.0f);
-    ImGui::TableSetupColumn(FieldNames::SeriesEntry[0],    ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::SeriesEntry[1],    ImGuiTableColumnFlags_WidthFixed, 180.0f);
-    ImGui::TableSetupColumn(FieldNames::SeriesEntry[2],    ImGuiTableColumnFlags_WidthFixed, 180.0f);
-    ImGui::TableSetupColumn(FieldNames::SeriesEntry[3],    ImGuiTableColumnFlags_WidthFixed, 180.0f);
-    ImGui::TableSetupColumn(FieldNames::SeriesEntry[4],    ImGuiTableColumnFlags_WidthFixed, 180.0f);
+    ImGui::TableSetupColumn("#",                           ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+    for (int fi = 0; fi < 5; ++fi)
+        ImGui::TableSetupColumn(FieldNames::SeriesEntry[fi], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kSeries[fi]);
     ImGui::TableHeadersRow();
 
     int deleteIdx = -1;
@@ -1826,15 +1792,10 @@ void FbsDataView::RenderTamMissionListEditor(ContentsBinData& bin)
         return;
 
     ImGui::TableSetupScrollFreeze(1, 1);
-    ImGui::TableSetupColumn("#",                              ImGuiTableColumnFlags_WidthFixed, 52.0f);
-    ImGui::TableSetupColumn(FieldNames::TamMissionEntry[0],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::TamMissionEntry[2],   ImGuiTableColumnFlags_WidthFixed, 80.0f);
-    ImGui::TableSetupColumn(FieldNames::TamMissionEntry[3],   ImGuiTableColumnFlags_WidthFixed, 200.0f);
-    ImGui::TableSetupColumn(FieldNames::TamMissionEntry[4],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::TamMissionEntry[5],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::TamMissionEntry[6],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::TamMissionEntry[7],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::TamMissionEntry[8],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
+    static const int k_TamIds[] = { 0, 2, 3, 4, 5, 6, 7, 8 };
+    ImGui::TableSetupColumn("#",                              ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+    for (int ci = 0; ci < 8; ++ci)
+        ImGui::TableSetupColumn(FieldNames::TamMissionEntry[k_TamIds[ci]], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kTamMission[ci]);
     ImGui::TableHeadersRow();
 
     int deleteIdx = -1;
@@ -1918,15 +1879,10 @@ void FbsDataView::RenderDramaPlayerStartListEditor(ContentsBinData& bin)
         return;
 
     ImGui::TableSetupScrollFreeze(1, 1);
-    ImGui::TableSetupColumn("#",                              ImGuiTableColumnFlags_WidthFixed, 52.0f);
-    ImGui::TableSetupColumn(FieldNames::DramaPlayerStart[0],  ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::DramaPlayerStart[2],  ImGuiTableColumnFlags_WidthFixed, 80.0f);
-    ImGui::TableSetupColumn(FieldNames::DramaPlayerStart[3],  ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::DramaPlayerStart[4],  ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::DramaPlayerStart[6],  ImGuiTableColumnFlags_WidthFixed, 80.0f);
-    ImGui::TableSetupColumn(FieldNames::DramaPlayerStart[7],  ImGuiTableColumnFlags_WidthFixed, 80.0f);
-    ImGui::TableSetupColumn(FieldNames::DramaPlayerStart[8],  ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::DramaPlayerStart[10], ImGuiTableColumnFlags_WidthFixed, 80.0f);
+    static const int k_DramaIds[] = { 0, 2, 3, 4, 6, 7, 8, 10 };
+    ImGui::TableSetupColumn("#",                              ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+    for (int ci = 0; ci < 8; ++ci)
+        ImGui::TableSetupColumn(FieldNames::DramaPlayerStart[k_DramaIds[ci]], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kDramaPlayerStart[ci]);
     ImGui::TableHeadersRow();
 
     int deleteIdx = -1;
@@ -2012,20 +1968,10 @@ void FbsDataView::RenderStageListEditor(ContentsBinData& bin)
         return;
 
     ImGui::TableSetupScrollFreeze(1, 1);
-    ImGui::TableSetupColumn("#",                          ImGuiTableColumnFlags_WidthFixed, 52.0f);
-    ImGui::TableSetupColumn(FieldNames::StageEntry[0],    ImGuiTableColumnFlags_WidthFixed, 140.0f);
-    ImGui::TableSetupColumn(FieldNames::StageEntry[1],    ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::StageEntry[2],    ImGuiTableColumnFlags_WidthFixed, 82.0f);
-    ImGui::TableSetupColumn(FieldNames::StageEntry[3],    ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::StageEntry[4],    ImGuiTableColumnFlags_WidthFixed, 80.0f);
-    ImGui::TableSetupColumn(FieldNames::StageEntry[17],   ImGuiTableColumnFlags_WidthFixed, 82.0f);
-    ImGui::TableSetupColumn(FieldNames::StageEntry[18],   ImGuiTableColumnFlags_WidthFixed, 82.0f);
-    ImGui::TableSetupColumn(FieldNames::StageEntry[21],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::StageEntry[22],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::StageEntry[28],   ImGuiTableColumnFlags_WidthFixed, 130.0f);
-    ImGui::TableSetupColumn(FieldNames::StageEntry[29],   ImGuiTableColumnFlags_WidthFixed, 200.0f);
-    ImGui::TableSetupColumn(FieldNames::StageEntry[34],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::StageEntry[36],   ImGuiTableColumnFlags_WidthFixed, 82.0f);
+    static const int k_StageIds[] = { 0, 1, 2, 3, 4, 17, 18, 21, 22, 28, 29, 34, 36 };
+    ImGui::TableSetupColumn("#",                          ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+    for (int ci = 0; ci < 13; ++ci)
+        ImGui::TableSetupColumn(FieldNames::StageEntry[k_StageIds[ci]], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kStage[ci]);
     ImGui::TableHeadersRow();
 
     int deleteIdx = -1;
@@ -2121,16 +2067,10 @@ void FbsDataView::RenderBallPropertyListEditor(ContentsBinData& bin)
         return;
 
     ImGui::TableSetupScrollFreeze(1, 1);
-    ImGui::TableSetupColumn("#",                                ImGuiTableColumnFlags_WidthFixed, 52.0f);
-    ImGui::TableSetupColumn(FieldNames::BallPropertyEntry[0],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::BallPropertyEntry[1],   ImGuiTableColumnFlags_WidthFixed, 140.0f);
-    ImGui::TableSetupColumn(FieldNames::BallPropertyEntry[2],   ImGuiTableColumnFlags_WidthFixed, 140.0f);
-    ImGui::TableSetupColumn(FieldNames::BallPropertyEntry[8],   ImGuiTableColumnFlags_WidthFixed, 80.0f);
-    ImGui::TableSetupColumn(FieldNames::BallPropertyEntry[9],   ImGuiTableColumnFlags_WidthFixed, 80.0f);
-    ImGui::TableSetupColumn(FieldNames::BallPropertyEntry[10],  ImGuiTableColumnFlags_WidthFixed, 80.0f);
-    ImGui::TableSetupColumn(FieldNames::BallPropertyEntry[11],  ImGuiTableColumnFlags_WidthFixed, 80.0f);
-    ImGui::TableSetupColumn(FieldNames::BallPropertyEntry[12],  ImGuiTableColumnFlags_WidthFixed, 80.0f);
-    ImGui::TableSetupColumn(FieldNames::BallPropertyEntry[13],  ImGuiTableColumnFlags_WidthFixed, 80.0f);
+    static const int k_BallPropIds[] = { 0, 1, 2, 8, 9, 10, 11, 12, 13 };
+    ImGui::TableSetupColumn("#",                                ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+    for (int ci = 0; ci < 9; ++ci)
+        ImGui::TableSetupColumn(FieldNames::BallPropertyEntry[k_BallPropIds[ci]], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBallProperty[ci]);
     ImGui::TableHeadersRow();
 
     int deleteIdx = -1;
@@ -2224,17 +2164,10 @@ void FbsDataView::RenderBodyCylinderDataListEditor(ContentsBinData& bin)
         return;
 
     ImGui::TableSetupScrollFreeze(1, 1);
-    ImGui::TableSetupColumn("#",                                    ImGuiTableColumnFlags_WidthFixed, 52.0f);
-    ImGui::TableSetupColumn(FieldNames::BodyCylinderDataEntry[0],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::BodyCylinderDataEntry[1],   ImGuiTableColumnFlags_WidthFixed, 80.0f);
-    ImGui::TableSetupColumn(FieldNames::BodyCylinderDataEntry[2],   ImGuiTableColumnFlags_WidthFixed, 80.0f);
-    ImGui::TableSetupColumn(FieldNames::BodyCylinderDataEntry[3],   ImGuiTableColumnFlags_WidthFixed, 80.0f);
-    ImGui::TableSetupColumn(FieldNames::BodyCylinderDataEntry[8],   ImGuiTableColumnFlags_WidthFixed, 80.0f);
-    ImGui::TableSetupColumn(FieldNames::BodyCylinderDataEntry[9],   ImGuiTableColumnFlags_WidthFixed, 80.0f);
-    ImGui::TableSetupColumn(FieldNames::BodyCylinderDataEntry[10],  ImGuiTableColumnFlags_WidthFixed, 80.0f);
-    ImGui::TableSetupColumn(FieldNames::BodyCylinderDataEntry[15],  ImGuiTableColumnFlags_WidthFixed, 80.0f);
-    ImGui::TableSetupColumn(FieldNames::BodyCylinderDataEntry[16],  ImGuiTableColumnFlags_WidthFixed, 80.0f);
-    ImGui::TableSetupColumn(FieldNames::BodyCylinderDataEntry[17],  ImGuiTableColumnFlags_WidthFixed, 80.0f);
+    static const int k_BodCylIds[] = { 0, 1, 2, 3, 8, 9, 10, 15, 16, 17 };
+    ImGui::TableSetupColumn("#",                                    ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+    for (int ci = 0; ci < 10; ++ci)
+        ImGui::TableSetupColumn(FieldNames::BodyCylinderDataEntry[k_BodCylIds[ci]], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBodyCylinder[ci]);
     ImGui::TableHeadersRow();
 
     int deleteIdx = -1;
@@ -2345,29 +2278,9 @@ void FbsDataView::RenderCustomizeItemUniqueListEditor(ContentsBinData& bin)
         return;
 
     ImGui::TableSetupScrollFreeze(1, 1);
-    ImGui::TableSetupColumn("#",                                 ImGuiTableColumnFlags_WidthFixed,  52.0f);
-    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[0],  ImGuiTableColumnFlags_WidthFixed,  95.0f);
-    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[1],  ImGuiTableColumnFlags_WidthFixed, 200.0f);
-    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[2],  ImGuiTableColumnFlags_WidthFixed,  95.0f);
-    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[3],  ImGuiTableColumnFlags_WidthFixed,  95.0f);
-    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[4],  ImGuiTableColumnFlags_WidthFixed, 200.0f);
-    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[5],  ImGuiTableColumnFlags_WidthFixed, 200.0f);
-    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[6],  ImGuiTableColumnFlags_WidthFixed, 200.0f);
-    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[7],  ImGuiTableColumnFlags_WidthFixed,  60.0f);
-    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[8],  ImGuiTableColumnFlags_WidthFixed,  80.0f);
-    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[9],  ImGuiTableColumnFlags_WidthFixed,  60.0f);
-    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[10], ImGuiTableColumnFlags_WidthFixed,  80.0f);
-    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[11], ImGuiTableColumnFlags_WidthFixed,  80.0f);
-    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[12], ImGuiTableColumnFlags_WidthFixed,  80.0f);
-    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[13], ImGuiTableColumnFlags_WidthFixed,  80.0f);
-    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[14], ImGuiTableColumnFlags_WidthFixed,  95.0f);
-    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[15], ImGuiTableColumnFlags_WidthFixed,  60.0f);
-    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[16], ImGuiTableColumnFlags_WidthFixed,  80.0f);
-    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[17], ImGuiTableColumnFlags_WidthFixed,  95.0f);
-    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[18], ImGuiTableColumnFlags_WidthFixed,  80.0f);
-    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[19], ImGuiTableColumnFlags_WidthFixed,  80.0f);
-    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[20], ImGuiTableColumnFlags_WidthFixed,  80.0f);
-    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[21], ImGuiTableColumnFlags_WidthFixed,  80.0f);
+    ImGui::TableSetupColumn("#",                                 ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+    for (int fi = 0; fi < 22; ++fi)
+        ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[fi], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kUnique[fi]);
     ImGui::TableHeadersRow();
 
     // Build duplicate-id detection map
@@ -2492,8 +2405,8 @@ void FbsDataView::RenderCharacterSelectListEditor(ContentsBinData& bin)
         if (ImGui::BeginTable("##CSHashTable", 2, tFlags, ImGui::GetContentRegionAvail()))
         {
             ImGui::TableSetupScrollFreeze(1, 1);
-            ImGui::TableSetupColumn("#",                                 ImGuiTableColumnFlags_WidthFixed, 52.0f);
-            ImGui::TableSetupColumn(FieldNames::CharacterSelectHash[0],  ImGuiTableColumnFlags_WidthFixed, 95.0f);
+            ImGui::TableSetupColumn("#",                                 ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+            ImGui::TableSetupColumn(FieldNames::CharacterSelectHash[0],  ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kCharSelectHash[0]);
             ImGui::TableHeadersRow();
 
             int deleteIdx = -1;
@@ -2546,9 +2459,9 @@ void FbsDataView::RenderCharacterSelectListEditor(ContentsBinData& bin)
         if (ImGui::BeginTable("##CSParamTable", 3, tFlags, ImGui::GetContentRegionAvail()))
         {
             ImGui::TableSetupScrollFreeze(1, 1);
-            ImGui::TableSetupColumn("#",                                  ImGuiTableColumnFlags_WidthFixed, 52.0f);
-            ImGui::TableSetupColumn(FieldNames::CharacterSelectParam[0],  ImGuiTableColumnFlags_WidthFixed, 100.0f);
-            ImGui::TableSetupColumn(FieldNames::CharacterSelectParam[1],  ImGuiTableColumnFlags_WidthFixed, 80.0f);
+            ImGui::TableSetupColumn("#",                                  ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+            ImGui::TableSetupColumn(FieldNames::CharacterSelectParam[0],  ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kCharSelectParam[0]);
+            ImGui::TableSetupColumn(FieldNames::CharacterSelectParam[1],  ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kCharSelectParam[1]);
             ImGui::TableHeadersRow();
 
             int deleteIdx = -1;
@@ -2626,9 +2539,9 @@ void FbsDataView::RenderCustomizeItemProhibitDramaListEditor(ContentsBinData& bi
             return;
 
         ImGui::TableSetupScrollFreeze(1, 1);
-        ImGui::TableSetupColumn("#",                                     ImGuiTableColumnFlags_WidthFixed, 52.0f);
-        ImGui::TableSetupColumn(FieldNames::CustomizeItemProhibitDrama[0], ImGuiTableColumnFlags_WidthFixed, 80.0f);
-        ImGui::TableSetupColumn(FieldNames::CustomizeItemProhibitDrama[1], ImGuiTableColumnFlags_WidthFixed, 80.0f);
+        ImGui::TableSetupColumn("#",                                     ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+        ImGui::TableSetupColumn(FieldNames::CustomizeItemProhibitDrama[0], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kProhibitDrama[0]);
+        ImGui::TableSetupColumn(FieldNames::CustomizeItemProhibitDrama[1], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kProhibitDrama[1]);
         ImGui::TableHeadersRow();
 
         int deleteIdx = -1;
@@ -2776,10 +2689,9 @@ void FbsDataView::RenderBattleMotionListEditor(ContentsBinData& bin)
             return;
 
         ImGui::TableSetupScrollFreeze(1, 1);
-        ImGui::TableSetupColumn("#",                              ImGuiTableColumnFlags_WidthFixed, 52.0f);
-        ImGui::TableSetupColumn(FieldNames::BattleMotionEntry[0], ImGuiTableColumnFlags_WidthFixed, 80.0f);
-        ImGui::TableSetupColumn(FieldNames::BattleMotionEntry[1], ImGuiTableColumnFlags_WidthFixed, 80.0f);
-        ImGui::TableSetupColumn(FieldNames::BattleMotionEntry[2], ImGuiTableColumnFlags_WidthFixed, 80.0f);
+        ImGui::TableSetupColumn("#",                              ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+        for (int fi = 0; fi < 3; ++fi)
+            ImGui::TableSetupColumn(FieldNames::BattleMotionEntry[fi], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBattleMotion[fi]);
         ImGui::TableHeadersRow();
 
         int deleteIdx = -1;
@@ -2884,14 +2796,9 @@ void FbsDataView::RenderArcadeCpuListEditor(ContentsBinData& bin)
         if (ImGui::BeginTable("##ACCharTable", 8, tFlags, ImGui::GetContentRegionAvail()))
         {
             ImGui::TableSetupScrollFreeze(1, 1);
-            ImGui::TableSetupColumn("#",                               ImGuiTableColumnFlags_WidthFixed, 52.0f);
-            ImGui::TableSetupColumn(FieldNames::ArcadeCpuCharacter[0], ImGuiTableColumnFlags_WidthFixed, 95.0f);
-            ImGui::TableSetupColumn(FieldNames::ArcadeCpuCharacter[1], ImGuiTableColumnFlags_WidthFixed, 80.0f);
-            ImGui::TableSetupColumn(FieldNames::ArcadeCpuCharacter[2], ImGuiTableColumnFlags_WidthFixed, 80.0f);
-            ImGui::TableSetupColumn(FieldNames::ArcadeCpuCharacter[3], ImGuiTableColumnFlags_WidthFixed, 80.0f);
-            ImGui::TableSetupColumn(FieldNames::ArcadeCpuCharacter[4], ImGuiTableColumnFlags_WidthFixed, 80.0f);
-            ImGui::TableSetupColumn(FieldNames::ArcadeCpuCharacter[5], ImGuiTableColumnFlags_WidthFixed, 80.0f);
-            ImGui::TableSetupColumn(FieldNames::ArcadeCpuCharacter[6], ImGuiTableColumnFlags_WidthFixed, 80.0f);
+            ImGui::TableSetupColumn("#",                               ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+            for (int fi = 0; fi < 7; ++fi)
+                ImGui::TableSetupColumn(FieldNames::ArcadeCpuCharacter[fi], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kArcadeCpuCharacter[fi]);
             ImGui::TableHeadersRow();
 
             int deleteIdx = -1;
@@ -2960,8 +2867,8 @@ void FbsDataView::RenderArcadeCpuListEditor(ContentsBinData& bin)
             if (ImGui::BeginTable(tableId, 2, tFlags, ImGui::GetContentRegionAvail()))
             {
                 ImGui::TableSetupScrollFreeze(1, 1);
-                ImGui::TableSetupColumn("#",                           ImGuiTableColumnFlags_WidthFixed, 52.0f);
-                ImGui::TableSetupColumn(FieldNames::ArcadeCpuHash[0], ImGuiTableColumnFlags_WidthFixed, 95.0f);
+                ImGui::TableSetupColumn("#",                           ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+                ImGui::TableSetupColumn(FieldNames::ArcadeCpuHash[0], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kArcadeCpuHash[0]);
                 ImGui::TableHeadersRow();
 
                 int deleteIdx = -1;
@@ -3018,11 +2925,9 @@ void FbsDataView::RenderArcadeCpuListEditor(ContentsBinData& bin)
         if (ImGui::BeginTable("##ACRuleTable", 5, tFlags, ImGui::GetContentRegionAvail()))
         {
             ImGui::TableSetupScrollFreeze(1, 1);
-            ImGui::TableSetupColumn("#",                           ImGuiTableColumnFlags_WidthFixed, 52.0f);
-            ImGui::TableSetupColumn(FieldNames::ArcadeCpuRule[0], ImGuiTableColumnFlags_WidthFixed, 60.0f);
-            ImGui::TableSetupColumn(FieldNames::ArcadeCpuRule[1], ImGuiTableColumnFlags_WidthFixed, 60.0f);
-            ImGui::TableSetupColumn(FieldNames::ArcadeCpuRule[2], ImGuiTableColumnFlags_WidthFixed, 80.0f);
-            ImGui::TableSetupColumn(FieldNames::ArcadeCpuRule[3], ImGuiTableColumnFlags_WidthFixed, 80.0f);
+            ImGui::TableSetupColumn("#",                           ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+            for (int fi = 0; fi < 4; ++fi)
+                ImGui::TableSetupColumn(FieldNames::ArcadeCpuRule[fi], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kArcadeCpuRule[fi]);
             ImGui::TableHeadersRow();
 
             int deleteIdx = -1;
@@ -3107,12 +3012,9 @@ void FbsDataView::RenderBallRecommendListEditor(ContentsBinData& bin)
             if (ImGui::BeginTable(tableId, 6, tFlags, ImGui::GetContentRegionAvail()))
             {
                 ImGui::TableSetupScrollFreeze(1, 1);
-                ImGui::TableSetupColumn("#",                               ImGuiTableColumnFlags_WidthFixed, 52.0f);
-                ImGui::TableSetupColumn(FieldNames::BallRecommendEntry[0], ImGuiTableColumnFlags_WidthFixed, 95.0f);
-                ImGui::TableSetupColumn(FieldNames::BallRecommendEntry[1], ImGuiTableColumnFlags_WidthFixed, 200.0f);
-                ImGui::TableSetupColumn(FieldNames::BallRecommendEntry[2], ImGuiTableColumnFlags_WidthFixed, 200.0f);
-                ImGui::TableSetupColumn(FieldNames::BallRecommendEntry[3], ImGuiTableColumnFlags_WidthFixed, 80.0f);
-                ImGui::TableSetupColumn(FieldNames::BallRecommendEntry[4], ImGuiTableColumnFlags_WidthFixed, 80.0f);
+                ImGui::TableSetupColumn("#",                               ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+                for (int fi = 0; fi < 5; ++fi)
+                    ImGui::TableSetupColumn(FieldNames::BallRecommendEntry[fi], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBallRecommend[fi]);
                 ImGui::TableHeadersRow();
 
                 int deleteIdx = -1;
@@ -3351,8 +3253,8 @@ void FbsDataView::RenderBattleCommonListEditor(ContentsBinData& bin)
         if (ImGui::BeginTable("##BCSVTable", 2, tFlags, ImGui::GetContentRegionAvail()))
         {
             ImGui::TableSetupScrollFreeze(1, 1);
-            ImGui::TableSetupColumn("#",                                   ImGuiTableColumnFlags_WidthFixed, 52.0f);
-            ImGui::TableSetupColumn(FieldNames::BattleCommonSingleValue[0],ImGuiTableColumnFlags_WidthFixed, 80.0f);
+            ImGui::TableSetupColumn("#",                                   ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+            ImGui::TableSetupColumn(FieldNames::BattleCommonSingleValue[0],ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBattleCommonGeneric);
             ImGui::TableHeadersRow();
 
             int deleteIdx = -1;
@@ -3405,9 +3307,10 @@ void FbsDataView::RenderBattleCommonListEditor(ContentsBinData& bin)
         if (ImGui::BeginTable("##BCCSTable", 9, tFlags, ImGui::GetContentRegionAvail()))
         {
             ImGui::TableSetupScrollFreeze(1, 1);
-            ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 52.0f);
+            ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
             for (int fi = 0; fi < 8; ++fi)
-                ImGui::TableSetupColumn(FieldNames::BattleCommonCharacterScale[fi], ImGuiTableColumnFlags_WidthFixed, fi == 0 ? 95.0f : 75.0f);
+                ImGui::TableSetupColumn(FieldNames::BattleCommonCharacterScale[fi], ImGuiTableColumnFlags_WidthFixed,
+                    fi == 0 ? ColumnWidths::kBattleCommonCharacterScale0 : ColumnWidths::kBattleCommonCharacterScaleRest);
             ImGui::TableHeadersRow();
 
             int deleteIdx = -1;
@@ -3465,9 +3368,9 @@ void FbsDataView::RenderBattleCommonListEditor(ContentsBinData& bin)
         if (ImGui::BeginTable("##BCPairTable", 4, tFlags, ImGui::GetContentRegionAvail()))
         {
             ImGui::TableSetupScrollFreeze(1, 1);
-            ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 52.0f);
+            ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
             for (int fi = 0; fi < 3; ++fi)
-                ImGui::TableSetupColumn(FieldNames::BattleCommonPair[fi], ImGuiTableColumnFlags_WidthFixed, 80.0f);
+                ImGui::TableSetupColumn(FieldNames::BattleCommonPair[fi], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBattleCommonGeneric);
             ImGui::TableHeadersRow();
 
             int deleteIdx = -1;
@@ -3520,9 +3423,9 @@ void FbsDataView::RenderBattleCommonListEditor(ContentsBinData& bin)
         if (ImGui::BeginTable("##BCMiscTable", 4, tFlags, ImGui::GetContentRegionAvail()))
         {
             ImGui::TableSetupScrollFreeze(1, 1);
-            ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 52.0f);
+            ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
             for (int fi = 0; fi < 3; ++fi)
-                ImGui::TableSetupColumn(FieldNames::BattleCommonMisc[fi], ImGuiTableColumnFlags_WidthFixed, 80.0f);
+                ImGui::TableSetupColumn(FieldNames::BattleCommonMisc[fi], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBattleCommonGeneric);
             ImGui::TableHeadersRow();
 
             int deleteIdx = -1;
@@ -3611,10 +3514,10 @@ void FbsDataView::RenderBattleCpuListEditor(ContentsBinData& bin)
         if (ImGui::BeginTable("##BCRankTable", 49, tFlags, ImGui::GetContentRegionAvail()))
         {
             ImGui::TableSetupScrollFreeze(1, 1);
-            ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 52.0f);
+            ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
             for (int vi = 0; vi < 47; ++vi)
-                ImGui::TableSetupColumn(FieldNames::BattleCpuRank[vi], ImGuiTableColumnFlags_WidthFixed, 80.0f);
-            ImGui::TableSetupColumn(FieldNames::BattleCpuRank[47], ImGuiTableColumnFlags_WidthFixed, 130.0f);
+                ImGui::TableSetupColumn(FieldNames::BattleCpuRank[vi], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBattleCpuRankGeneric);
+            ImGui::TableSetupColumn(FieldNames::BattleCpuRank[47], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBattleCpuRank47);
             ImGui::TableHeadersRow();
 
             int deleteIdx = -1;
@@ -3675,9 +3578,9 @@ void FbsDataView::RenderBattleCpuListEditor(ContentsBinData& bin)
         if (ImGui::BeginTable("##BCStepTable", 5, tFlags, ImGui::GetContentRegionAvail()))
         {
             ImGui::TableSetupScrollFreeze(1, 1);
-            ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 52.0f);
+            ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
             for (int fi = 0; fi < 4; ++fi)
-                ImGui::TableSetupColumn(FieldNames::BattleCpuStep[fi], ImGuiTableColumnFlags_WidthFixed, 80.0f);
+                ImGui::TableSetupColumn(FieldNames::BattleCpuStep[fi], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBattleCpuStepGeneric);
             ImGui::TableHeadersRow();
 
             int deleteIdx = -1;
@@ -3842,11 +3745,9 @@ void FbsDataView::RenderRankListEditor(ContentsBinData& bin)
         if (ImGui::BeginTable("##RankItemTable", 5, tFlags, ImGui::GetContentRegionAvail()))
         {
             ImGui::TableSetupScrollFreeze(1, 1);
-            ImGui::TableSetupColumn("#",                     ImGuiTableColumnFlags_WidthFixed, 52.0f);
-            ImGui::TableSetupColumn(FieldNames::RankItem[0], ImGuiTableColumnFlags_WidthFixed, 95.0f);
-            ImGui::TableSetupColumn(FieldNames::RankItem[1], ImGuiTableColumnFlags_WidthFixed, 180.0f);
-            ImGui::TableSetupColumn(FieldNames::RankItem[2], ImGuiTableColumnFlags_WidthFixed, 130.0f);
-            ImGui::TableSetupColumn(FieldNames::RankItem[3], ImGuiTableColumnFlags_WidthFixed, 80.0f);
+            ImGui::TableSetupColumn("#",                     ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+            for (int fi = 0; fi < 4; ++fi)
+                ImGui::TableSetupColumn(FieldNames::RankItem[fi], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRankItem[fi]);
             ImGui::TableHeadersRow();
 
             int deleteIdx = -1;
@@ -3925,10 +3826,10 @@ void FbsDataView::RenderAssistInputListEditor(ContentsBinData& bin)
         return;
 
     ImGui::TableSetupScrollFreeze(1, 1);
-    ImGui::TableSetupColumn("#",                               ImGuiTableColumnFlags_WidthFixed, 52.0f);
-    ImGui::TableSetupColumn(FieldNames::AssistInputEntry[0],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
+    ImGui::TableSetupColumn("#",                               ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+    ImGui::TableSetupColumn(FieldNames::AssistInputEntry[0],   ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kAssistInputEntry0);
     for (int vi = 1; vi < 59; ++vi)
-        ImGui::TableSetupColumn(FieldNames::AssistInputEntry[vi], ImGuiTableColumnFlags_WidthFixed, 60.0f);
+        ImGui::TableSetupColumn(FieldNames::AssistInputEntry[vi], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kAssistInputValue);
     ImGui::TableHeadersRow();
 
     int deleteIdx = -1;
@@ -4061,10 +3962,10 @@ void FbsDataView::RenderCustomizePanelListEditor(ContentsBinData& bin)
         return;
 
     ImGui::TableSetupScrollFreeze(1, 1);
-    ImGui::TableSetupColumn("#",                                      ImGuiTableColumnFlags_WidthFixed, 52.0f);
+    ImGui::TableSetupColumn("#",                                      ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
     for (int ci = 0; ci < FieldNames::CustomizePanelEntryCount; ++ci)
         ImGui::TableSetupColumn(FieldNames::CustomizePanelEntry[ci],  ImGuiTableColumnFlags_WidthFixed,
-            (ci >= 5 && ci <= 8) ? 200.0f : 95.0f);
+            (ci >= 5 && ci <= 8) ? ColumnWidths::kCustomizePanelString : ColumnWidths::kCustomizePanelDefault);
     ImGui::TableHeadersRow();
 
     int deleteIdx = -1;
