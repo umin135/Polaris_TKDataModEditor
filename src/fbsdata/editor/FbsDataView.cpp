@@ -503,15 +503,27 @@ static std::vector<CustomizeItemCommonEntry> ImportCommonListTsv(const std::stri
     return result;
 }
 
-// Lazily-built sorted (hash, code) lists for Char_hash and ItemPos_hash combos.
+// Lazily-built sorted (hash, "CODE: Name") lists for Char_hash and ItemPos_hash combos.
+// Rebuilt automatically whenever FbsDataDict is reloaded (load count changes).
 static const std::vector<std::pair<uint32_t, std::string>>& GetCharHashItems()
 {
     static std::vector<std::pair<uint32_t, std::string>> s_items;
-    if (s_items.empty() && FbsDataDict::Get().IsLoaded()) {
-        for (auto& kv : FbsDataDict::Get().GetCharHashCodeMap())
-            s_items.push_back(kv);
+    static uint32_t s_loadCount = UINT32_MAX;
+    uint32_t cur = FbsDataDict::Get().LoadCount();
+    if (s_loadCount != cur) {
+        s_items.clear();
+        s_loadCount = cur;
+        for (auto& kv : FbsDataDict::Get().GetCharHashCodeMap()) {
+            uint32_t hash = kv.first;
+            const std::string& code = kv.second; // uppercase code, e.g. "GRF"
+            uint32_t charId = FbsDataDict::Get().CharHashToId(hash);
+            const char* name = (charId != UINT32_MAX) ? FbsDataDict::Get().CharName(charId) : nullptr;
+            std::string display = name ? (code + ": " + name) : code;
+            s_items.push_back(std::make_pair(hash, std::move(display)));
+        }
         std::sort(s_items.begin(), s_items.end(),
-            [](const auto& a, const auto& b){ return a.second < b.second; });
+            [](const std::pair<uint32_t,std::string>& a,
+               const std::pair<uint32_t,std::string>& b){ return a.second < b.second; });
     }
     return s_items;
 }
@@ -519,11 +531,30 @@ static const std::vector<std::pair<uint32_t, std::string>>& GetCharHashItems()
 static const std::vector<std::pair<uint32_t, std::string>>& GetTypeHashItems()
 {
     static std::vector<std::pair<uint32_t, std::string>> s_items;
-    if (s_items.empty() && FbsDataDict::Get().IsLoaded()) {
-        for (auto& kv : FbsDataDict::Get().GetTypeHashCodeMap())
-            s_items.push_back(kv);
+    static uint32_t s_loadCount = UINT32_MAX;
+    uint32_t cur = FbsDataDict::Get().LoadCount();
+    if (s_loadCount != cur) {
+        s_items.clear();
+        s_loadCount = cur;
+        for (auto& kv : FbsDataDict::Get().GetTypeHashCodeMap()) {
+            uint32_t hash = kv.first;
+            const std::string& code = kv.second; // e.g. "hed"
+            uint32_t typeId = FbsDataDict::Get().TypeHashToId(hash);
+            std::string cleanName;
+            if (typeId != UINT32_MAX) {
+                const char* fullName = FbsDataDict::Get().TypeName(typeId);
+                if (fullName) {
+                    cleanName = fullName; // e.g. "Head (hed)"
+                    size_t p = cleanName.rfind(" (");
+                    if (p != std::string::npos) cleanName.resize(p); // → "Head"
+                }
+            }
+            std::string display = cleanName.empty() ? code : (code + ": " + cleanName);
+            s_items.push_back(std::make_pair(hash, std::move(display)));
+        }
         std::sort(s_items.begin(), s_items.end(),
-            [](const auto& a, const auto& b){ return a.second < b.second; });
+            [](const std::pair<uint32_t,std::string>& a,
+               const std::pair<uint32_t,std::string>& b){ return a.second < b.second; });
     }
     return s_items;
 }
@@ -546,12 +577,21 @@ static bool HashComboCell(const char* id, uint32_t& val,
     const std::unordered_map<uint32_t, std::string>& revMap,
     const std::vector<std::pair<uint32_t, std::string>>& items)
 {
+    // Look up display string from items first (has full "CODE: Name" format).
+    const std::string* displayStr = nullptr;
+    for (size_t i = 0; i < items.size(); ++i)
+        if (items[i].first == val) { displayStr = &items[i].second; break; }
+
     char preview[64];
-    auto it = revMap.find(val);
-    if (it != revMap.end())
-        snprintf(preview, sizeof(preview), "%s", it->second.c_str());
-    else
-        snprintf(preview, sizeof(preview), "%u", val);
+    if (displayStr)
+        snprintf(preview, sizeof(preview), "%s", displayStr->c_str());
+    else {
+        auto it = revMap.find(val);
+        if (it != revMap.end())
+            snprintf(preview, sizeof(preview), "%s", it->second.c_str());
+        else
+            snprintf(preview, sizeof(preview), "%u", val);
+    }
 
     bool changed = false;
     ImGui::SetNextItemWidth(-FLT_MIN);

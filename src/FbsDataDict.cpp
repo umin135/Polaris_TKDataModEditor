@@ -276,6 +276,7 @@ void FbsDataDict::Load(const std::string& jsonPath)
     m_gameIds.clear();
     ParseJson(buf.data(), buf.size());
     m_loaded = !m_chars.empty();
+    ++m_loadCount;
 }
 
 // ---------------------------------------------------------------------------
@@ -304,4 +305,5 @@ void FbsDataDict::LoadFromResources()
     m_gameIds.clear();
     ParseJson(data, static_cast<size_t>(sz));
     m_loaded = !m_chars.empty();
+    ++m_loadCount;
 }

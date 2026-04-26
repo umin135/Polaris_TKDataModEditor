@@ -28,6 +28,7 @@ public:
     void LoadFromResources(); // IDR_DATA_FBSDICT fallback
 
     bool IsLoaded() const { return m_loaded; }
+    uint32_t LoadCount() const { return m_loadCount; }
 
     // character_id dict: uint32 id -> name
     const std::unordered_map<uint32_t, std::string>& GetCharMap() const { return m_chars; }
@@ -83,6 +84,7 @@ private:
     std::unordered_map<uint32_t, std::string>  m_typeHashToCode;  // hash -> type code
     std::unordered_map<uint32_t, uint32_t>     m_charHashToId;    // hash -> character_id
     std::unordered_map<uint32_t, uint32_t>     m_typeHashToId;    // hash -> type_id
+    uint32_t m_loadCount = 0;
     std::unordered_set<uint32_t>               m_gameIds;
     bool m_loaded = false;
 };
