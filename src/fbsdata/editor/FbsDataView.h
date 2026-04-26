@@ -3,22 +3,6 @@
 #include <string>
 #include <cstdint>
 
-struct ItemIdEditState {
-    bool      open        = false;
-    bool      pendingOpen = false;
-    uint8_t   fixedA      = 2;      // 1=unique, 2=common
-    int       XX          = 0;      // character id
-    int       YY          = 0;      // item type id
-    int       ZZZ         = 0;      // unique item id
-    bool      xxManual    = false;
-    bool      yyManual    = false;
-    char      xxBuf[8]    = {};
-    char      yyBuf[8]    = {};
-    uint32_t* target      = nullptr;
-    uint32_t* hashTarget  = nullptr; // pointer to hash_0 / character_hash field, auto-updated on Save
-    uint32_t* hash1Target = nullptr; // pointer to hash_1 field, auto-updated on Save
-};
-
 // FbsData editor view -- loads/saves .tkmod files and renders per-bin editors.
 // Layout: [Toolbar (Save/Load)] | [Editor area] | [Contents List]
 class FbsDataView
@@ -36,7 +20,6 @@ private:
     void RenderEditorArea();
     void RenderContentsList(float listWidth);
     void RenderAddPopup();
-    void RenderItemIdPopup();
     void RenderInfoEditPopup();
     void RenderSaveConfirmPopup();
     void DoSave();
@@ -69,7 +52,6 @@ private:
     void RenderCustomizePanelListEditor(ContentsBinData& bin);
 
     ModData m_data;
-    ItemIdEditState m_itemIdEdit;
 
 public:
     ModData& GetModData() { return m_data; }

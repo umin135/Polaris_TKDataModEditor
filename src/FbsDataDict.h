@@ -50,6 +50,19 @@ public:
     // hash_1 for a given type id: KamuiHash(code).  Returns UINT32_MAX if not found.
     uint32_t TypeHash(uint32_t id) const;
 
+    // Reverse hash lookups: hash -> short code string.
+    // CharHashToCode: hash -> uppercase code, e.g. 2802412287 -> "GRF"
+    // TypeHashToCode: hash -> lowercase code, e.g.  952745790 -> "bdf"
+    const char* CharHashToCode(uint32_t hash) const;
+    const char* TypeHashToCode(uint32_t hash) const;
+    const std::unordered_map<uint32_t, std::string>& GetCharHashCodeMap() const { return m_charHashToCode; }
+    const std::unordered_map<uint32_t, std::string>& GetTypeHashCodeMap() const { return m_typeHashToCode; }
+
+    // Reverse id lookups: hash -> numeric id (for item_id assembly).
+    // Returns UINT32_MAX if hash is not found.
+    uint32_t CharHashToId(uint32_t hash) const;
+    uint32_t TypeHashToId(uint32_t hash) const;
+
     // Sorted views for dropdown rendering (sorted by id ascending).
     std::vector<std::pair<uint32_t, std::string>> SortedChars() const;
     std::vector<std::pair<uint32_t, std::string>> SortedTypes() const;
@@ -66,6 +79,10 @@ private:
     std::unordered_map<uint32_t, std::string>  m_types;
     std::unordered_map<uint32_t, std::string>  m_typeCodes;
     std::unordered_map<uint32_t, uint32_t>     m_typeHashes;
+    std::unordered_map<uint32_t, std::string>  m_charHashToCode;  // hash -> uppercase code
+    std::unordered_map<uint32_t, std::string>  m_typeHashToCode;  // hash -> type code
+    std::unordered_map<uint32_t, uint32_t>     m_charHashToId;    // hash -> character_id
+    std::unordered_map<uint32_t, uint32_t>     m_typeHashToId;    // hash -> type_id
     std::unordered_set<uint32_t>               m_gameIds;
     bool m_loaded = false;
 };

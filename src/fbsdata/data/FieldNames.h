@@ -18,19 +18,19 @@ namespace FieldNames
     //    Entry type : CustomizeItemCommonEntry   (26 fields, id 0..25)
     constexpr const char* CommonItem[26] = {
         "Item ID",         // id:  0 | uint32
-        "item_no",         // id:  1 | uint32
+        "Local Item ID",   // id:  1 | uint32
         "AssetName",       // id:  2 | string
-        "Char_hash",       // id:  3 | uint32  
-        "ItemPos_hash",    // id:  4 | uint32
+        "Character ID",    // id:  3 | uint32  
+        "ItemPosition ID", // id:  4 | uint32
         "Name Key",        // id:  5 | string
-        "package_id",      // id:  6 | string
-        "package_sub_id",  // id:  7 | string
+        "Extra Text Key 1",// id:  6 | string
+        "Extra Text Key 2",// id:  7 | string
         "isDefaultKey",    // id:  8 | uint32  (unknown)
         "shop_sort_id",    // id:  9 | uint32
-        "isEnabled",       // id: 10 | bool
-        "rarity",          // id: 11 | uint32  (unknown)
-        "price",           // id: 12 | uint32
-        "isColorable",          // id: 13 | bool    (unknown)
+        "Visiblity",       // id: 10 | bool
+        "Rarity",          // id: 11 | uint32  (unknown)
+        "Price",           // id: 12 | uint32
+        "isColorable",     // id: 13 | bool    (unknown)
         "category_no",     // id: 14 | uint32
         "hash_2",          // id: 15 | uint32
         "unk_16",          // id: 16 | bool    (unknown)
@@ -51,20 +51,20 @@ namespace FieldNames
     constexpr const char* CustomizeItemUnique[22] = {
         "Item ID",         // id:  0 | uint32
         "AssetName",       // id:  1 | string
-        "Char_hash",       // id:  2 | uint32  (character hash)
-        "ItemPos_hash",    // id:  3 | uint32
+        "Character ID",       // id:  2 | uint32  (character hash)
+        "ItemPosition ID",    // id:  3 | uint32
         "Name Key",        // id:  4 | string
-        "extra_text_key_1",// id:  5 | string
-        "extra_text_key_2",// id:  6 | string
-        "flag_7",          // id:  7 | bool
+        "Extra Text Key 1",// id:  5 | string
+        "Extra Text Key 2",// id:  6 | string
+        "IsDefault",       // id:  7 | bool
         "unk_8",           // id:  8 | uint32
-        "flag_9",          // id:  9 | bool
-        "unk_10",          // id: 10 | uint32
-        "price",           // id: 11 | uint32
+        "Visiblity",       // id:  9 | bool
+        "Rarity",          // id: 10 | uint32
+        "Price",           // id: 11 | uint32
         "unk_12",          // id: 12 | uint32
         "unk_13",          // id: 13 | uint32
         "hash_2",          // id: 14 | uint32
-        "flag_15",         // id: 15 | bool
+        "isColorable",     // id: 15 | bool
         "unk_16",          // id: 16 | uint32
         "hash_3",          // id: 17 | uint32
         "unk_18",          // id: 18 | uint32

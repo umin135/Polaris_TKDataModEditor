@@ -54,6 +54,30 @@ const char* FbsDataDict::CharaCode(uint32_t id) const
     return it != m_codes.end() ? it->second.c_str() : nullptr;
 }
 
+const char* FbsDataDict::CharHashToCode(uint32_t hash) const
+{
+    auto it = m_charHashToCode.find(hash);
+    return it != m_charHashToCode.end() ? it->second.c_str() : nullptr;
+}
+
+const char* FbsDataDict::TypeHashToCode(uint32_t hash) const
+{
+    auto it = m_typeHashToCode.find(hash);
+    return it != m_typeHashToCode.end() ? it->second.c_str() : nullptr;
+}
+
+uint32_t FbsDataDict::CharHashToId(uint32_t hash) const
+{
+    auto it = m_charHashToId.find(hash);
+    return it != m_charHashToId.end() ? it->second : UINT32_MAX;
+}
+
+uint32_t FbsDataDict::TypeHashToId(uint32_t hash) const
+{
+    auto it = m_typeHashToId.find(hash);
+    return it != m_typeHashToId.end() ? it->second : UINT32_MAX;
+}
+
 uint32_t FbsDataDict::CharHash(uint32_t id) const
 {
     auto it = m_codes.find(id);
@@ -174,7 +198,14 @@ void FbsDataDict::ParseJson(const char* buf, size_t sz)
             std::string name = findStr(line, "name");
             std::string code = findStr(line, "code");
             if (!name.empty()) m_chars[id] = std::move(name);
-            if (!code.empty()) m_codes[id] = std::move(code);
+            if (!code.empty()) {
+                std::string upper = code;
+                for (char& c : upper) c = static_cast<char>(toupper(static_cast<unsigned char>(c)));
+                uint32_t h = static_cast<uint32_t>(KamuiHash::Compute(upper.c_str()));
+                m_charHashToCode[h] = upper;
+                m_charHashToId[h]   = id;
+                m_codes[id] = std::move(code);
+            }
         }
         else // Types: "N": "value"
         {
@@ -205,9 +236,11 @@ void FbsDataDict::ParseJson(const char* buf, size_t sz)
                     code = valStr.substr(p1 + 1, p2 - p1 - 1);
                 m_types[key] = std::move(valStr);
                 if (!code.empty()) {
-                    m_typeHashes[key] = static_cast<uint32_t>(
-                        KamuiHash::Compute(code.c_str()));
-                    m_typeCodes[key] = std::move(code);
+                    uint32_t h = static_cast<uint32_t>(KamuiHash::Compute(code.c_str()));
+                    m_typeHashes[key]   = h;
+                    m_typeHashToCode[h] = code;
+                    m_typeHashToId[h]   = key;
+                    m_typeCodes[key]    = std::move(code);
                 }
             } catch (...) {}
         }
@@ -236,6 +269,10 @@ void FbsDataDict::Load(const std::string& jsonPath)
     m_types.clear();
     m_typeCodes.clear();
     m_typeHashes.clear();
+    m_charHashToCode.clear();
+    m_typeHashToCode.clear();
+    m_charHashToId.clear();
+    m_typeHashToId.clear();
     m_gameIds.clear();
     ParseJson(buf.data(), buf.size());
     m_loaded = !m_chars.empty();
@@ -260,6 +297,10 @@ void FbsDataDict::LoadFromResources()
     m_types.clear();
     m_typeCodes.clear();
     m_typeHashes.clear();
+    m_charHashToCode.clear();
+    m_typeHashToCode.clear();
+    m_charHashToId.clear();
+    m_typeHashToId.clear();
     m_gameIds.clear();
     ParseJson(data, static_cast<size_t>(sz));
     m_loaded = !m_chars.empty();
