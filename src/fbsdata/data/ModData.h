@@ -33,103 +33,58 @@ enum class BinType
     BattleCpuList,
     RankList,
     AssistInputList,
+    CustomizePanelList,
 };
 
 // -- customize_item_common_list entry -----------------------------------------
 struct CustomizeItemCommonEntry
 {
-    uint32_t item_id;
-    int32_t  item_no;
-    char     item_code[256];
-    uint32_t hash_0;
-    uint32_t hash_1;
-    char     text_key[256];
-    char     package_id[128];
-    char     package_sub_id[128];
-    uint32_t unk_8;           // schema id: 8
-    int32_t  shop_sort_id;
-    bool     is_enabled;
-    uint32_t unk_11;          // schema id: 11
-    int32_t  price;
-    bool     unk_13;          // schema id: 13
-    int32_t  category_no;
-    uint32_t hash_2;
-    bool     unk_16;
-    uint32_t unk_17;          // schema id: 17
-    uint32_t hash_3;
-    uint32_t unk_19;          // schema id: 19
-    uint32_t unk_20;          // schema id: 20
-    uint32_t unk_21;          // schema id: 21
-    uint32_t unk_22;          // schema id: 22
-    uint32_t hash_4;
-    int32_t  rarity;
-    int32_t  sort_group;
-
-    // Default-constructs with the reference entry from the example JSON
-    CustomizeItemCommonEntry()
-        : item_id(20006001), 
-        item_no(1), 
-        hash_0(2802412287u), 
-        hash_1(952745790u),
-        unk_8(0), 
-        shop_sort_id(1000000), 
-        is_enabled(true), 
-        unk_11(0), 
-        price(30000), 
-        unk_13(false), 
-        category_no(102), 
-        hash_2(3229833922u),
-        unk_16(true), 
-        unk_17(0), 
-        hash_3(2609503483u), 
-        unk_19(0), 
-        unk_20(0), 
-        unk_21(0), 
-        unk_22(0), 
-        hash_4(1611006924u), 
-        rarity(2), 
-        sort_group(100)
-    {
-        strcpy_s(item_code,      "IP_grf_bdf_custom");
-        strcpy_s(text_key,       "TEXT_000_UI_STORYMENU_COMMON_004");
-        strcpy_s(package_id,     "PAU_CUS_001");
-        strcpy_s(package_sub_id, "PAU_CUS_001");
-    }
+    uint32_t item_id        = 0;
+    int32_t  item_no        = 0;
+    char     item_code[256] = {};
+    uint32_t hash_0         = 0;
+    uint32_t hash_1         = 0;
+    char     text_key[256]  = {};
+    char     package_id[128]     = {};
+    char     package_sub_id[128] = {};
+    uint32_t unk_8          = 0;    // schema id: 8
+    int32_t  shop_sort_id   = 0;
+    bool     is_enabled     = false;
+    uint32_t unk_11         = 0;    // schema id: 11
+    int32_t  price          = 0;
+    bool     unk_13         = false; // schema id: 13
+    int32_t  category_no    = 0;
+    uint32_t hash_2         = 0;
+    bool     unk_16         = false;
+    uint32_t unk_17         = 0;    // schema id: 17
+    uint32_t hash_3         = 0;
+    uint32_t unk_19         = 0;    // schema id: 19
+    uint32_t unk_20         = 0;    // schema id: 20
+    uint32_t unk_21         = 0;    // schema id: 21
+    uint32_t unk_22         = 0;    // schema id: 22
+    uint32_t hash_4         = 0;
+    int32_t  rarity         = 0;
+    int32_t  sort_group     = 0;
 };
 
 // -- character_list entry ------------------------------------------------------
 struct CharacterEntry
 {
-    char     character_code[64];
-    uint32_t name_hash;
-    bool     is_enabled;
-    bool     is_selectable;
-    char     group[64];
-    float    camera_offset;
-    bool     is_playable;
-    uint32_t sort_order;
-    char     full_name_key[128];
-    char     short_name_jp_key[128];
-    char     short_name_key[128];
-    char     origin_key[128];
-    char     fighting_style_key[128];
-    char     height_key[128];
-    char     weight_key[128];
-
-    CharacterEntry()
-        : name_hash(0), is_enabled(true), is_selectable(true)
-        , camera_offset(0.0f), is_playable(true), sort_order(0)
-    {
-        character_code[0]     = '\0';
-        group[0]              = '\0';
-        full_name_key[0]      = '\0';
-        short_name_jp_key[0]  = '\0';
-        short_name_key[0]     = '\0';
-        origin_key[0]         = '\0';
-        fighting_style_key[0] = '\0';
-        height_key[0]         = '\0';
-        weight_key[0]         = '\0';
-    }
+    char     character_code[64]     = {};
+    uint32_t name_hash              = 0;
+    bool     is_enabled             = true;
+    bool     is_selectable          = true;
+    char     group[64]              = {};
+    float    camera_offset          = 0.0f;
+    bool     is_playable            = true;
+    uint32_t sort_order             = 0;
+    char     full_name_key[128]     = {};
+    char     short_name_jp_key[128] = {};
+    char     short_name_key[128]    = {};
+    char     origin_key[128]        = {};
+    char     fighting_style_key[128]= {};
+    char     height_key[128]        = {};
+    char     weight_key[128]        = {};
 };
 
 // -- customize_item_exclusive_list entries ------------------------------------
@@ -612,6 +567,22 @@ struct RankGroup
     std::vector<RankItem> entries;
 };
 
+// -- customize_panel_list entry -----------------------------------------------
+struct CustomizePanelEntry
+{
+    uint32_t panel_hash  = 0;   // id: 0
+    uint32_t panel_id    = 0;   // id: 1
+    uint32_t price       = 0;   // id: 2
+    uint32_t category    = 0;   // id: 3
+    uint32_t sort_id     = 0;   // id: 4
+    char     text_key[256]  = {};  // id: 5
+    char     texture_1[256] = {};  // id: 6
+    char     texture_2[256] = {};  // id: 7
+    char     texture_3[256] = {};  // id: 8
+    bool     flag_9      = false;  // id: 9
+    uint32_t hash_10     = 0;   // id: 10
+};
+
 // -- assist_input_list entry ---------------------------------------------------
 struct AssistInputEntry
 {
@@ -740,6 +711,9 @@ struct ContentsBinData
 
     // assist_input_list
     std::vector<AssistInputEntry>            assistInputEntries;
+
+    // customize_panel_list
+    std::vector<CustomizePanelEntry>         customizePanelEntries;
 };
 
 // -- Mod metadata (written to mod_info.json) ----------------------------------

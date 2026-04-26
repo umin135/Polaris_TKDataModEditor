@@ -1,6 +1,7 @@
 ﻿// FbsData editor view implementation
 #include "fbsdata/editor/FbsDataView.h"
 #include "fbsdata/data/FieldNames.h"
+#include "fbsdata/data/DefaultValues.h"
 #include "fbsdata/io/TkmodIO.h"
 #include "fbsdata/editor/BinVisibility.h"
 #include "FbsDataDict.h"
@@ -72,7 +73,7 @@ static const BinInfo k_AllBins[] =
     { "customize_item_color_slot_list.bin",      BinType::None,                            false, "Not Supported" },
     { "customize_item_shop_camera_list.bin",     BinType::None,                            false, "Not Supported" },
     { "customize_model_viewer_list.bin",         BinType::None,                            false, "Not Supported" },
-    { "customize_panel_list.bin",                BinType::None,                            false, "Not Supported" },
+    { "customize_panel_list.bin",                BinType::CustomizePanelList,              true,  "Supported"     },
     { "customize_set_list.bin",                  BinType::None,                            false, "Not Supported" },
     { "customize_shogo_bg_list.bin",             BinType::None,                            false, "Not Supported" },
     { "customize_shogo_list.bin",                BinType::None,                            false, "Not Supported" },
@@ -367,6 +368,9 @@ void FbsDataView::RenderEditorArea()
     case BinType::AssistInputList:
         RenderAssistInputListEditor(bin);
         break;
+    case BinType::CustomizePanelList:
+        RenderCustomizePanelListEditor(bin);
+        break;
     default:
         ImGui::TextDisabled("No editor available for this bin type.");
         break;
@@ -500,6 +504,84 @@ static std::vector<CustomizeItemCommonEntry> ImportCommonListTsv(const std::stri
     return result;
 }
 
+static void ExportUniqueListTsv(const std::vector<CustomizeItemUniqueEntry>& entries,
+                                const std::string& path)
+{
+    FILE* f = nullptr;
+    fopen_s(&f, path.c_str(), "wb");
+    if (!f) return;
+
+    for (const auto& e : entries)
+    {
+        char line[2048];
+        int n = snprintf(line, sizeof(line),
+            "%u\t%s\t%u\t%u\t%s\t%s\t%s\t%s\t%u\t%s\t%u\t%u\t%u\t%u\t%u\t%s\t%u\t%u\t%u\t%u\t%u\t%u\n",
+            e.char_item_id, e.asset_name,
+            e.character_hash, e.hash_1,
+            e.text_key, e.extra_text_key_1, e.extra_text_key_2,
+            e.flag_7   ? "TRUE" : "FALSE",
+            e.unk_8,
+            e.flag_9   ? "TRUE" : "FALSE",
+            e.unk_10, e.price, e.unk_12, e.unk_13, e.hash_2,
+            e.flag_15  ? "TRUE" : "FALSE",
+            e.unk_16, e.hash_3,
+            e.unk_18, e.unk_19, e.unk_20, e.unk_21);
+        fwrite(line, 1, n, f);
+    }
+    fclose(f);
+}
+
+static std::vector<CustomizeItemUniqueEntry> ImportUniqueListTsv(const std::string& path)
+{
+    std::vector<CustomizeItemUniqueEntry> result;
+    FILE* f = nullptr;
+    fopen_s(&f, path.c_str(), "rb");
+    if (!f) return result;
+
+    char line[2048];
+    while (fgets(line, sizeof(line), f))
+    {
+        int len = (int)strlen(line);
+        while (len > 0 && (line[len-1] == '\r' || line[len-1] == '\n')) line[--len] = '\0';
+        if (len == 0) continue;
+
+        char* cols[22] = {};
+        int col = 0;
+        char* p = line;
+        cols[col++] = p;
+        for (; *p && col < 22; ++p)
+            if (*p == '\t') { *p = '\0'; cols[col++] = p + 1; }
+        if (col < 22) continue;
+
+        CustomizeItemUniqueEntry e;
+        e.char_item_id   = (uint32_t)strtoul(cols[ 0], nullptr, 10);
+        strncpy_s(e.asset_name,       cols[ 1], _TRUNCATE);
+        e.character_hash = (uint32_t)strtoul(cols[ 2], nullptr, 10);
+        e.hash_1         = (uint32_t)strtoul(cols[ 3], nullptr, 10);
+        strncpy_s(e.text_key,         cols[ 4], _TRUNCATE);
+        strncpy_s(e.extra_text_key_1, cols[ 5], _TRUNCATE);
+        strncpy_s(e.extra_text_key_2, cols[ 6], _TRUNCATE);
+        e.flag_7         = ParseBool(cols[ 7]);
+        e.unk_8          = (uint32_t)strtoul(cols[ 8], nullptr, 10);
+        e.flag_9         = ParseBool(cols[ 9]);
+        e.unk_10         = (uint32_t)strtoul(cols[10], nullptr, 10);
+        e.price          = (uint32_t)strtoul(cols[11], nullptr, 10);
+        e.unk_12         = (uint32_t)strtoul(cols[12], nullptr, 10);
+        e.unk_13         = (uint32_t)strtoul(cols[13], nullptr, 10);
+        e.hash_2         = (uint32_t)strtoul(cols[14], nullptr, 10);
+        e.flag_15        = ParseBool(cols[15]);
+        e.unk_16         = (uint32_t)strtoul(cols[16], nullptr, 10);
+        e.hash_3         = (uint32_t)strtoul(cols[17], nullptr, 10);
+        e.unk_18         = (uint32_t)strtoul(cols[18], nullptr, 10);
+        e.unk_19         = (uint32_t)strtoul(cols[19], nullptr, 10);
+        e.unk_20         = (uint32_t)strtoul(cols[20], nullptr, 10);
+        e.unk_21         = (uint32_t)strtoul(cols[21], nullptr, 10);
+        result.push_back(e);
+    }
+    fclose(f);
+    return result;
+}
+
 // -----------------------------------------------------------------------------
 //  customize_item_common_list table editor
 // -----------------------------------------------------------------------------
@@ -543,7 +625,7 @@ void FbsDataView::RenderCustomizeItemCommonEditor(ContentsBinData& bin)
     ImGui::SameLine(0, ioGap);
     if (ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
         bin.commonEntries.push_back(bin.commonEntries.empty()
-            ? CustomizeItemCommonEntry{}
+            ? DefaultValues::CommonEntry()
             : bin.commonEntries.back());
 
     ImGui::Separator();
@@ -1100,7 +1182,10 @@ void FbsDataView::RenderAddPopup()
                     switch (bin.type)
                     {
                     case BinType::CustomizeItemCommonList:
-                        bin.commonEntries.push_back(CustomizeItemCommonEntry{});
+                        bin.commonEntries.push_back(DefaultValues::CommonEntry());
+                        break;
+                    case BinType::CustomizePanelList:
+                        bin.customizePanelEntries.push_back(CustomizePanelEntry{});
                         break;
                     case BinType::CharacterList:
                         bin.characterEntries.push_back(CharacterEntry{});
@@ -1445,16 +1530,20 @@ void FbsDataView::RenderJukeboxListEditor(ContentsBinData& bin)
         ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable |
         ImGuiTableFlags_Hideable | ImGuiTableFlags_SizingFixedFit;
 
-    // cols: #, bgm_hash, series_hash, cue_name, arrangement, display_text_key
-    if (!ImGui::BeginTable("##JukeTable", 6, tFlags, ImGui::GetContentRegionAvail()))
+    // cols: #, + all 9 fields
+    if (!ImGui::BeginTable("##JukeTable", 10, tFlags, ImGui::GetContentRegionAvail()))
         return;
 
     ImGui::TableSetupScrollFreeze(1, 1);
     ImGui::TableSetupColumn("#",                           ImGuiTableColumnFlags_WidthFixed, 52.0f);
     ImGui::TableSetupColumn(FieldNames::JukeboxEntry[0],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
     ImGui::TableSetupColumn(FieldNames::JukeboxEntry[1],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
+    ImGui::TableSetupColumn(FieldNames::JukeboxEntry[2],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
     ImGui::TableSetupColumn(FieldNames::JukeboxEntry[3],   ImGuiTableColumnFlags_WidthFixed, 200.0f);
     ImGui::TableSetupColumn(FieldNames::JukeboxEntry[4],   ImGuiTableColumnFlags_WidthFixed, 200.0f);
+    ImGui::TableSetupColumn(FieldNames::JukeboxEntry[5],   ImGuiTableColumnFlags_WidthFixed, 200.0f);
+    ImGui::TableSetupColumn(FieldNames::JukeboxEntry[6],   ImGuiTableColumnFlags_WidthFixed, 200.0f);
+    ImGui::TableSetupColumn(FieldNames::JukeboxEntry[7],   ImGuiTableColumnFlags_WidthFixed, 200.0f);
     ImGui::TableSetupColumn(FieldNames::JukeboxEntry[8],   ImGuiTableColumnFlags_WidthFixed, 200.0f);
     ImGui::TableHeadersRow();
 
@@ -1489,11 +1578,15 @@ void FbsDataView::RenderJukeboxListEditor(ContentsBinData& bin)
                 ImGui::InputText(id, buf, sz);
             };
 
-            ImGui::TableSetColumnIndex(1); U32Cell("##bh",  e.bgm_hash);
-            ImGui::TableSetColumnIndex(2); U32Cell("##sh",  e.series_hash);
-            ImGui::TableSetColumnIndex(3); StrCell("##cn",  e.cue_name,        sizeof(e.cue_name));
-            ImGui::TableSetColumnIndex(4); StrCell("##arr", e.arrangement,     sizeof(e.arrangement));
-            ImGui::TableSetColumnIndex(5); StrCell("##dtk", e.display_text_key,sizeof(e.display_text_key));
+            ImGui::TableSetColumnIndex(1); U32Cell("##bh",   e.bgm_hash);
+            ImGui::TableSetColumnIndex(2); U32Cell("##sh",   e.series_hash);
+            ImGui::TableSetColumnIndex(3); U32Cell("##u2",   e.unk_2);
+            ImGui::TableSetColumnIndex(4); StrCell("##cn",   e.cue_name,        sizeof(e.cue_name));
+            ImGui::TableSetColumnIndex(5); StrCell("##arr",  e.arrangement,     sizeof(e.arrangement));
+            ImGui::TableSetColumnIndex(6); StrCell("##ac1",  e.alt_cue_name_1,  sizeof(e.alt_cue_name_1));
+            ImGui::TableSetColumnIndex(7); StrCell("##ac2",  e.alt_cue_name_2,  sizeof(e.alt_cue_name_2));
+            ImGui::TableSetColumnIndex(8); StrCell("##ac3",  e.alt_cue_name_3,  sizeof(e.alt_cue_name_3));
+            ImGui::TableSetColumnIndex(9); StrCell("##dtk",  e.display_text_key,sizeof(e.display_text_key));
 
             ImGui::PopID();
         }
@@ -2092,6 +2185,41 @@ void FbsDataView::RenderCustomizeItemUniqueListEditor(ContentsBinData& bin)
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.82f, 1.00f, 1.00f));
     ImGui::Text("customize_item_unique_list.bin");
     ImGui::PopStyleColor();
+    ImGui::SameLine();
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.42f, 0.42f, 0.54f, 1.00f));
+    ImGui::Text("(%d entries)", (int)bin.customizeItemUniqueEntries.size());
+    ImGui::PopStyleColor();
+
+    const float addBtnW    = 100.0f;
+    const float ioGap      = 4.0f;
+    const float exportBtnW = 70.0f;
+    const float importBtnW = 70.0f;
+    const float totalW     = exportBtnW + ioGap + importBtnW + ioGap + addBtnW;
+    ImGui::SameLine(ImGui::GetContentRegionAvail().x - totalW + ImGui::GetCursorPosX());
+
+    if (ImGui::Button("Export##u", ImVec2(exportBtnW, 0)))
+    {
+        std::string path = OpenTsvSaveDialog(L"customize_item_unique_list.tsv");
+        if (!path.empty())
+            ExportUniqueListTsv(bin.customizeItemUniqueEntries, path);
+    }
+    ImGui::SameLine(0, ioGap);
+    if (ImGui::Button("Import##u", ImVec2(importBtnW, 0)))
+    {
+        std::string path = OpenTsvOpenDialog();
+        if (!path.empty())
+        {
+            auto imported = ImportUniqueListTsv(path);
+            if (!imported.empty())
+                bin.customizeItemUniqueEntries = std::move(imported);
+        }
+    }
+    ImGui::SameLine(0, ioGap);
+    if (ImGui::Button("+ Add Entry##u", ImVec2(addBtnW, 0)))
+        bin.customizeItemUniqueEntries.push_back(bin.customizeItemUniqueEntries.empty()
+            ? DefaultValues::UniqueEntry()
+            : bin.customizeItemUniqueEntries.back());
+
     ImGui::Separator();
 
     constexpr ImGuiTableFlags tFlags =
@@ -2100,210 +2228,119 @@ void FbsDataView::RenderCustomizeItemUniqueListEditor(ContentsBinData& bin)
         ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable |
         ImGuiTableFlags_Hideable | ImGuiTableFlags_SizingFixedFit;
 
-    if (!ImGui::BeginTabBar("##UniqueItemTabs"))
+    // cols: # + all 22 fields
+    if (!ImGui::BeginTable("##CIUTable", 23, tFlags, ImGui::GetContentRegionAvail()))
         return;
 
-    if (ImGui::BeginTabItem("entries"))
+    ImGui::TableSetupScrollFreeze(1, 1);
+    ImGui::TableSetupColumn("#",                                 ImGuiTableColumnFlags_WidthFixed,  52.0f);
+    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[0],  ImGuiTableColumnFlags_WidthFixed,  95.0f);
+    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[1],  ImGuiTableColumnFlags_WidthFixed, 200.0f);
+    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[2],  ImGuiTableColumnFlags_WidthFixed,  95.0f);
+    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[3],  ImGuiTableColumnFlags_WidthFixed,  95.0f);
+    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[4],  ImGuiTableColumnFlags_WidthFixed, 200.0f);
+    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[5],  ImGuiTableColumnFlags_WidthFixed, 200.0f);
+    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[6],  ImGuiTableColumnFlags_WidthFixed, 200.0f);
+    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[7],  ImGuiTableColumnFlags_WidthFixed,  60.0f);
+    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[8],  ImGuiTableColumnFlags_WidthFixed,  80.0f);
+    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[9],  ImGuiTableColumnFlags_WidthFixed,  60.0f);
+    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[10], ImGuiTableColumnFlags_WidthFixed,  80.0f);
+    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[11], ImGuiTableColumnFlags_WidthFixed,  80.0f);
+    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[12], ImGuiTableColumnFlags_WidthFixed,  80.0f);
+    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[13], ImGuiTableColumnFlags_WidthFixed,  80.0f);
+    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[14], ImGuiTableColumnFlags_WidthFixed,  95.0f);
+    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[15], ImGuiTableColumnFlags_WidthFixed,  60.0f);
+    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[16], ImGuiTableColumnFlags_WidthFixed,  80.0f);
+    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[17], ImGuiTableColumnFlags_WidthFixed,  95.0f);
+    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[18], ImGuiTableColumnFlags_WidthFixed,  80.0f);
+    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[19], ImGuiTableColumnFlags_WidthFixed,  80.0f);
+    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[20], ImGuiTableColumnFlags_WidthFixed,  80.0f);
+    ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[21], ImGuiTableColumnFlags_WidthFixed,  80.0f);
+    ImGui::TableHeadersRow();
+
+    int deleteIdx = -1;
+    ImGuiListClipper clipper;
+    clipper.Begin((int)bin.customizeItemUniqueEntries.size());
+    while (clipper.Step())
     {
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.42f, 0.42f, 0.54f, 1.00f));
-        ImGui::Text("(%d entries)", (int)bin.customizeItemUniqueEntries.size());
-        ImGui::PopStyleColor();
-        const float addBtnW = 100.0f;
-        ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
-        if (ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
-            bin.customizeItemUniqueEntries.push_back(CustomizeItemUniqueEntry{});
-
-        // cols: # + all 22 schema fields (id 0..21)
-        if (ImGui::BeginTable("##CIUTable", 23, tFlags, ImGui::GetContentRegionAvail()))
+        for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i)
         {
-            ImGui::TableSetupScrollFreeze(1, 1);
-            ImGui::TableSetupColumn("#",                                   ImGuiTableColumnFlags_WidthFixed,  52.0f);
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[0],    ImGuiTableColumnFlags_WidthFixed,  95.0f);  // char_item_id
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[1],    ImGuiTableColumnFlags_WidthFixed, 200.0f);  // asset_name
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[2],    ImGuiTableColumnFlags_WidthFixed,  95.0f);  // character_hash
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[3],    ImGuiTableColumnFlags_WidthFixed,  95.0f);  // hash_1
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[4],    ImGuiTableColumnFlags_WidthFixed, 200.0f);  // text_key
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[5],    ImGuiTableColumnFlags_WidthFixed, 200.0f);  // extra_text_key_1
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[6],    ImGuiTableColumnFlags_WidthFixed, 200.0f);  // extra_text_key_2
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[7],    ImGuiTableColumnFlags_WidthFixed,  60.0f);  // flag_7
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[8],    ImGuiTableColumnFlags_WidthFixed,  80.0f);  // unk_8
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[9],    ImGuiTableColumnFlags_WidthFixed,  60.0f);  // flag_9
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[10],   ImGuiTableColumnFlags_WidthFixed,  80.0f);  // unk_10
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[11],   ImGuiTableColumnFlags_WidthFixed,  80.0f);  // price
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[12],   ImGuiTableColumnFlags_WidthFixed,  80.0f);  // unk_12
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[13],   ImGuiTableColumnFlags_WidthFixed,  80.0f);  // unk_13
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[14],   ImGuiTableColumnFlags_WidthFixed,  95.0f);  // hash_2
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[15],   ImGuiTableColumnFlags_WidthFixed,  60.0f);  // flag_15
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[16],   ImGuiTableColumnFlags_WidthFixed,  80.0f);  // unk_16
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[17],   ImGuiTableColumnFlags_WidthFixed,  95.0f);  // hash_3
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[18],   ImGuiTableColumnFlags_WidthFixed,  80.0f);  // unk_18
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[19],   ImGuiTableColumnFlags_WidthFixed,  80.0f);  // unk_19
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[20],   ImGuiTableColumnFlags_WidthFixed,  80.0f);  // unk_20
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[21],   ImGuiTableColumnFlags_WidthFixed,  80.0f);  // unk_21
-            ImGui::TableHeadersRow();
+            auto& e = bin.customizeItemUniqueEntries[i];
+            ImGui::TableNextRow();
+            ImGui::PushID(i);
 
-            int deleteIdx = -1;
-            ImGuiListClipper clipper;
-            clipper.Begin((int)bin.customizeItemUniqueEntries.size());
-            while (clipper.Step())
+            ImGui::TableSetColumnIndex(0);
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.50f, 0.50f, 0.60f, 1.00f));
+            ImGui::Text("%d", i + 1);
+            ImGui::PopStyleColor();
+            ImGui::SameLine(0, 4.0f);
+            ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
+            if (ImGui::SmallButton("X")) deleteIdx = i;
+            ImGui::PopStyleColor(3);
+
+            auto U32Cell = [](const char* id, uint32_t& v) {
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                ImGui::InputScalar(id, ImGuiDataType_U32, &v);
+            };
+            auto StrCell = [](const char* id, char* buf, size_t sz) {
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                ImGui::InputText(id, buf, sz);
+            };
+            auto BoolCell = [](const char* id, bool& v) {
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                ImGui::Checkbox(id, &v);
+            };
+
+            ImGui::TableSetColumnIndex( 1);
             {
-                for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i)
-                {
-                    auto& e = bin.customizeItemUniqueEntries[i];
-                    ImGui::TableNextRow();
-                    ImGui::PushID(i);
-
-                    ImGui::TableSetColumnIndex(0);
-                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.50f, 0.50f, 0.60f, 1.00f));
-                    ImGui::Text("%d", i + 1);
-                    ImGui::PopStyleColor();
-                    ImGui::SameLine(0, 4.0f);
-                    ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
-                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
-                    ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
-                    if (ImGui::SmallButton("X")) deleteIdx = i;
-                    ImGui::PopStyleColor(3);
-
-                    auto U32Cell = [](const char* id, uint32_t& v) {
-                        ImGui::SetNextItemWidth(-FLT_MIN);
-                        ImGui::InputScalar(id, ImGuiDataType_U32, &v);
-                    };
-                    auto StrCell = [](const char* id, char* buf, size_t sz) {
-                        ImGui::SetNextItemWidth(-FLT_MIN);
-                        ImGui::InputText(id, buf, sz);
-                    };
-                    auto BoolCell = [](const char* id, bool& v) {
-                        ImGui::SetNextItemWidth(-FLT_MIN);
-                        ImGui::Checkbox(id, &v);
-                    };
-
-                    ImGui::TableSetColumnIndex( 1);
-                    {
-                        char cidLabel[32];
-                        snprintf(cidLabel, sizeof(cidLabel), "%u##cid", e.char_item_id);
-                        if (ImGui::Button(cidLabel, ImVec2(-FLT_MIN, 0.f))) {
-                            auto& s = m_itemIdEdit;
-                            s.target      = &e.char_item_id;
-                            s.hashTarget  = &e.character_hash;
-                            s.hash1Target = &e.hash_1;
-                            s.fixedA = 1;
-                            uint32_t v = e.char_item_id;
-                            s.XX = (v / 100000) % 100;
-                            s.YY = (v / 1000) % 100;
-                            s.ZZZ = v % 1000;
-                            s.xxManual = false;
-                            s.yyManual = false;
-                            s.pendingOpen = true;
-                        }
-                    }
-                    ImGui::TableSetColumnIndex( 2); StrCell ("##an",   e.asset_name,        sizeof(e.asset_name));
-                    ImGui::TableSetColumnIndex( 3); U32Cell ("##ch",   e.character_hash);
-                    ImGui::TableSetColumnIndex( 4); U32Cell ("##h1",   e.hash_1);
-                    ImGui::TableSetColumnIndex( 5); StrCell ("##tk",   e.text_key,          sizeof(e.text_key));
-                    ImGui::TableSetColumnIndex( 6); StrCell ("##ek1",  e.extra_text_key_1,  sizeof(e.extra_text_key_1));
-                    ImGui::TableSetColumnIndex( 7); StrCell ("##ek2",  e.extra_text_key_2,  sizeof(e.extra_text_key_2));
-                    ImGui::TableSetColumnIndex( 8); BoolCell("##f7",   e.flag_7);
-                    ImGui::TableSetColumnIndex( 9); U32Cell ("##u8",   e.unk_8);
-                    ImGui::TableSetColumnIndex(10); BoolCell("##f9",   e.flag_9);
-                    ImGui::TableSetColumnIndex(11); U32Cell ("##u10",  e.unk_10);
-                    ImGui::TableSetColumnIndex(12); U32Cell ("##prc",  e.price);
-                    ImGui::TableSetColumnIndex(13); U32Cell ("##u12",  e.unk_12);
-                    ImGui::TableSetColumnIndex(14); U32Cell ("##u13",  e.unk_13);
-                    ImGui::TableSetColumnIndex(15); U32Cell ("##h2",   e.hash_2);
-                    ImGui::TableSetColumnIndex(16); BoolCell("##f15",  e.flag_15);
-                    ImGui::TableSetColumnIndex(17); U32Cell ("##u16",  e.unk_16);
-                    ImGui::TableSetColumnIndex(18); U32Cell ("##h3",   e.hash_3);
-                    ImGui::TableSetColumnIndex(19); U32Cell ("##u18",  e.unk_18);
-                    ImGui::TableSetColumnIndex(20); U32Cell ("##u19",  e.unk_19);
-                    ImGui::TableSetColumnIndex(21); U32Cell ("##u20",  e.unk_20);
-                    ImGui::TableSetColumnIndex(22); U32Cell ("##u21",  e.unk_21);
-
-                    ImGui::PopID();
+                char cidLabel[32];
+                snprintf(cidLabel, sizeof(cidLabel), "%u##cid", e.char_item_id);
+                if (ImGui::Button(cidLabel, ImVec2(-FLT_MIN, 0.f))) {
+                    auto& s = m_itemIdEdit;
+                    s.target      = &e.char_item_id;
+                    s.hashTarget  = &e.character_hash;
+                    s.hash1Target = &e.hash_1;
+                    s.fixedA = 1;
+                    uint32_t v = e.char_item_id;
+                    s.XX = (v / 100000) % 100;
+                    s.YY = (v / 1000) % 100;
+                    s.ZZZ = v % 1000;
+                    s.xxManual = false;
+                    s.yyManual = false;
+                    s.pendingOpen = true;
                 }
             }
-            if (deleteIdx >= 0)
-                bin.customizeItemUniqueEntries.erase(bin.customizeItemUniqueEntries.begin() + deleteIdx);
+            ImGui::TableSetColumnIndex( 2); StrCell ("##an",   e.asset_name,        sizeof(e.asset_name));
+            ImGui::TableSetColumnIndex( 3); U32Cell ("##ch",   e.character_hash);
+            ImGui::TableSetColumnIndex( 4); U32Cell ("##h1",   e.hash_1);
+            ImGui::TableSetColumnIndex( 5); StrCell ("##tk",   e.text_key,          sizeof(e.text_key));
+            ImGui::TableSetColumnIndex( 6); StrCell ("##ek1",  e.extra_text_key_1,  sizeof(e.extra_text_key_1));
+            ImGui::TableSetColumnIndex( 7); StrCell ("##ek2",  e.extra_text_key_2,  sizeof(e.extra_text_key_2));
+            ImGui::TableSetColumnIndex( 8); BoolCell("##f7",   e.flag_7);
+            ImGui::TableSetColumnIndex( 9); U32Cell ("##u8",   e.unk_8);
+            ImGui::TableSetColumnIndex(10); BoolCell("##f9",   e.flag_9);
+            ImGui::TableSetColumnIndex(11); U32Cell ("##u10",  e.unk_10);
+            ImGui::TableSetColumnIndex(12); U32Cell ("##prc",  e.price);
+            ImGui::TableSetColumnIndex(13); U32Cell ("##u12",  e.unk_12);
+            ImGui::TableSetColumnIndex(14); U32Cell ("##u13",  e.unk_13);
+            ImGui::TableSetColumnIndex(15); U32Cell ("##h2",   e.hash_2);
+            ImGui::TableSetColumnIndex(16); BoolCell("##f15",  e.flag_15);
+            ImGui::TableSetColumnIndex(17); U32Cell ("##u16",  e.unk_16);
+            ImGui::TableSetColumnIndex(18); U32Cell ("##h3",   e.hash_3);
+            ImGui::TableSetColumnIndex(19); U32Cell ("##u18",  e.unk_18);
+            ImGui::TableSetColumnIndex(20); U32Cell ("##u19",  e.unk_19);
+            ImGui::TableSetColumnIndex(21); U32Cell ("##u20",  e.unk_20);
+            ImGui::TableSetColumnIndex(22); U32Cell ("##u21",  e.unk_21);
 
-            ImGui::EndTable();
+            ImGui::PopID();
         }
-        ImGui::EndTabItem();
     }
+    if (deleteIdx >= 0)
+        bin.customizeItemUniqueEntries.erase(bin.customizeItemUniqueEntries.begin() + deleteIdx);
 
-    if (ImGui::BeginTabItem("body_entries"))
-    {
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.42f, 0.42f, 0.54f, 1.00f));
-        ImGui::Text("(%d entries)", (int)bin.customizeItemUniqueBodyEntries.size());
-        ImGui::PopStyleColor();
-        const float addBtnW = 100.0f;
-        ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
-        if (ImGui::Button("+ Add Entry##body", ImVec2(addBtnW, 0)))
-            bin.customizeItemUniqueBodyEntries.push_back(CustomizeItemUniqueBodyEntry{});
-
-        if (ImGui::BeginTable("##CIUBodyTable", 3, tFlags, ImGui::GetContentRegionAvail()))
-        {
-            ImGui::TableSetupScrollFreeze(1, 1);
-            ImGui::TableSetupColumn("#",                                   ImGuiTableColumnFlags_WidthFixed, 52.0f);
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUniqueBody[0], ImGuiTableColumnFlags_WidthFixed, 200.0f);
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUniqueBody[1], ImGuiTableColumnFlags_WidthFixed, 95.0f);
-            ImGui::TableHeadersRow();
-
-            int deleteIdx = -1;
-            ImGuiListClipper clipper;
-            clipper.Begin((int)bin.customizeItemUniqueBodyEntries.size());
-            while (clipper.Step())
-            {
-                for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i)
-                {
-                    auto& e = bin.customizeItemUniqueBodyEntries[i];
-                    ImGui::TableNextRow();
-                    ImGui::PushID(i);
-
-                    ImGui::TableSetColumnIndex(0);
-                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.50f, 0.50f, 0.60f, 1.00f));
-                    ImGui::Text("%d", i + 1);
-                    ImGui::PopStyleColor();
-                    ImGui::SameLine(0, 4.0f);
-                    ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
-                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
-                    ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
-                    if (ImGui::SmallButton("X")) deleteIdx = i;
-                    ImGui::PopStyleColor(3);
-
-                    ImGui::TableSetColumnIndex(1);
-                    ImGui::SetNextItemWidth(-FLT_MIN);
-                    ImGui::InputText("##an", e.asset_name, sizeof(e.asset_name));
-                    ImGui::TableSetColumnIndex(2);
-                    {
-                        char bcidLabel[32];
-                        snprintf(bcidLabel, sizeof(bcidLabel), "%u##bcid", e.char_item_id);
-                        if (ImGui::Button(bcidLabel, ImVec2(-FLT_MIN, 0.f))) {
-                            auto& s = m_itemIdEdit;
-                            s.target      = &e.char_item_id;
-                            s.hashTarget  = nullptr;
-                            s.hash1Target = nullptr;
-                            s.fixedA = 1;
-                            uint32_t v = e.char_item_id;
-                            s.XX = (v / 100000) % 100;
-                            s.YY = (v / 1000) % 100;
-                            s.ZZZ = v % 1000;
-                            s.xxManual = false;
-                            s.yyManual = false;
-                            s.pendingOpen = true;
-                        }
-                    }
-
-                    ImGui::PopID();
-                }
-            }
-            if (deleteIdx >= 0)
-                bin.customizeItemUniqueBodyEntries.erase(bin.customizeItemUniqueBodyEntries.begin() + deleteIdx);
-
-            ImGui::EndTable();
-        }
-        ImGui::EndTabItem();
-    }
-
-    ImGui::EndTabBar();
+    ImGui::EndTable();
 }
 
 // -----------------------------------------------------------------------------
@@ -3990,6 +4027,95 @@ void FbsDataView::RenderInfoEditPopup()
         ImGui::CloseCurrentPopup();
 
     ImGui::EndPopup();
+}
+
+// -----------------------------------------------------------------------------
+//  customize_panel_list editor
+// -----------------------------------------------------------------------------
+
+void FbsDataView::RenderCustomizePanelListEditor(ContentsBinData& bin)
+{
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.82f, 1.00f, 1.00f));
+    ImGui::Text("customize_panel_list.bin");
+    ImGui::PopStyleColor();
+    ImGui::SameLine();
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.42f, 0.42f, 0.54f, 1.00f));
+    ImGui::Text("(%d entries)", (int)bin.customizePanelEntries.size());
+    ImGui::PopStyleColor();
+
+    const float addBtnW = 100.0f;
+    ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
+    if (ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
+        bin.customizePanelEntries.push_back(bin.customizePanelEntries.empty()
+            ? CustomizePanelEntry{}
+            : bin.customizePanelEntries.back());
+
+    ImGui::Separator();
+
+    constexpr ImGuiTableFlags tFlags =
+        ImGuiTableFlags_ScrollX | ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg |
+        ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersInnerV |
+        ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable |
+        ImGuiTableFlags_Hideable | ImGuiTableFlags_SizingFixedFit;
+
+    // cols: # + 11 fields
+    if (!ImGui::BeginTable("##CPLTable", 12, tFlags, ImGui::GetContentRegionAvail()))
+        return;
+
+    ImGui::TableSetupScrollFreeze(1, 1);
+    ImGui::TableSetupColumn("#",                                      ImGuiTableColumnFlags_WidthFixed, 52.0f);
+    for (int ci = 0; ci < FieldNames::CustomizePanelEntryCount; ++ci)
+        ImGui::TableSetupColumn(FieldNames::CustomizePanelEntry[ci],  ImGuiTableColumnFlags_WidthFixed,
+            (ci >= 5 && ci <= 8) ? 200.0f : 95.0f);
+    ImGui::TableHeadersRow();
+
+    int deleteIdx = -1;
+
+    for (int i = 0; i < (int)bin.customizePanelEntries.size(); ++i)
+    {
+        auto& e = bin.customizePanelEntries[i];
+        ImGui::TableNextRow();
+        ImGui::PushID(i);
+
+        ImGui::TableSetColumnIndex(0);
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.50f, 0.50f, 0.60f, 1.00f));
+        ImGui::Text("%d", i + 1);
+        ImGui::PopStyleColor();
+        ImGui::SameLine(0, 4.0f);
+        ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
+        if (ImGui::SmallButton("X")) deleteIdx = i;
+        ImGui::PopStyleColor(3);
+
+        auto U32Cell = [](const char* id, uint32_t& v) {
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            ImGui::InputScalar(id, ImGuiDataType_U32, &v);
+        };
+        auto StrCell = [](const char* id, char* buf, size_t sz) {
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            ImGui::InputText(id, buf, sz);
+        };
+
+        ImGui::TableSetColumnIndex(1);  U32Cell("##ph",   e.panel_hash);
+        ImGui::TableSetColumnIndex(2);  U32Cell("##pid",  e.panel_id);
+        ImGui::TableSetColumnIndex(3);  U32Cell("##prc",  e.price);
+        ImGui::TableSetColumnIndex(4);  U32Cell("##cat",  e.category);
+        ImGui::TableSetColumnIndex(5);  U32Cell("##sid",  e.sort_id);
+        ImGui::TableSetColumnIndex(6);  StrCell("##tkey", e.text_key,  sizeof(e.text_key));
+        ImGui::TableSetColumnIndex(7);  StrCell("##tx1",  e.texture_1, sizeof(e.texture_1));
+        ImGui::TableSetColumnIndex(8);  StrCell("##tx2",  e.texture_2, sizeof(e.texture_2));
+        ImGui::TableSetColumnIndex(9);  StrCell("##tx3",  e.texture_3, sizeof(e.texture_3));
+        ImGui::TableSetColumnIndex(10); ImGui::Checkbox("##f9", &e.flag_9);
+        ImGui::TableSetColumnIndex(11); U32Cell("##h10",  e.hash_10);
+
+        ImGui::PopID();
+    }
+
+    if (deleteIdx >= 0)
+        bin.customizePanelEntries.erase(bin.customizePanelEntries.begin() + deleteIdx);
+
+    ImGui::EndTable();
 }
 
 // -----------------------------------------------------------------------------

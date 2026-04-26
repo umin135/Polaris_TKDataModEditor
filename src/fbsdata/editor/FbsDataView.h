@@ -66,6 +66,7 @@ private:
     void RenderBattleCpuListEditor(ContentsBinData& bin);
     void RenderRankListEditor(ContentsBinData& bin);
     void RenderAssistInputListEditor(ContentsBinData& bin);
+    void RenderCustomizePanelListEditor(ContentsBinData& bin);
 
     ModData m_data;
     ItemIdEditState m_itemIdEdit;

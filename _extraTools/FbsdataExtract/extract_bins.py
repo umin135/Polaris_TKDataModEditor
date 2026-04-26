@@ -538,6 +538,24 @@ def extract_rank_list(b: FbsBuf) -> dict:
 def extract_assist_input_list(b: FbsBuf) -> dict:
     return extract_simple_list(b, parse_assist_input)
 
+def parse_panel_entry(b: FbsBuf, tp: int) -> dict:
+    return {
+        'panel_hash': b.f_u32 (tp,  0),
+        'panel_id':   b.f_u32 (tp,  1),
+        'price':      b.f_u32 (tp,  2),
+        'category':   b.f_u32 (tp,  3),
+        'sort_id':    b.f_u32 (tp,  4),
+        'text_key':   b.f_str (tp,  5),
+        'texture_1':  b.f_str (tp,  6),
+        'texture_2':  b.f_str (tp,  7),
+        'texture_3':  b.f_str (tp,  8),
+        'flag_9':     b.f_bool(tp,  9),
+        'hash_10':    b.f_u32 (tp, 10),
+    }
+
+def extract_customize_panel_list(b: FbsBuf) -> dict:
+    return extract_simple_list(b, parse_panel_entry)
+
 
 # ---------------------------------------------------------------------------
 #  Bin-name → extractor dispatch
@@ -568,6 +586,7 @@ EXTRACTORS = {
     'battle_cpu_list':                     extract_battle_cpu_list,
     'rank_list':                           extract_rank_list,
     'assist_input_list':                   extract_assist_input_list,
+    'customize_panel_list':                extract_customize_panel_list,
 }
 
 

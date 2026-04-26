@@ -2336,6 +2336,68 @@ static bool ParseAssistInputListJson(const std::string& json, ContentsBinData& b
     return true;
 }
 
+// -----------------------------------------------------------------------------
+//  customize_panel_list JSON builder / parser
+// -----------------------------------------------------------------------------
+
+static std::string BuildCustomizePanelListJson(const ContentsBinData& bin)
+{
+    std::string j = "{\n  \"version\": 1,\n  \"data\": {\n    \"entries\": [\n";
+    for (size_t i = 0; i < bin.customizePanelEntries.size(); ++i)
+    {
+        if (i > 0) j += ",\n";
+        const auto& e = bin.customizePanelEntries[i];
+        j += "      {\n";
+        j += "        \"id_0\": "   + std::to_string(e.panel_hash) + ",\n";
+        j += "        \"id_1\": "   + std::to_string(e.panel_id)   + ",\n";
+        j += "        \"id_2\": "   + std::to_string(e.price)      + ",\n";
+        j += "        \"id_3\": "   + std::to_string(e.category)   + ",\n";
+        j += "        \"id_4\": "   + std::to_string(e.sort_id)    + ",\n";
+        j += "        \"id_5\": \""  + JsonEsc(e.text_key)          + "\",\n";
+        j += "        \"id_6\": \""  + JsonEsc(e.texture_1)         + "\",\n";
+        j += "        \"id_7\": \""  + JsonEsc(e.texture_2)         + "\",\n";
+        j += "        \"id_8\": \""  + JsonEsc(e.texture_3)         + "\",\n";
+        j += "        \"id_9\": "   + std::string(e.flag_9 ? "true" : "false") + ",\n";
+        j += "        \"id_10\": "  + std::to_string(e.hash_10)    + "\n";
+        j += "      }";
+    }
+    j += "\n    ]\n  }\n}\n";
+    return j;
+}
+
+static bool ParseCustomizePanelListJson(const std::string& json, ContentsBinData& bin)
+{
+    const char* p = json.c_str();
+    const char* ef = strstr(p, "\"entries\""); if (!ef) return false;
+    const char* arr = strchr(ef, '['); if (!arr) return false;
+    ++arr;
+    while (true)
+    {
+        arr = SkipWS(arr);
+        if (*arr == ']' || *arr == '\0') break;
+        if (*arr == '{')
+        {
+            const char* objEnd = SkipObject(arr); if (!objEnd) break;
+            CustomizePanelEntry e{};
+            { auto* fp = FindField(arr, objEnd, "id_0");  ParseUInt32(fp, objEnd, e.panel_hash); }
+            { auto* fp = FindField(arr, objEnd, "id_1");  ParseUInt32(fp, objEnd, e.panel_id);   }
+            { auto* fp = FindField(arr, objEnd, "id_2");  ParseUInt32(fp, objEnd, e.price);      }
+            { auto* fp = FindField(arr, objEnd, "id_3");  ParseUInt32(fp, objEnd, e.category);   }
+            { auto* fp = FindField(arr, objEnd, "id_4");  ParseUInt32(fp, objEnd, e.sort_id);    }
+            { auto* fp = FindField(arr, objEnd, "id_5");  ParseString(fp, objEnd, e.text_key,  sizeof(e.text_key));  }
+            { auto* fp = FindField(arr, objEnd, "id_6");  ParseString(fp, objEnd, e.texture_1, sizeof(e.texture_1)); }
+            { auto* fp = FindField(arr, objEnd, "id_7");  ParseString(fp, objEnd, e.texture_2, sizeof(e.texture_2)); }
+            { auto* fp = FindField(arr, objEnd, "id_8");  ParseString(fp, objEnd, e.texture_3, sizeof(e.texture_3)); }
+            { auto* fp = FindField(arr, objEnd, "id_9");  ParseBool(fp, objEnd, e.flag_9);       }
+            { auto* fp = FindField(arr, objEnd, "id_10"); ParseUInt32(fp, objEnd, e.hash_10);    }
+            bin.customizePanelEntries.push_back(e);
+            arr = objEnd;
+        }
+        while (*arr == ',' || *arr == ' ' || *arr == '\n' || *arr == '\r' || *arr == '\t') ++arr;
+    }
+    return true;
+}
+
 // ???????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????//  Win32 file dialogs + wide/narrow conversion
 // ???????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
 static std::string WideToUtf8(const wchar_t* w)
@@ -2554,6 +2616,8 @@ namespace TkmodIO
                 json = BuildRankListJson(bin);
             else if (bin.type == BinType::AssistInputList)
                 json = BuildAssistInputListJson(bin);
+            else if (bin.type == BinType::CustomizePanelList)
+                json = BuildCustomizePanelListJson(bin);
             else
                 continue;
 
@@ -2811,6 +2875,15 @@ namespace TkmodIO
                 bin.type = BinType::AssistInputList;
                 bin.name = binName;
                 ParseAssistInputListJson(jsonStr, bin);
+                loaded.selectedIndex = static_cast<int>(loaded.contents.size());
+                loaded.contents.push_back(std::move(bin));
+            }
+            else if (binName == "customize_panel_list.bin")
+            {
+                ContentsBinData bin;
+                bin.type = BinType::CustomizePanelList;
+                bin.name = binName;
+                ParseCustomizePanelListJson(jsonStr, bin);
                 loaded.selectedIndex = static_cast<int>(loaded.contents.size());
                 loaded.contents.push_back(std::move(bin));
             }
