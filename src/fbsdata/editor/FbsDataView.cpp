@@ -135,8 +135,17 @@ static const float LIST_WIDTH = 290.0f;  // Contents List panel width
 //  Top toolbar
 // -----------------------------------------------------------------------------
 
+// Forward declarations (defined after AssembleItemId, further below)
+static void FixCommonItemIds(std::vector<CustomizeItemCommonEntry>& entries);
+static void FixUniqueItemIds(std::vector<CustomizeItemUniqueEntry>& entries);
+
 void FbsDataView::DoSave()
 {
+    for (auto& bin : m_data.contents)
+    {
+        FixCommonItemIds(bin.commonEntries);
+        FixUniqueItemIds(bin.customizeItemUniqueEntries);
+    }
     m_lastSaveOk     = TkmodIO::SaveDialog(m_data);
     m_showSaveResult = true;
     m_statusTimer    = 3.0f;
@@ -572,6 +581,33 @@ static uint32_t AssembleItemId(uint8_t a, uint32_t charHash, uint32_t typeHash,
     return (uint32_t)a * 10000000u + BB * 100000u + CC * 1000u + (ddd % 1000u);
 }
 
+// Rebuilds item_id / char_item_id for all entries based on their hash fields.
+// Only updates entries where the hash-derived BB/CC differ from the stored value.
+// Skips entries whose hashes are not found in FbsDataDict (leaves them unchanged).
+static void FixCommonItemIds(std::vector<CustomizeItemCommonEntry>& entries)
+{
+    for (auto& e : entries)
+    {
+        uint32_t BB = FbsDataDict::Get().CharHashToId(e.hash_0);
+        uint32_t CC = FbsDataDict::Get().TypeHashToId(e.hash_1);
+        if (BB == UINT32_MAX && CC == UINT32_MAX) continue;
+        uint32_t fixed = AssembleItemId(2, e.hash_0, e.hash_1, e.item_id % 1000u, e.item_id);
+        e.item_id = fixed;
+    }
+}
+
+static void FixUniqueItemIds(std::vector<CustomizeItemUniqueEntry>& entries)
+{
+    for (auto& e : entries)
+    {
+        uint32_t BB = FbsDataDict::Get().CharHashToId(e.character_hash);
+        uint32_t CC = FbsDataDict::Get().TypeHashToId(e.hash_1);
+        if (BB == UINT32_MAX && CC == UINT32_MAX) continue;
+        uint32_t fixed = AssembleItemId(1, e.character_hash, e.hash_1, e.char_item_id % 1000u, e.char_item_id);
+        e.char_item_id = fixed;
+    }
+}
+
 // Renders a combo cell for a hash field with known code labels.
 // Returns true if the value changed.
 static bool HashComboCell(const char* id, uint32_t& val,
@@ -718,7 +754,10 @@ void FbsDataView::RenderCustomizeItemCommonEditor(ContentsBinData& bin)
     {
         std::string path = OpenTsvSaveDialog(L"customize_item_common_list.tsv");
         if (!path.empty())
+        {
+            FixCommonItemIds(bin.commonEntries);
             ExportCommonListTsv(bin.commonEntries, path);
+        }
     }
     ImGui::SameLine(0, ioGap);
     if (ImGui::Button("Import", ImVec2(importBtnW, 0)))
@@ -728,7 +767,10 @@ void FbsDataView::RenderCustomizeItemCommonEditor(ContentsBinData& bin)
         {
             auto imported = ImportCommonListTsv(path);
             if (!imported.empty())
+            {
+                FixCommonItemIds(imported);
                 bin.commonEntries = std::move(imported);
+            }
         }
     }
     ImGui::SameLine(0, ioGap);
@@ -817,16 +859,24 @@ void FbsDataView::RenderCustomizeItemCommonEditor(ContentsBinData& bin)
         ImGui::TableSetColumnIndex(1);
         {
             int ddd = (int)(e.item_id % 1000u);
-            bool isDup = idCounts.count(e.item_id) && idCounts.at(e.item_id) > 1;
-            if (isDup) ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.55f, 0.08f, 0.08f, 1.0f));
+            bool isDup  = idCounts.count(e.item_id) && idCounts.at(e.item_id) > 1;
+            bool isGame = FbsDataDict::Get().IsGameItemId(e.item_id);
+            bool warn   = isDup || isGame;
+            if (warn) ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.55f, 0.08f, 0.08f, 1.0f));
             ImGui::SetNextItemWidth(-FLT_MIN);
             if (ImGui::InputInt("##ddd", &ddd, 0, 0)) {
                 ddd = std::max(0, std::min(999, ddd));
                 e.item_id = AssembleItemId(2, e.hash_0, e.hash_1, (uint32_t)ddd, e.item_id);
             }
-            if (isDup) ImGui::PopStyleColor();
-            if (isDup && ImGui::IsItemHovered())
-                ImGui::SetTooltip("Duplicate item_id: %u", e.item_id);
+            if (warn) ImGui::PopStyleColor();
+            if (warn && ImGui::IsItemHovered()) {
+                if (isDup && isGame)
+                    ImGui::SetTooltip("Duplicate item_id: %u\nConflicts with a base game item ID", e.item_id);
+                else if (isDup)
+                    ImGui::SetTooltip("Duplicate item_id: %u", e.item_id);
+                else
+                    ImGui::SetTooltip("item_id %u conflicts with a base game item ID", e.item_id);
+            }
         }
         ImGui::TableSetColumnIndex(2);  I32Cell("##ino",   e.item_no);
         ImGui::TableSetColumnIndex(3);  StrCell("##icode", e.item_code,      sizeof(e.item_code));
@@ -2246,7 +2296,10 @@ void FbsDataView::RenderCustomizeItemUniqueListEditor(ContentsBinData& bin)
     {
         std::string path = OpenTsvSaveDialog(L"customize_item_unique_list.tsv");
         if (!path.empty())
+        {
+            FixUniqueItemIds(bin.customizeItemUniqueEntries);
             ExportUniqueListTsv(bin.customizeItemUniqueEntries, path);
+        }
     }
     ImGui::SameLine(0, ioGap);
     if (ImGui::Button("Import##u", ImVec2(importBtnW, 0)))
@@ -2256,7 +2309,10 @@ void FbsDataView::RenderCustomizeItemUniqueListEditor(ContentsBinData& bin)
         {
             auto imported = ImportUniqueListTsv(path);
             if (!imported.empty())
+            {
+                FixUniqueItemIds(imported);
                 bin.customizeItemUniqueEntries = std::move(imported);
+            }
         }
     }
     ImGui::SameLine(0, ioGap);
@@ -2326,16 +2382,24 @@ void FbsDataView::RenderCustomizeItemUniqueListEditor(ContentsBinData& bin)
             ImGui::TableSetColumnIndex( 1);
             {
                 int ddd = (int)(e.char_item_id % 1000u);
-                bool isDup = idCounts.count(e.char_item_id) && idCounts.at(e.char_item_id) > 1;
-                if (isDup) ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.55f, 0.08f, 0.08f, 1.0f));
+                bool isDup  = idCounts.count(e.char_item_id) && idCounts.at(e.char_item_id) > 1;
+                bool isGame = FbsDataDict::Get().IsGameItemId(e.char_item_id);
+                bool warn   = isDup || isGame;
+                if (warn) ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.55f, 0.08f, 0.08f, 1.0f));
                 ImGui::SetNextItemWidth(-FLT_MIN);
                 if (ImGui::InputInt("##ddd", &ddd, 0, 0)) {
                     ddd = std::max(0, std::min(999, ddd));
                     e.char_item_id = AssembleItemId(1, e.character_hash, e.hash_1, (uint32_t)ddd, e.char_item_id);
                 }
-                if (isDup) ImGui::PopStyleColor();
-                if (isDup && ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Duplicate item_id: %u", e.char_item_id);
+                if (warn) ImGui::PopStyleColor();
+                if (warn && ImGui::IsItemHovered()) {
+                    if (isDup && isGame)
+                        ImGui::SetTooltip("Duplicate item_id: %u\nConflicts with a base game item ID", e.char_item_id);
+                    else if (isDup)
+                        ImGui::SetTooltip("Duplicate item_id: %u", e.char_item_id);
+                    else
+                        ImGui::SetTooltip("item_id %u conflicts with a base game item ID", e.char_item_id);
+                }
             }
             ImGui::TableSetColumnIndex( 2); StrCell ("##an",   e.asset_name,        sizeof(e.asset_name));
             ImGui::TableSetColumnIndex( 3);
