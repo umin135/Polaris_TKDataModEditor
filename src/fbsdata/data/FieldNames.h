@@ -56,7 +56,7 @@ namespace FieldNames
         "Name Key",        // id:  4 | string
         "Extra Text Key 1",// id:  5 | string
         "Extra Text Key 2",// id:  6 | string
-        "IsDefault",       // id:  7 | bool
+        "IsDefault",       // id:  7 | uint32
         "unk_8",           // id:  8 | uint32
         "Visiblity",       // id:  9 | bool
         "Rarity",          // id: 10 | uint32

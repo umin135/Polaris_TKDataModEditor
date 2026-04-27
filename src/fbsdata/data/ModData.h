@@ -336,7 +336,7 @@ struct CustomizeItemUniqueEntry
     char     text_key[256]         = {};
     char     extra_text_key_1[256] = {};
     char     extra_text_key_2[256] = {};
-    bool     flag_7           = false;
+    uint32_t flag_7           = 0;     // schema: uint32 (IsDefault marker)
     uint32_t unk_8            = 0;
     bool     flag_9           = false;
     uint32_t unk_10           = 0;

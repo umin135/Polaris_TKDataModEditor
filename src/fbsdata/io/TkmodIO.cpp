@@ -1403,7 +1403,7 @@ static std::string BuildCustomizeItemUniqueListJson(const ContentsBinData& bin)
         j += "        \"id_4\": \"" + JsonEsc(e.text_key)             + "\",\n";
         j += "        \"id_5\": \"" + JsonEsc(e.extra_text_key_1)     + "\",\n";
         j += "        \"id_6\": \"" + JsonEsc(e.extra_text_key_2)     + "\",\n";
-        j += std::string("        \"id_7\": ")  + (e.flag_7  ? "true" : "false") + ",\n";
+        j += "        \"id_7\": "   + std::to_string(e.flag_7)         + ",\n";
         j += "        \"id_8\": "   + std::to_string(e.unk_8)         + ",\n";
         j += std::string("        \"id_9\": ")  + (e.flag_9  ? "true" : "false") + ",\n";
         j += "        \"id_10\": "  + std::to_string(e.unk_10)        + ",\n";
@@ -1447,7 +1447,7 @@ static bool ParseCustomizeItemUniqueListJson(const std::string& json, ContentsBi
             { auto* fp = FindField(s, e, "id_4");  ParseString(fp, e, entry.text_key, sizeof(entry.text_key)); }
             { auto* fp = FindField(s, e, "id_5");  ParseString(fp, e, entry.extra_text_key_1, sizeof(entry.extra_text_key_1)); }
             { auto* fp = FindField(s, e, "id_6");  ParseString(fp, e, entry.extra_text_key_2, sizeof(entry.extra_text_key_2)); }
-            { auto* fp = FindField(s, e, "id_7");  ParseBool(fp,   e, entry.flag_7); }
+            { auto* fp = FindField(s, e, "id_7");  ParseUInt32(fp, e, entry.flag_7); }
             { auto* fp = FindField(s, e, "id_8");  ParseUInt32(fp, e, entry.unk_8); }
             { auto* fp = FindField(s, e, "id_9");  ParseBool(fp,   e, entry.flag_9); }
             { auto* fp = FindField(s, e, "id_10"); ParseUInt32(fp, e, entry.unk_10); }

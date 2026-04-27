@@ -56,7 +56,7 @@ namespace DefaultValues
         strcpy_s(e.text_key,         "TEXT_000_UI_STORYMENU_COMMON_004");
         strcpy_s(e.extra_text_key_1, "PAU_CUS_001");
         strcpy_s(e.extra_text_key_2, "PAU_CUS_001");
-        e.flag_7         = false;               // Default
+        e.flag_7         = 0;
         e.unk_8          = 0;                   // 
         e.flag_9         = true;               // Visibility
         e.unk_10         = 0;                   // Rarity

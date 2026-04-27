@@ -660,11 +660,11 @@ static void ExportUniqueListTsv(const std::vector<CustomizeItemUniqueEntry>& ent
     {
         char line[2048];
         int n = snprintf(line, sizeof(line),
-            "%u\t%s\t%u\t%u\t%s\t%s\t%s\t%s\t%u\t%s\t%u\t%u\t%u\t%u\t%u\t%s\t%u\t%u\t%u\t%u\t%u\t%u\n",
+            "%u\t%s\t%u\t%u\t%s\t%s\t%s\t%u\t%u\t%s\t%u\t%u\t%u\t%u\t%u\t%s\t%u\t%u\t%u\t%u\t%u\t%u\n",
             e.char_item_id, e.asset_name,
             e.character_hash, e.hash_1,
             e.text_key, e.extra_text_key_1, e.extra_text_key_2,
-            e.flag_7   ? "TRUE" : "FALSE",
+            e.flag_7,
             e.unk_8,
             e.flag_9   ? "TRUE" : "FALSE",
             e.unk_10, e.price, e.unk_12, e.unk_13, e.hash_2,
@@ -706,7 +706,7 @@ static std::vector<CustomizeItemUniqueEntry> ImportUniqueListTsv(const std::stri
         strncpy_s(e.text_key,         cols[ 4], _TRUNCATE);
         strncpy_s(e.extra_text_key_1, cols[ 5], _TRUNCATE);
         strncpy_s(e.extra_text_key_2, cols[ 6], _TRUNCATE);
-        e.flag_7         = ParseBool(cols[ 7]);
+        e.flag_7         = (uint32_t)strtoul(cols[ 7], nullptr, 10);
         e.unk_8          = (uint32_t)strtoul(cols[ 8], nullptr, 10);
         e.flag_9         = ParseBool(cols[ 9]);
         e.unk_10         = (uint32_t)strtoul(cols[10], nullptr, 10);
@@ -2411,7 +2411,7 @@ void FbsDataView::RenderCustomizeItemUniqueListEditor(ContentsBinData& bin)
             ImGui::TableSetColumnIndex( 5); StrCell ("##tk",   e.text_key,          sizeof(e.text_key));
             ImGui::TableSetColumnIndex( 6); StrCell ("##ek1",  e.extra_text_key_1,  sizeof(e.extra_text_key_1));
             ImGui::TableSetColumnIndex( 7); StrCell ("##ek2",  e.extra_text_key_2,  sizeof(e.extra_text_key_2));
-            ImGui::TableSetColumnIndex( 8); BoolCell("##f7",   e.flag_7);
+            ImGui::TableSetColumnIndex( 8); U32Cell ("##f7",   e.flag_7);
             ImGui::TableSetColumnIndex( 9); U32Cell ("##u8",   e.unk_8);
             ImGui::TableSetColumnIndex(10); BoolCell("##f9",   e.flag_9);
             ImGui::TableSetColumnIndex(11); U32Cell ("##u10",  e.unk_10);
