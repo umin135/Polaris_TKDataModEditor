@@ -281,7 +281,7 @@ def parse_unique_item(b: FbsBuf, tp: int) -> dict:
         'char_item_id':    b.f_u32 (tp,  0), 'asset_name':      b.f_str (tp,  1),
         'character_hash':  b.f_u32 (tp,  2), 'hash_1':          b.f_u32 (tp,  3),
         'text_key':        b.f_str (tp,  4), 'extra_text_key_1':b.f_str (tp,  5),
-        'extra_text_key_2':b.f_str (tp,  6), 'flag_7':          b.f_bool(tp,  7),
+        'extra_text_key_2':b.f_str (tp,  6), 'flag_7':          b.f_u32 (tp,  7),
         'unk_8':           b.f_u32 (tp,  8), 'flag_9':          b.f_bool(tp,  9),
         'unk_10':          b.f_u32 (tp, 10), 'price':           b.f_u32 (tp, 11),
         'unk_12':          b.f_u32 (tp, 12), 'unk_13':          b.f_u32 (tp, 13),
