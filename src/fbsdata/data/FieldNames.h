@@ -30,10 +30,10 @@ namespace FieldNames
         "Visiblity",       // id: 10 | bool
         "Rarity",          // id: 11 | uint32  (unknown)
         "Price",           // id: 12 | uint32
-        "isColorable",     // id: 13 | bool    (unknown)
+        "unk_13",           // id: 13 | bool    (unknown)
         "category_no",     // id: 14 | uint32
         "hash_2",          // id: 15 | uint32
-        "unk_16",          // id: 16 | bool    (unknown)
+        "isColorable",     // id: 16 | bool    (unknown)
         "unk_17",          // id: 17 | uint32  (unknown)
         "hash_3",          // id: 18 | uint32
         "unk_19",          // id: 19 | uint32  (unknown)
