@@ -1,0 +1,26 @@
+namespace Polaris.FbsData;
+
+table CustomizePanelEntry {
+    panel_hash:uint32       (id: 0);
+    panel_id:uint32         (id: 1);
+    price:uint32            (id: 2);
+    category:uint32         (id: 3);
+    sort_id:uint32          (id: 4);
+    text_key:string         (id: 5);
+    texture_1:string        (id: 6);
+    texture_2:string        (id: 7);
+    texture_3:string        (id: 8);
+    flag_9:bool             (id: 9);
+    hash_10:uint32          (id: 10);
+}
+
+table CustomizePanelList {
+    entries:[CustomizePanelEntry] (id: 0);
+}
+
+table CustomizePanelListRoot {
+    version:ubyte           (id: 0);
+    data:CustomizePanelList (id: 1);
+}
+
+root_type CustomizePanelListRoot;

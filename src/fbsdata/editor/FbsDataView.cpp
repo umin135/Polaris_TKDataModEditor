@@ -1,11 +1,22 @@
 ﻿// FbsData editor view implementation
 #include "fbsdata/editor/FbsDataView.h"
 #include "fbsdata/data/FieldNames.h"
+#include "fbsdata/data/DefaultValues.h"
+#include "fbsdata/editor/ColumnWidths.h"
 #include "fbsdata/io/TkmodIO.h"
 #include "fbsdata/editor/BinVisibility.h"
+#include "FbsDataDict.h"
 #include "imgui/imgui.h"
 #include <cstring>
 #include <cctype>
+#include <algorithm>
+#define NOMINMAX
+#include <windows.h>
+#include <commdlg.h>
+#pragma comment(lib, "comdlg32.lib")
+#include <cstdio>
+#include <string>
+#include <sstream>
 
 // -----------------------------------------------------------------------------
 //  All fbsdata bin files with support status
@@ -63,7 +74,7 @@ static const BinInfo k_AllBins[] =
     { "customize_item_color_slot_list.bin",      BinType::None,                            false, "Not Supported" },
     { "customize_item_shop_camera_list.bin",     BinType::None,                            false, "Not Supported" },
     { "customize_model_viewer_list.bin",         BinType::None,                            false, "Not Supported" },
-    { "customize_panel_list.bin",                BinType::None,                            false, "Not Supported" },
+    { "customize_panel_list.bin",                BinType::CustomizePanelList,              true,  "Supported"     },
     { "customize_set_list.bin",                  BinType::None,                            false, "Not Supported" },
     { "customize_shogo_bg_list.bin",             BinType::None,                            false, "Not Supported" },
     { "customize_shogo_list.bin",                BinType::None,                            false, "Not Supported" },
@@ -124,16 +135,60 @@ static const float LIST_WIDTH = 290.0f;  // Contents List panel width
 //  Top toolbar
 // -----------------------------------------------------------------------------
 
+// Forward declarations (defined after AssembleItemId, further below)
+static void FixCommonItemIds(std::vector<CustomizeItemCommonEntry>& entries);
+static void FixUniqueItemIds(std::vector<CustomizeItemUniqueEntry>& entries);
+
+static bool IsValidGtbManifestName(const std::string& name)
+{
+    if (name.size() <= 4) return false;
+    if (name.rfind("GTB_", 0) != 0) return false;
+    for (char c : name)
+    {
+        const bool ok = (c >= 'A' && c <= 'Z')
+                     || (c >= 'a' && c <= 'z')
+                     || (c >= '0' && c <= '9')
+                     || c == '_';
+        if (!ok) return false;
+    }
+    return true;
+}
+
+void FbsDataView::DoSave()
+{
+    for (auto& bin : m_data.contents)
+    {
+        FixCommonItemIds(bin.commonEntries);
+        FixUniqueItemIds(bin.customizeItemUniqueEntries);
+    }
+    m_lastSaveOk     = TkmodIO::SaveDialog(m_data);
+    m_showSaveResult = true;
+    m_statusTimer    = 3.0f;
+}
+
 void FbsDataView::RenderToolbar()
 {
     ImGui::SetCursorPos(ImVec2(10.0f, 8.0f));
 
+    if (ImGui::Button("  New  "))
+    {
+        m_data      = ModData{};
+        m_modActive = true;
+    }
+    ImGui::SameLine(0, 6.0f);
+
+    if (!m_modActive) ImGui::BeginDisabled();
     if (ImGui::Button("  Save  "))
     {
-        m_lastSaveOk     = TkmodIO::SaveDialog(m_data);
-        m_showSaveResult = true;
-        m_statusTimer    = 3.0f;
+        bool infoEmpty = (m_data.info.author[0]      == '\0' &&
+                          m_data.info.description[0]  == '\0' &&
+                          m_data.info.version[0]      == '\0');
+        if (infoEmpty)
+            m_saveConfirmPending = true;
+        else
+            DoSave();
     }
+    if (!m_modActive) ImGui::EndDisabled();
     ImGui::SameLine(0, 6.0f);
 
     if (ImGui::Button("  Load  "))
@@ -141,11 +196,12 @@ void FbsDataView::RenderToolbar()
         ModData loaded;
         if (TkmodIO::LoadDialog(loaded))
         {
-            m_data = std::move(loaded);
+            m_data      = std::move(loaded);
+            m_modActive = true;
         }
     }
 
-    // Transient status message after save
+    // Transient status message
     if (m_showSaveResult)
     {
         ImGui::SameLine(0, 16.0f);
@@ -160,9 +216,21 @@ void FbsDataView::RenderToolbar()
             ImGui::Text("Save failed.");
         }
         ImGui::PopStyleColor();
-
         m_statusTimer -= ImGui::GetIO().DeltaTime;
         if (m_statusTimer <= 0.0f) m_showSaveResult = false;
+    }
+
+    // Right-aligned: Information Edit button (only when a mod is active)
+    if (m_modActive)
+    {
+        const float infoBtnW = 160.0f;
+        const float rightX   = ImGui::GetWindowWidth() - infoBtnW - 10.0f;
+        if (rightX > ImGui::GetCursorPosX())
+        {
+            ImGui::SameLine(rightX);
+            if (ImGui::Button("Information Edit", ImVec2(infoBtnW, 0.f)))
+                m_infoEditPending = true;
+        }
     }
 }
 
@@ -175,7 +243,8 @@ bool FbsDataView::LoadFromPath(const std::string& path)
     ModData loaded;
     if (!TkmodIO::LoadFromPath(path, loaded))
         return false;
-    m_data = std::move(loaded);
+    m_data      = std::move(loaded);
+    m_modActive = true;
     return true;
 }
 
@@ -192,6 +261,8 @@ void FbsDataView::Render()
     const float totalH = ImGui::GetContentRegionAvail().y;
     const float totalW = ImGui::GetContentRegionAvail().x;
     const float editorW = totalW - LIST_WIDTH - 1.0f;
+
+    if (!m_modActive) ImGui::BeginDisabled();
 
     // -- Editor area (left) --
     ImGui::BeginChild("##FbsEditor", ImVec2(editorW, totalH), false,
@@ -216,6 +287,12 @@ void FbsDataView::Render()
     ImGui::PopStyleColor();
     RenderContentsList(LIST_WIDTH);
     ImGui::EndChild();
+
+    if (!m_modActive) ImGui::EndDisabled();
+
+    // Popups at the top-level window context (not inside child windows)
+    RenderInfoEditPopup();
+    RenderSaveConfirmPopup();
 }
 
 // -----------------------------------------------------------------------------
@@ -316,10 +393,353 @@ void FbsDataView::RenderEditorArea()
     case BinType::AssistInputList:
         RenderAssistInputListEditor(bin);
         break;
+    case BinType::CustomizePanelList:
+        RenderCustomizePanelListEditor(bin);
+        break;
     default:
         ImGui::TextDisabled("No editor available for this bin type.");
         break;
     }
+
+}
+
+// -----------------------------------------------------------------------------
+//  customize_item_common_list TSV export / import helpers
+// -----------------------------------------------------------------------------
+
+static std::string OpenTsvSaveDialog(const wchar_t* defaultName)
+{
+    wchar_t szFile[1024] = {};
+    wcscpy_s(szFile, defaultName);
+    OPENFILENAMEW ofn    = {};
+    ofn.lStructSize  = sizeof(ofn);
+    ofn.lpstrFile    = szFile;
+    ofn.nMaxFile     = (DWORD)std::size(szFile);
+    ofn.lpstrFilter  = L"Tab-Separated Values\0*.tsv\0All Files\0*.*\0";
+    ofn.lpstrDefExt  = L"tsv";
+    ofn.Flags        = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST;
+    if (!GetSaveFileNameW(&ofn)) return {};
+    int n = WideCharToMultiByte(CP_UTF8, 0, szFile, -1, nullptr, 0, nullptr, nullptr);
+    std::string out(n - 1, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, szFile, -1, &out[0], n, nullptr, nullptr);
+    return out;
+}
+
+static std::string OpenTsvOpenDialog()
+{
+    wchar_t szFile[1024] = {};
+    OPENFILENAMEW ofn    = {};
+    ofn.lStructSize  = sizeof(ofn);
+    ofn.lpstrFile    = szFile;
+    ofn.nMaxFile     = (DWORD)std::size(szFile);
+    ofn.lpstrFilter  = L"Tab-Separated Values\0*.tsv\0All Files\0*.*\0";
+    ofn.Flags        = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+    if (!GetOpenFileNameW(&ofn)) return {};
+    int n = WideCharToMultiByte(CP_UTF8, 0, szFile, -1, nullptr, 0, nullptr, nullptr);
+    std::string out(n - 1, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, szFile, -1, &out[0], n, nullptr, nullptr);
+    return out;
+}
+
+static void ExportCommonListTsv(const std::vector<CustomizeItemCommonEntry>& entries,
+                                const std::string& path)
+{
+    FILE* f = nullptr;
+    fopen_s(&f, path.c_str(), "wb");
+    if (!f) return;
+
+    for (const auto& e : entries)
+    {
+        char line[2048];
+        int n = snprintf(line, sizeof(line),
+            "%u\t%d\t%s\t%u\t%u\t%s\t%s\t%s\t%u\t%d\t%s\t%u\t%d\t%s\t%d\t%u\t%s\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%d\t%d\n",
+            e.item_id, e.item_no, e.item_code,
+            e.hash_0, e.hash_1, e.text_key, e.package_id, e.package_sub_id,
+            e.unk_8, e.shop_sort_id,
+            e.is_enabled ? "TRUE" : "FALSE",
+            e.unk_11, e.price,
+            e.unk_13 ? "TRUE" : "FALSE",
+            e.category_no, e.hash_2,
+            e.unk_16 ? "TRUE" : "FALSE",
+            e.unk_17, e.hash_3,
+            e.unk_19, e.unk_20, e.unk_21, e.unk_22,
+            e.hash_4, e.rarity, e.sort_group);
+        fwrite(line, 1, n, f);
+    }
+    fclose(f);
+}
+
+static bool ParseBool(const char* s) { return _stricmp(s, "true") == 0 || strcmp(s, "1") == 0; }
+
+static std::vector<CustomizeItemCommonEntry> ImportCommonListTsv(const std::string& path)
+{
+    std::vector<CustomizeItemCommonEntry> result;
+    FILE* f = nullptr;
+    fopen_s(&f, path.c_str(), "rb");
+    if (!f) return result;
+
+    char line[2048];
+    while (fgets(line, sizeof(line), f))
+    {
+        // strip \r\n
+        int len = (int)strlen(line);
+        while (len > 0 && (line[len-1] == '\r' || line[len-1] == '\n')) line[--len] = '\0';
+        if (len == 0) continue;
+
+        // split by tab
+        char* cols[26] = {};
+        int col = 0;
+        char* p = line;
+        cols[col++] = p;
+        for (; *p && col < 26; ++p)
+            if (*p == '\t') { *p = '\0'; cols[col++] = p + 1; }
+        if (col < 26) continue; // skip malformed rows
+
+        CustomizeItemCommonEntry e;
+        e.item_id      = (uint32_t)strtoul(cols[0],  nullptr, 10);
+        e.item_no      = (int32_t)strtol (cols[1],  nullptr, 10);
+        strncpy_s(e.item_code,      cols[2],  _TRUNCATE);
+        e.hash_0       = (uint32_t)strtoul(cols[3],  nullptr, 10);
+        e.hash_1       = (uint32_t)strtoul(cols[4],  nullptr, 10);
+        strncpy_s(e.text_key,       cols[5],  _TRUNCATE);
+        strncpy_s(e.package_id,     cols[6],  _TRUNCATE);
+        strncpy_s(e.package_sub_id, cols[7],  _TRUNCATE);
+        e.unk_8        = (uint32_t)strtoul(cols[8],  nullptr, 10);
+        e.shop_sort_id = (int32_t)strtol (cols[9],  nullptr, 10);
+        e.is_enabled   = ParseBool(cols[10]);
+        e.unk_11       = (uint32_t)strtoul(cols[11], nullptr, 10);
+        e.price        = (int32_t)strtol (cols[12], nullptr, 10);
+        e.unk_13       = ParseBool(cols[13]);
+        e.category_no  = (int32_t)strtol (cols[14], nullptr, 10);
+        e.hash_2       = (uint32_t)strtoul(cols[15], nullptr, 10);
+        e.unk_16       = ParseBool(cols[16]);
+        e.unk_17       = (uint32_t)strtoul(cols[17], nullptr, 10);
+        e.hash_3       = (uint32_t)strtoul(cols[18], nullptr, 10);
+        e.unk_19       = (uint32_t)strtoul(cols[19], nullptr, 10);
+        e.unk_20       = (uint32_t)strtoul(cols[20], nullptr, 10);
+        e.unk_21       = (uint32_t)strtoul(cols[21], nullptr, 10);
+        e.unk_22       = (uint32_t)strtoul(cols[22], nullptr, 10);
+        e.hash_4       = (uint32_t)strtoul(cols[23], nullptr, 10);
+        e.rarity       = (int32_t)strtol (cols[24], nullptr, 10);
+        e.sort_group   = (int32_t)strtol (cols[25], nullptr, 10);
+        result.push_back(e);
+    }
+    fclose(f);
+    return result;
+}
+
+// Lazily-built sorted (hash, "CODE: Name") lists for Char_hash and ItemPos_hash combos.
+// Rebuilt automatically whenever FbsDataDict is reloaded (load count changes).
+static const std::vector<std::pair<uint32_t, std::string>>& GetCharHashItems()
+{
+    static std::vector<std::pair<uint32_t, std::string>> s_items;
+    static uint32_t s_loadCount = UINT32_MAX;
+    uint32_t cur = FbsDataDict::Get().LoadCount();
+    if (s_loadCount != cur) {
+        s_items.clear();
+        s_loadCount = cur;
+        for (auto& kv : FbsDataDict::Get().GetCharHashCodeMap()) {
+            uint32_t hash = kv.first;
+            const std::string& code = kv.second; // uppercase code, e.g. "GRF"
+            uint32_t charId = FbsDataDict::Get().CharHashToId(hash);
+            const char* name = (charId != UINT32_MAX) ? FbsDataDict::Get().CharName(charId) : nullptr;
+            std::string display = name ? (code + ": " + name) : code;
+            s_items.push_back(std::make_pair(hash, std::move(display)));
+        }
+        std::sort(s_items.begin(), s_items.end(),
+            [](const std::pair<uint32_t,std::string>& a,
+               const std::pair<uint32_t,std::string>& b){ return a.second < b.second; });
+    }
+    return s_items;
+}
+
+static const std::vector<std::pair<uint32_t, std::string>>& GetTypeHashItems()
+{
+    static std::vector<std::pair<uint32_t, std::string>> s_items;
+    static uint32_t s_loadCount = UINT32_MAX;
+    uint32_t cur = FbsDataDict::Get().LoadCount();
+    if (s_loadCount != cur) {
+        s_items.clear();
+        s_loadCount = cur;
+        for (auto& kv : FbsDataDict::Get().GetTypeHashCodeMap()) {
+            uint32_t hash = kv.first;
+            const std::string& code = kv.second; // e.g. "hed"
+            uint32_t typeId = FbsDataDict::Get().TypeHashToId(hash);
+            std::string cleanName;
+            if (typeId != UINT32_MAX) {
+                const char* fullName = FbsDataDict::Get().TypeName(typeId);
+                if (fullName) {
+                    cleanName = fullName; // e.g. "Head (hed)"
+                    size_t p = cleanName.rfind(" (");
+                    if (p != std::string::npos) cleanName.resize(p); // → "Head"
+                }
+            }
+            std::string display = cleanName.empty() ? code : (code + ": " + cleanName);
+            s_items.push_back(std::make_pair(hash, std::move(display)));
+        }
+        std::sort(s_items.begin(), s_items.end(),
+            [](const std::pair<uint32_t,std::string>& a,
+               const std::pair<uint32_t,std::string>& b){ return a.second < b.second; });
+    }
+    return s_items;
+}
+
+// Assembles item_id from components.
+// BB/CC are looked up from hash; falls back to existing id's BB/CC if hash is unknown.
+static uint32_t AssembleItemId(uint8_t a, uint32_t charHash, uint32_t typeHash,
+                               uint32_t ddd, uint32_t existingId)
+{
+    uint32_t BB = FbsDataDict::Get().CharHashToId(charHash);
+    uint32_t CC = FbsDataDict::Get().TypeHashToId(typeHash);
+    if (BB == UINT32_MAX) BB = (existingId / 100000u) % 100u;
+    if (CC == UINT32_MAX) CC = (existingId /   1000u) % 100u;
+    return (uint32_t)a * 10000000u + BB * 100000u + CC * 1000u + (ddd % 1000u);
+}
+
+// Rebuilds item_id / char_item_id for all entries based on their hash fields.
+// Only updates entries where the hash-derived BB/CC differ from the stored value.
+// Skips entries whose hashes are not found in FbsDataDict (leaves them unchanged).
+static void FixCommonItemIds(std::vector<CustomizeItemCommonEntry>& entries)
+{
+    for (auto& e : entries)
+    {
+        uint32_t BB = FbsDataDict::Get().CharHashToId(e.hash_0);
+        uint32_t CC = FbsDataDict::Get().TypeHashToId(e.hash_1);
+        if (BB == UINT32_MAX && CC == UINT32_MAX) continue;
+        uint32_t fixed = AssembleItemId(2, e.hash_0, e.hash_1, e.item_id % 1000u, e.item_id);
+        e.item_id = fixed;
+    }
+}
+
+static void FixUniqueItemIds(std::vector<CustomizeItemUniqueEntry>& entries)
+{
+    for (auto& e : entries)
+    {
+        uint32_t BB = FbsDataDict::Get().CharHashToId(e.character_hash);
+        uint32_t CC = FbsDataDict::Get().TypeHashToId(e.hash_1);
+        if (BB == UINT32_MAX && CC == UINT32_MAX) continue;
+        uint32_t fixed = AssembleItemId(1, e.character_hash, e.hash_1, e.char_item_id % 1000u, e.char_item_id);
+        e.char_item_id = fixed;
+    }
+}
+
+// Renders a combo cell for a hash field with known code labels.
+// Returns true if the value changed.
+static bool HashComboCell(const char* id, uint32_t& val,
+    const std::unordered_map<uint32_t, std::string>& revMap,
+    const std::vector<std::pair<uint32_t, std::string>>& items)
+{
+    // Look up display string from items first (has full "CODE: Name" format).
+    const std::string* displayStr = nullptr;
+    for (size_t i = 0; i < items.size(); ++i)
+        if (items[i].first == val) { displayStr = &items[i].second; break; }
+
+    char preview[64];
+    if (displayStr)
+        snprintf(preview, sizeof(preview), "%s", displayStr->c_str());
+    else {
+        auto it = revMap.find(val);
+        if (it != revMap.end())
+            snprintf(preview, sizeof(preview), "%s", it->second.c_str());
+        else
+            snprintf(preview, sizeof(preview), "%u", val);
+    }
+
+    bool changed = false;
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    if (ImGui::BeginCombo(id, preview, ImGuiComboFlags_HeightLargest))
+    {
+        for (size_t i = 0; i < items.size(); ++i)
+        {
+            bool sel = (val == items[i].first);
+            if (ImGui::Selectable(items[i].second.c_str(), sel))
+            {
+                val = items[i].first;
+                changed = true;
+            }
+            if (sel) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+    return changed;
+}
+
+static void ExportUniqueListTsv(const std::vector<CustomizeItemUniqueEntry>& entries,
+                                const std::string& path)
+{
+    FILE* f = nullptr;
+    fopen_s(&f, path.c_str(), "wb");
+    if (!f) return;
+
+    for (const auto& e : entries)
+    {
+        char line[2048];
+        int n = snprintf(line, sizeof(line),
+            "%u\t%s\t%u\t%u\t%s\t%s\t%s\t%u\t%u\t%s\t%u\t%u\t%u\t%u\t%u\t%s\t%u\t%u\t%u\t%u\t%u\t%u\n",
+            e.char_item_id, e.asset_name,
+            e.character_hash, e.hash_1,
+            e.text_key, e.extra_text_key_1, e.extra_text_key_2,
+            e.flag_7,
+            e.unk_8,
+            e.flag_9   ? "TRUE" : "FALSE",
+            e.unk_10, e.price, e.unk_12, e.unk_13, e.hash_2,
+            e.flag_15  ? "TRUE" : "FALSE",
+            e.unk_16, e.hash_3,
+            e.unk_18, e.unk_19, e.unk_20, e.unk_21);
+        fwrite(line, 1, n, f);
+    }
+    fclose(f);
+}
+
+static std::vector<CustomizeItemUniqueEntry> ImportUniqueListTsv(const std::string& path)
+{
+    std::vector<CustomizeItemUniqueEntry> result;
+    FILE* f = nullptr;
+    fopen_s(&f, path.c_str(), "rb");
+    if (!f) return result;
+
+    char line[2048];
+    while (fgets(line, sizeof(line), f))
+    {
+        int len = (int)strlen(line);
+        while (len > 0 && (line[len-1] == '\r' || line[len-1] == '\n')) line[--len] = '\0';
+        if (len == 0) continue;
+
+        char* cols[22] = {};
+        int col = 0;
+        char* p = line;
+        cols[col++] = p;
+        for (; *p && col < 22; ++p)
+            if (*p == '\t') { *p = '\0'; cols[col++] = p + 1; }
+        if (col < 22) continue;
+
+        CustomizeItemUniqueEntry e;
+        e.char_item_id   = (uint32_t)strtoul(cols[ 0], nullptr, 10);
+        strncpy_s(e.asset_name,       cols[ 1], _TRUNCATE);
+        e.character_hash = (uint32_t)strtoul(cols[ 2], nullptr, 10);
+        e.hash_1         = (uint32_t)strtoul(cols[ 3], nullptr, 10);
+        strncpy_s(e.text_key,         cols[ 4], _TRUNCATE);
+        strncpy_s(e.extra_text_key_1, cols[ 5], _TRUNCATE);
+        strncpy_s(e.extra_text_key_2, cols[ 6], _TRUNCATE);
+        e.flag_7         = (uint32_t)strtoul(cols[ 7], nullptr, 10);
+        e.unk_8          = (uint32_t)strtoul(cols[ 8], nullptr, 10);
+        e.flag_9         = ParseBool(cols[ 9]);
+        e.unk_10         = (uint32_t)strtoul(cols[10], nullptr, 10);
+        e.price          = (uint32_t)strtoul(cols[11], nullptr, 10);
+        e.unk_12         = (uint32_t)strtoul(cols[12], nullptr, 10);
+        e.unk_13         = (uint32_t)strtoul(cols[13], nullptr, 10);
+        e.hash_2         = (uint32_t)strtoul(cols[14], nullptr, 10);
+        e.flag_15        = ParseBool(cols[15]);
+        e.unk_16         = (uint32_t)strtoul(cols[16], nullptr, 10);
+        e.hash_3         = (uint32_t)strtoul(cols[17], nullptr, 10);
+        e.unk_18         = (uint32_t)strtoul(cols[18], nullptr, 10);
+        e.unk_19         = (uint32_t)strtoul(cols[19], nullptr, 10);
+        e.unk_20         = (uint32_t)strtoul(cols[20], nullptr, 10);
+        e.unk_21         = (uint32_t)strtoul(cols[21], nullptr, 10);
+        result.push_back(e);
+    }
+    fclose(f);
+    return result;
 }
 
 // -----------------------------------------------------------------------------
@@ -337,11 +757,42 @@ void FbsDataView::RenderCustomizeItemCommonEditor(ContentsBinData& bin)
     ImGui::Text("(%d entries)", (int)bin.commonEntries.size());
     ImGui::PopStyleColor();
 
-    // -- Add Entry button (right-aligned) --
-    const float addBtnW = 100.0f;
-    ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
+    // -- Export / Import / Add Entry buttons (right-aligned) --
+    const float addBtnW    = 100.0f;
+    const float ioGap      = 4.0f;
+    const float exportBtnW = 70.0f;
+    const float importBtnW = 70.0f;
+    const float totalW     = exportBtnW + ioGap + importBtnW + ioGap + addBtnW;
+    ImGui::SameLine(ImGui::GetContentRegionAvail().x - totalW + ImGui::GetCursorPosX());
+
+    if (ImGui::Button("Export", ImVec2(exportBtnW, 0)))
+    {
+        std::string path = OpenTsvSaveDialog(L"customize_item_common_list.tsv");
+        if (!path.empty())
+        {
+            FixCommonItemIds(bin.commonEntries);
+            ExportCommonListTsv(bin.commonEntries, path);
+        }
+    }
+    ImGui::SameLine(0, ioGap);
+    if (ImGui::Button("Import", ImVec2(importBtnW, 0)))
+    {
+        std::string path = OpenTsvOpenDialog();
+        if (!path.empty())
+        {
+            auto imported = ImportCommonListTsv(path);
+            if (!imported.empty())
+            {
+                FixCommonItemIds(imported);
+                bin.commonEntries = std::move(imported);
+            }
+        }
+    }
+    ImGui::SameLine(0, ioGap);
     if (ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
-        bin.commonEntries.push_back(CustomizeItemCommonEntry{});
+        bin.commonEntries.push_back(bin.commonEntries.empty()
+            ? DefaultValues::CommonEntry()
+            : bin.commonEntries.back());
 
     ImGui::Separator();
 
@@ -357,30 +808,31 @@ void FbsDataView::RenderCustomizeItemCommonEditor(ContentsBinData& bin)
         ImGuiTableFlags_Hideable         |
         ImGuiTableFlags_SizingFixedFit;
 
-    // Column count: 1 (row/delete) + 18 fields = 19
-    if (!ImGui::BeginTable("##CICLTable", 19, tFlags,
+    // Column count: 1 (row/delete) + 26 fields = 27
+    if (!ImGui::BeginTable("##CICLTable", 27, tFlags,
                            ImGui::GetContentRegionAvail()))
         return;
 
     // Freeze first column (row controls) and header row
     ImGui::TableSetupScrollFreeze(1, 1);
 
-    // Columns shown in the regular editor (subset of 26 -- unknown fields omitted)
-    // Schema id -> display width
-    static const struct { int id; float w; } k_Cols[] = {
-        {  0, 95.0f }, {  1, 62.0f }, {  2, 195.0f },
-        {  3, 95.0f }, {  4, 95.0f }, {  5, 215.0f },
-        {  6, 115.0f }, {  7, 115.0f },
-        {  9, 95.0f }, { 10, 78.0f }, { 12, 82.0f },
-        { 14, 95.0f }, { 15, 95.0f }, { 16, 60.0f },
-        { 18, 95.0f }, { 23, 95.0f }, { 24, 62.0f }, { 25, 82.0f },
+    // All 26 schema fields (id 0..25)
+    static const int k_ColIds[] = {
+         0,  1,  2,  3,  4,  5,  6,  7,  8,  9,
+        10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+        20, 21, 22, 23, 24, 25,
     };
-    constexpr int k_ColCount = (int)(sizeof(k_Cols) / sizeof(k_Cols[0]));
-    ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 52.0f);
+    constexpr int k_ColCount = (int)(sizeof(k_ColIds) / sizeof(k_ColIds[0]));
+    ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
     for (int ci = 0; ci < k_ColCount; ++ci)
-        ImGui::TableSetupColumn(FieldNames::CommonItem[k_Cols[ci].id],
-                                ImGuiTableColumnFlags_WidthFixed, k_Cols[ci].w);
+        ImGui::TableSetupColumn(FieldNames::CommonItem[k_ColIds[ci]],
+                                ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kCommon[k_ColIds[ci]]);
     ImGui::TableHeadersRow();
+
+    // Build duplicate-id detection map (hash → count)
+    std::unordered_map<uint32_t, int> idCounts;
+    for (int i = 0; i < (int)bin.commonEntries.size(); ++i)
+        idCounts[bin.commonEntries[i].item_id]++;
 
     int deleteIdx = -1;
 
@@ -419,24 +871,57 @@ void FbsDataView::RenderCustomizeItemCommonEditor(ContentsBinData& bin)
             ImGui::Checkbox(id, &v);
         };
 
-        ImGui::TableSetColumnIndex(1);  U32Cell("##iid",   e.item_id);
+        ImGui::TableSetColumnIndex(1);
+        {
+            int ddd = (int)(e.item_id % 1000u);
+            bool isDup  = idCounts.count(e.item_id) && idCounts.at(e.item_id) > 1;
+            bool isGame = FbsDataDict::Get().IsGameItemId(e.item_id);
+            bool warn   = isDup || isGame;
+            if (warn) ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.55f, 0.08f, 0.08f, 1.0f));
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            if (ImGui::InputInt("##ddd", &ddd, 0, 0)) {
+                ddd = std::max(0, std::min(999, ddd));
+                e.item_id = AssembleItemId(2, e.hash_0, e.hash_1, (uint32_t)ddd, e.item_id);
+            }
+            if (warn) ImGui::PopStyleColor();
+            if (warn && ImGui::IsItemHovered()) {
+                if (isDup && isGame)
+                    ImGui::SetTooltip("Duplicate item_id: %u\nConflicts with a base game item ID", e.item_id);
+                else if (isDup)
+                    ImGui::SetTooltip("Duplicate item_id: %u", e.item_id);
+                else
+                    ImGui::SetTooltip("item_id %u conflicts with a base game item ID", e.item_id);
+            }
+        }
         ImGui::TableSetColumnIndex(2);  I32Cell("##ino",   e.item_no);
         ImGui::TableSetColumnIndex(3);  StrCell("##icode", e.item_code,      sizeof(e.item_code));
-        ImGui::TableSetColumnIndex(4);  U32Cell("##h0",    e.hash_0);
-        ImGui::TableSetColumnIndex(5);  U32Cell("##h1",    e.hash_1);
+        ImGui::TableSetColumnIndex(4);
+        if (HashComboCell("##h0", e.hash_0, FbsDataDict::Get().GetCharHashCodeMap(), GetCharHashItems()))
+            e.item_id = AssembleItemId(2, e.hash_0, e.hash_1, e.item_id % 1000u, e.item_id);
+        ImGui::TableSetColumnIndex(5);
+        if (HashComboCell("##h1", e.hash_1, FbsDataDict::Get().GetTypeHashCodeMap(), GetTypeHashItems()))
+            e.item_id = AssembleItemId(2, e.hash_0, e.hash_1, e.item_id % 1000u, e.item_id);
         ImGui::TableSetColumnIndex(6);  StrCell("##tkey",  e.text_key,       sizeof(e.text_key));
         ImGui::TableSetColumnIndex(7);  StrCell("##pkid",  e.package_id,     sizeof(e.package_id));
         ImGui::TableSetColumnIndex(8);  StrCell("##pksu",  e.package_sub_id, sizeof(e.package_sub_id));
-        ImGui::TableSetColumnIndex(9);  I32Cell("##ssid",  e.shop_sort_id);
-        ImGui::TableSetColumnIndex(10); BoolCell("##enb",  e.is_enabled);
-        ImGui::TableSetColumnIndex(11); I32Cell("##prc",   e.price);
-        ImGui::TableSetColumnIndex(12); I32Cell("##cno",   e.category_no);
-        ImGui::TableSetColumnIndex(13); U32Cell("##h2",    e.hash_2);
-        ImGui::TableSetColumnIndex(14); BoolCell("##u16",  e.unk_16);
-        ImGui::TableSetColumnIndex(15); U32Cell("##h3",    e.hash_3);
-        ImGui::TableSetColumnIndex(16); U32Cell("##h4",    e.hash_4);
-        ImGui::TableSetColumnIndex(17); I32Cell("##rar",   e.rarity);
-        ImGui::TableSetColumnIndex(18); I32Cell("##sgrp",  e.sort_group);
+        ImGui::TableSetColumnIndex(9);  U32Cell("##u8",    e.unk_8);
+        ImGui::TableSetColumnIndex(10); I32Cell("##ssid",  e.shop_sort_id);
+        ImGui::TableSetColumnIndex(11); BoolCell("##enb",  e.is_enabled);
+        ImGui::TableSetColumnIndex(12); U32Cell("##u11",   e.unk_11);
+        ImGui::TableSetColumnIndex(13); I32Cell("##prc",   e.price);
+        ImGui::TableSetColumnIndex(14); BoolCell("##u13",  e.unk_13);
+        ImGui::TableSetColumnIndex(15); I32Cell("##cno",   e.category_no);
+        ImGui::TableSetColumnIndex(16); U32Cell("##h2",    e.hash_2);
+        ImGui::TableSetColumnIndex(17); BoolCell("##u16",  e.unk_16);
+        ImGui::TableSetColumnIndex(18); U32Cell("##u17",   e.unk_17);
+        ImGui::TableSetColumnIndex(19); U32Cell("##h3",    e.hash_3);
+        ImGui::TableSetColumnIndex(20); U32Cell("##u19",   e.unk_19);
+        ImGui::TableSetColumnIndex(21); U32Cell("##u20",   e.unk_20);
+        ImGui::TableSetColumnIndex(22); U32Cell("##u21",   e.unk_21);
+        ImGui::TableSetColumnIndex(23); U32Cell("##u22",   e.unk_22);
+        ImGui::TableSetColumnIndex(24); U32Cell("##h4",    e.hash_4);
+        ImGui::TableSetColumnIndex(25); I32Cell("##rar",   e.rarity);
+        ImGui::TableSetColumnIndex(26); I32Cell("##sgrp",  e.sort_group);
 
         ImGui::PopID();
     }
@@ -489,27 +974,10 @@ void FbsDataView::RenderCharacterListEditor(ContentsBinData& bin)
 
     ImGui::TableSetupScrollFreeze(1, 1);
 
-    static const float k_CharWidths[15] = {
-        130.0f,  // id  0
-         95.0f,  // id  1
-         78.0f,  // id  2
-         88.0f,  // id  3
-        100.0f,  // id  4
-        105.0f,  // id  5
-         78.0f,  // id  6
-         82.0f,  // id  7
-        170.0f,  // id  8
-        150.0f,  // id  9
-        150.0f,  // id 10
-        150.0f,  // id 11
-        155.0f,  // id 12
-        130.0f,  // id 13
-        130.0f,  // id 14
-    };
-    ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 52.0f);
+    ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
     for (int fi = 0; fi < FieldNames::CharacterCount; ++fi)
         ImGui::TableSetupColumn(FieldNames::Character[fi],
-                                ImGuiTableColumnFlags_WidthFixed, k_CharWidths[fi]);
+                                ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kCharacter[fi]);
     ImGui::TableHeadersRow();
 
     int deleteIdx = -1;
@@ -613,11 +1081,10 @@ void FbsDataView::RenderCustomizeItemExclusiveListEditor(ContentsBinData& bin)
             return;
 
         ImGui::TableSetupScrollFreeze(1, 1);
-        static const float k_RuleW[4] = { 95.0f, 95.0f, 82.0f, 95.0f };
-        ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 52.0f);
+        ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
         for (int fi = 0; fi < FieldNames::ExclusiveRuleCount; ++fi)
             ImGui::TableSetupColumn(FieldNames::ExclusiveRule[fi],
-                                    ImGuiTableColumnFlags_WidthFixed, k_RuleW[fi]);
+                                    ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kExclusiveRule[fi]);
         ImGui::TableHeadersRow();
 
         int deleteIdx = -1;
@@ -671,11 +1138,10 @@ void FbsDataView::RenderCustomizeItemExclusiveListEditor(ContentsBinData& bin)
             return;
 
         ImGui::TableSetupScrollFreeze(1, 1);
-        static const float k_PairW[3] = { 95.0f, 95.0f, 82.0f };
-        ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 52.0f);
+        ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
         for (int fi = 0; fi < FieldNames::ExclusivePairCount; ++fi)
             ImGui::TableSetupColumn(FieldNames::ExclusivePair[fi],
-                                    ImGuiTableColumnFlags_WidthFixed, k_PairW[fi]);
+                                    ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kExclusivePair[fi]);
         ImGui::TableHeadersRow();
 
         int deleteIdx = -1;
@@ -869,7 +1335,10 @@ void FbsDataView::RenderAddPopup()
                     switch (bin.type)
                     {
                     case BinType::CustomizeItemCommonList:
-                        bin.commonEntries.push_back(CustomizeItemCommonEntry{});
+                        bin.commonEntries.push_back(DefaultValues::CommonEntry());
+                        break;
+                    case BinType::CustomizePanelList:
+                        bin.customizePanelEntries.push_back(CustomizePanelEntry{});
                         break;
                     case BinType::CharacterList:
                         bin.characterEntries.push_back(CharacterEntry{});
@@ -908,7 +1377,7 @@ void FbsDataView::RenderAddPopup()
                         bin.bodyCylinderDataEntries.push_back(BodyCylinderDataEntry{});
                         break;
                     case BinType::CustomizeItemUniqueList:
-                        bin.customizeItemUniqueEntries.push_back(CustomizeItemUniqueEntry{});
+                        bin.customizeItemUniqueEntries.push_back(DefaultValues::UniqueEntry());
                         break;
                     case BinType::CharacterSelectList:
                         bin.characterSelectHashEntries.push_back(CharacterSelectHashEntry{});
@@ -982,9 +1451,9 @@ void FbsDataView::RenderAreaListEditor(ContentsBinData& bin)
         return;
 
     ImGui::TableSetupScrollFreeze(1, 1);
-    ImGui::TableSetupColumn("#",                            ImGuiTableColumnFlags_WidthFixed, 52.0f);
-    ImGui::TableSetupColumn(FieldNames::AreaEntry[0],       ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::AreaEntry[1],       ImGuiTableColumnFlags_WidthFixed, 200.0f);
+    ImGui::TableSetupColumn("#",                            ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+    ImGui::TableSetupColumn(FieldNames::AreaEntry[0],       ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kArea[0]);
+    ImGui::TableSetupColumn(FieldNames::AreaEntry[1],       ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kArea[1]);
     ImGui::TableHeadersRow();
 
     int deleteIdx = -1;
@@ -1061,9 +1530,9 @@ void FbsDataView::RenderBattleSubtitleInfoEditor(ContentsBinData& bin)
         return;
 
     ImGui::TableSetupScrollFreeze(1, 1);
-    ImGui::TableSetupColumn("#",                                 ImGuiTableColumnFlags_WidthFixed, 52.0f);
-    ImGui::TableSetupColumn(FieldNames::BattleSubtitleInfo[0],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::BattleSubtitleInfo[1],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
+    ImGui::TableSetupColumn("#",                                 ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+    ImGui::TableSetupColumn(FieldNames::BattleSubtitleInfo[0],   ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBattleSubtitle[0]);
+    ImGui::TableSetupColumn(FieldNames::BattleSubtitleInfo[1],   ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBattleSubtitle[1]);
     ImGui::TableHeadersRow();
 
     int deleteIdx = -1;
@@ -1136,12 +1605,12 @@ void FbsDataView::RenderFateDramaPlayerStartListEditor(ContentsBinData& bin)
         return;
 
     ImGui::TableSetupScrollFreeze(1, 1);
-    ImGui::TableSetupColumn("#",                                   ImGuiTableColumnFlags_WidthFixed, 52.0f);
-    ImGui::TableSetupColumn(FieldNames::FateDramaPlayerStart[0],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::FateDramaPlayerStart[1],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::FateDramaPlayerStart[2],   ImGuiTableColumnFlags_WidthFixed, 80.0f);
-    ImGui::TableSetupColumn(FieldNames::FateDramaPlayerStart[3],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::FateDramaPlayerStart[4],   ImGuiTableColumnFlags_WidthFixed, 78.0f);
+    ImGui::TableSetupColumn("#",                                   ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+    ImGui::TableSetupColumn(FieldNames::FateDramaPlayerStart[0],   ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kFateDramaPlayerStart[0]);
+    ImGui::TableSetupColumn(FieldNames::FateDramaPlayerStart[1],   ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kFateDramaPlayerStart[1]);
+    ImGui::TableSetupColumn(FieldNames::FateDramaPlayerStart[2],   ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kFateDramaPlayerStart[2]);
+    ImGui::TableSetupColumn(FieldNames::FateDramaPlayerStart[3],   ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kFateDramaPlayerStart[3]);
+    ImGui::TableSetupColumn(FieldNames::FateDramaPlayerStart[4],   ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kFateDramaPlayerStart[4]);
     ImGui::TableHeadersRow();
 
     int deleteIdx = -1;
@@ -1214,17 +1683,14 @@ void FbsDataView::RenderJukeboxListEditor(ContentsBinData& bin)
         ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable |
         ImGuiTableFlags_Hideable | ImGuiTableFlags_SizingFixedFit;
 
-    // cols: #, bgm_hash, series_hash, cue_name, arrangement, display_text_key
-    if (!ImGui::BeginTable("##JukeTable", 6, tFlags, ImGui::GetContentRegionAvail()))
+    // cols: #, + all 9 fields
+    if (!ImGui::BeginTable("##JukeTable", 10, tFlags, ImGui::GetContentRegionAvail()))
         return;
 
     ImGui::TableSetupScrollFreeze(1, 1);
-    ImGui::TableSetupColumn("#",                           ImGuiTableColumnFlags_WidthFixed, 52.0f);
-    ImGui::TableSetupColumn(FieldNames::JukeboxEntry[0],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::JukeboxEntry[1],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::JukeboxEntry[3],   ImGuiTableColumnFlags_WidthFixed, 200.0f);
-    ImGui::TableSetupColumn(FieldNames::JukeboxEntry[4],   ImGuiTableColumnFlags_WidthFixed, 200.0f);
-    ImGui::TableSetupColumn(FieldNames::JukeboxEntry[8],   ImGuiTableColumnFlags_WidthFixed, 200.0f);
+    ImGui::TableSetupColumn("#",                           ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+    for (int fi = 0; fi < 9; ++fi)
+        ImGui::TableSetupColumn(FieldNames::JukeboxEntry[fi], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kJukebox[fi]);
     ImGui::TableHeadersRow();
 
     int deleteIdx = -1;
@@ -1258,11 +1724,15 @@ void FbsDataView::RenderJukeboxListEditor(ContentsBinData& bin)
                 ImGui::InputText(id, buf, sz);
             };
 
-            ImGui::TableSetColumnIndex(1); U32Cell("##bh",  e.bgm_hash);
-            ImGui::TableSetColumnIndex(2); U32Cell("##sh",  e.series_hash);
-            ImGui::TableSetColumnIndex(3); StrCell("##cn",  e.cue_name,        sizeof(e.cue_name));
-            ImGui::TableSetColumnIndex(4); StrCell("##arr", e.arrangement,     sizeof(e.arrangement));
-            ImGui::TableSetColumnIndex(5); StrCell("##dtk", e.display_text_key,sizeof(e.display_text_key));
+            ImGui::TableSetColumnIndex(1); U32Cell("##bh",   e.bgm_hash);
+            ImGui::TableSetColumnIndex(2); U32Cell("##sh",   e.series_hash);
+            ImGui::TableSetColumnIndex(3); U32Cell("##u2",   e.unk_2);
+            ImGui::TableSetColumnIndex(4); StrCell("##cn",   e.cue_name,        sizeof(e.cue_name));
+            ImGui::TableSetColumnIndex(5); StrCell("##arr",  e.arrangement,     sizeof(e.arrangement));
+            ImGui::TableSetColumnIndex(6); StrCell("##ac1",  e.alt_cue_name_1,  sizeof(e.alt_cue_name_1));
+            ImGui::TableSetColumnIndex(7); StrCell("##ac2",  e.alt_cue_name_2,  sizeof(e.alt_cue_name_2));
+            ImGui::TableSetColumnIndex(8); StrCell("##ac3",  e.alt_cue_name_3,  sizeof(e.alt_cue_name_3));
+            ImGui::TableSetColumnIndex(9); StrCell("##dtk",  e.display_text_key,sizeof(e.display_text_key));
 
             ImGui::PopID();
         }
@@ -1304,12 +1774,9 @@ void FbsDataView::RenderSeriesListEditor(ContentsBinData& bin)
         return;
 
     ImGui::TableSetupScrollFreeze(1, 1);
-    ImGui::TableSetupColumn("#",                           ImGuiTableColumnFlags_WidthFixed, 52.0f);
-    ImGui::TableSetupColumn(FieldNames::SeriesEntry[0],    ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::SeriesEntry[1],    ImGuiTableColumnFlags_WidthFixed, 180.0f);
-    ImGui::TableSetupColumn(FieldNames::SeriesEntry[2],    ImGuiTableColumnFlags_WidthFixed, 180.0f);
-    ImGui::TableSetupColumn(FieldNames::SeriesEntry[3],    ImGuiTableColumnFlags_WidthFixed, 180.0f);
-    ImGui::TableSetupColumn(FieldNames::SeriesEntry[4],    ImGuiTableColumnFlags_WidthFixed, 180.0f);
+    ImGui::TableSetupColumn("#",                           ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+    for (int fi = 0; fi < 5; ++fi)
+        ImGui::TableSetupColumn(FieldNames::SeriesEntry[fi], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kSeries[fi]);
     ImGui::TableHeadersRow();
 
     int deleteIdx = -1;
@@ -1390,15 +1857,10 @@ void FbsDataView::RenderTamMissionListEditor(ContentsBinData& bin)
         return;
 
     ImGui::TableSetupScrollFreeze(1, 1);
-    ImGui::TableSetupColumn("#",                              ImGuiTableColumnFlags_WidthFixed, 52.0f);
-    ImGui::TableSetupColumn(FieldNames::TamMissionEntry[0],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::TamMissionEntry[2],   ImGuiTableColumnFlags_WidthFixed, 80.0f);
-    ImGui::TableSetupColumn(FieldNames::TamMissionEntry[3],   ImGuiTableColumnFlags_WidthFixed, 200.0f);
-    ImGui::TableSetupColumn(FieldNames::TamMissionEntry[4],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::TamMissionEntry[5],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::TamMissionEntry[6],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::TamMissionEntry[7],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::TamMissionEntry[8],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
+    static const int k_TamIds[] = { 0, 2, 3, 4, 5, 6, 7, 8 };
+    ImGui::TableSetupColumn("#",                              ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+    for (int ci = 0; ci < 8; ++ci)
+        ImGui::TableSetupColumn(FieldNames::TamMissionEntry[k_TamIds[ci]], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kTamMission[ci]);
     ImGui::TableHeadersRow();
 
     int deleteIdx = -1;
@@ -1482,15 +1944,10 @@ void FbsDataView::RenderDramaPlayerStartListEditor(ContentsBinData& bin)
         return;
 
     ImGui::TableSetupScrollFreeze(1, 1);
-    ImGui::TableSetupColumn("#",                              ImGuiTableColumnFlags_WidthFixed, 52.0f);
-    ImGui::TableSetupColumn(FieldNames::DramaPlayerStart[0],  ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::DramaPlayerStart[2],  ImGuiTableColumnFlags_WidthFixed, 80.0f);
-    ImGui::TableSetupColumn(FieldNames::DramaPlayerStart[3],  ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::DramaPlayerStart[4],  ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::DramaPlayerStart[6],  ImGuiTableColumnFlags_WidthFixed, 80.0f);
-    ImGui::TableSetupColumn(FieldNames::DramaPlayerStart[7],  ImGuiTableColumnFlags_WidthFixed, 80.0f);
-    ImGui::TableSetupColumn(FieldNames::DramaPlayerStart[8],  ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::DramaPlayerStart[10], ImGuiTableColumnFlags_WidthFixed, 80.0f);
+    static const int k_DramaIds[] = { 0, 2, 3, 4, 6, 7, 8, 10 };
+    ImGui::TableSetupColumn("#",                              ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+    for (int ci = 0; ci < 8; ++ci)
+        ImGui::TableSetupColumn(FieldNames::DramaPlayerStart[k_DramaIds[ci]], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kDramaPlayerStart[ci]);
     ImGui::TableHeadersRow();
 
     int deleteIdx = -1;
@@ -1576,20 +2033,10 @@ void FbsDataView::RenderStageListEditor(ContentsBinData& bin)
         return;
 
     ImGui::TableSetupScrollFreeze(1, 1);
-    ImGui::TableSetupColumn("#",                          ImGuiTableColumnFlags_WidthFixed, 52.0f);
-    ImGui::TableSetupColumn(FieldNames::StageEntry[0],    ImGuiTableColumnFlags_WidthFixed, 140.0f);
-    ImGui::TableSetupColumn(FieldNames::StageEntry[1],    ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::StageEntry[2],    ImGuiTableColumnFlags_WidthFixed, 82.0f);
-    ImGui::TableSetupColumn(FieldNames::StageEntry[3],    ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::StageEntry[4],    ImGuiTableColumnFlags_WidthFixed, 80.0f);
-    ImGui::TableSetupColumn(FieldNames::StageEntry[17],   ImGuiTableColumnFlags_WidthFixed, 82.0f);
-    ImGui::TableSetupColumn(FieldNames::StageEntry[18],   ImGuiTableColumnFlags_WidthFixed, 82.0f);
-    ImGui::TableSetupColumn(FieldNames::StageEntry[21],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::StageEntry[22],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::StageEntry[28],   ImGuiTableColumnFlags_WidthFixed, 130.0f);
-    ImGui::TableSetupColumn(FieldNames::StageEntry[29],   ImGuiTableColumnFlags_WidthFixed, 200.0f);
-    ImGui::TableSetupColumn(FieldNames::StageEntry[34],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::StageEntry[36],   ImGuiTableColumnFlags_WidthFixed, 82.0f);
+    static const int k_StageIds[] = { 0, 1, 2, 3, 4, 17, 18, 21, 22, 28, 29, 34, 36 };
+    ImGui::TableSetupColumn("#",                          ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+    for (int ci = 0; ci < 13; ++ci)
+        ImGui::TableSetupColumn(FieldNames::StageEntry[k_StageIds[ci]], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kStage[ci]);
     ImGui::TableHeadersRow();
 
     int deleteIdx = -1;
@@ -1685,16 +2132,10 @@ void FbsDataView::RenderBallPropertyListEditor(ContentsBinData& bin)
         return;
 
     ImGui::TableSetupScrollFreeze(1, 1);
-    ImGui::TableSetupColumn("#",                                ImGuiTableColumnFlags_WidthFixed, 52.0f);
-    ImGui::TableSetupColumn(FieldNames::BallPropertyEntry[0],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::BallPropertyEntry[1],   ImGuiTableColumnFlags_WidthFixed, 140.0f);
-    ImGui::TableSetupColumn(FieldNames::BallPropertyEntry[2],   ImGuiTableColumnFlags_WidthFixed, 140.0f);
-    ImGui::TableSetupColumn(FieldNames::BallPropertyEntry[8],   ImGuiTableColumnFlags_WidthFixed, 80.0f);
-    ImGui::TableSetupColumn(FieldNames::BallPropertyEntry[9],   ImGuiTableColumnFlags_WidthFixed, 80.0f);
-    ImGui::TableSetupColumn(FieldNames::BallPropertyEntry[10],  ImGuiTableColumnFlags_WidthFixed, 80.0f);
-    ImGui::TableSetupColumn(FieldNames::BallPropertyEntry[11],  ImGuiTableColumnFlags_WidthFixed, 80.0f);
-    ImGui::TableSetupColumn(FieldNames::BallPropertyEntry[12],  ImGuiTableColumnFlags_WidthFixed, 80.0f);
-    ImGui::TableSetupColumn(FieldNames::BallPropertyEntry[13],  ImGuiTableColumnFlags_WidthFixed, 80.0f);
+    static const int k_BallPropIds[] = { 0, 1, 2, 8, 9, 10, 11, 12, 13 };
+    ImGui::TableSetupColumn("#",                                ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+    for (int ci = 0; ci < 9; ++ci)
+        ImGui::TableSetupColumn(FieldNames::BallPropertyEntry[k_BallPropIds[ci]], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBallProperty[ci]);
     ImGui::TableHeadersRow();
 
     int deleteIdx = -1;
@@ -1788,17 +2229,10 @@ void FbsDataView::RenderBodyCylinderDataListEditor(ContentsBinData& bin)
         return;
 
     ImGui::TableSetupScrollFreeze(1, 1);
-    ImGui::TableSetupColumn("#",                                    ImGuiTableColumnFlags_WidthFixed, 52.0f);
-    ImGui::TableSetupColumn(FieldNames::BodyCylinderDataEntry[0],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
-    ImGui::TableSetupColumn(FieldNames::BodyCylinderDataEntry[1],   ImGuiTableColumnFlags_WidthFixed, 80.0f);
-    ImGui::TableSetupColumn(FieldNames::BodyCylinderDataEntry[2],   ImGuiTableColumnFlags_WidthFixed, 80.0f);
-    ImGui::TableSetupColumn(FieldNames::BodyCylinderDataEntry[3],   ImGuiTableColumnFlags_WidthFixed, 80.0f);
-    ImGui::TableSetupColumn(FieldNames::BodyCylinderDataEntry[8],   ImGuiTableColumnFlags_WidthFixed, 80.0f);
-    ImGui::TableSetupColumn(FieldNames::BodyCylinderDataEntry[9],   ImGuiTableColumnFlags_WidthFixed, 80.0f);
-    ImGui::TableSetupColumn(FieldNames::BodyCylinderDataEntry[10],  ImGuiTableColumnFlags_WidthFixed, 80.0f);
-    ImGui::TableSetupColumn(FieldNames::BodyCylinderDataEntry[15],  ImGuiTableColumnFlags_WidthFixed, 80.0f);
-    ImGui::TableSetupColumn(FieldNames::BodyCylinderDataEntry[16],  ImGuiTableColumnFlags_WidthFixed, 80.0f);
-    ImGui::TableSetupColumn(FieldNames::BodyCylinderDataEntry[17],  ImGuiTableColumnFlags_WidthFixed, 80.0f);
+    static const int k_BodCylIds[] = { 0, 1, 2, 3, 8, 9, 10, 15, 16, 17 };
+    ImGui::TableSetupColumn("#",                                    ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+    for (int ci = 0; ci < 10; ++ci)
+        ImGui::TableSetupColumn(FieldNames::BodyCylinderDataEntry[k_BodCylIds[ci]], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBodyCylinder[ci]);
     ImGui::TableHeadersRow();
 
     int deleteIdx = -1;
@@ -1861,6 +2295,47 @@ void FbsDataView::RenderCustomizeItemUniqueListEditor(ContentsBinData& bin)
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.82f, 1.00f, 1.00f));
     ImGui::Text("customize_item_unique_list.bin");
     ImGui::PopStyleColor();
+    ImGui::SameLine();
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.42f, 0.42f, 0.54f, 1.00f));
+    ImGui::Text("(%d entries)", (int)bin.customizeItemUniqueEntries.size());
+    ImGui::PopStyleColor();
+
+    const float addBtnW    = 100.0f;
+    const float ioGap      = 4.0f;
+    const float exportBtnW = 70.0f;
+    const float importBtnW = 70.0f;
+    const float totalW     = exportBtnW + ioGap + importBtnW + ioGap + addBtnW;
+    ImGui::SameLine(ImGui::GetContentRegionAvail().x - totalW + ImGui::GetCursorPosX());
+
+    if (ImGui::Button("Export##u", ImVec2(exportBtnW, 0)))
+    {
+        std::string path = OpenTsvSaveDialog(L"customize_item_unique_list.tsv");
+        if (!path.empty())
+        {
+            FixUniqueItemIds(bin.customizeItemUniqueEntries);
+            ExportUniqueListTsv(bin.customizeItemUniqueEntries, path);
+        }
+    }
+    ImGui::SameLine(0, ioGap);
+    if (ImGui::Button("Import##u", ImVec2(importBtnW, 0)))
+    {
+        std::string path = OpenTsvOpenDialog();
+        if (!path.empty())
+        {
+            auto imported = ImportUniqueListTsv(path);
+            if (!imported.empty())
+            {
+                FixUniqueItemIds(imported);
+                bin.customizeItemUniqueEntries = std::move(imported);
+            }
+        }
+    }
+    ImGui::SameLine(0, ioGap);
+    if (ImGui::Button("+ Add Entry##u", ImVec2(addBtnW, 0)))
+        bin.customizeItemUniqueEntries.push_back(bin.customizeItemUniqueEntries.empty()
+            ? DefaultValues::UniqueEntry()
+            : bin.customizeItemUniqueEntries.back());
+
     ImGui::Separator();
 
     constexpr ImGuiTableFlags tFlags =
@@ -1869,176 +2344,111 @@ void FbsDataView::RenderCustomizeItemUniqueListEditor(ContentsBinData& bin)
         ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable |
         ImGuiTableFlags_Hideable | ImGuiTableFlags_SizingFixedFit;
 
-    if (!ImGui::BeginTabBar("##UniqueItemTabs"))
+    // cols: # + all 22 fields
+    if (!ImGui::BeginTable("##CIUTable", 23, tFlags, ImGui::GetContentRegionAvail()))
         return;
 
-    if (ImGui::BeginTabItem("entries"))
+    ImGui::TableSetupScrollFreeze(1, 1);
+    ImGui::TableSetupColumn("#",                                 ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+    for (int fi = 0; fi < 22; ++fi)
+        ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[fi], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kUnique[fi]);
+    ImGui::TableHeadersRow();
+
+    // Build duplicate-id detection map
+    std::unordered_map<uint32_t, int> idCounts;
+    for (int i = 0; i < (int)bin.customizeItemUniqueEntries.size(); ++i)
+        idCounts[bin.customizeItemUniqueEntries[i].char_item_id]++;
+
+    int deleteIdx = -1;
+    ImGuiListClipper clipper;
+    clipper.Begin((int)bin.customizeItemUniqueEntries.size());
+    while (clipper.Step())
     {
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.42f, 0.42f, 0.54f, 1.00f));
-        ImGui::Text("(%d entries)", (int)bin.customizeItemUniqueEntries.size());
-        ImGui::PopStyleColor();
-        const float addBtnW = 100.0f;
-        ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
-        if (ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
-            bin.customizeItemUniqueEntries.push_back(CustomizeItemUniqueEntry{});
-
-        // cols: # + all 22 schema fields (id 0..21)
-        if (ImGui::BeginTable("##CIUTable", 23, tFlags, ImGui::GetContentRegionAvail()))
+        for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i)
         {
-            ImGui::TableSetupScrollFreeze(1, 1);
-            ImGui::TableSetupColumn("#",                                   ImGuiTableColumnFlags_WidthFixed,  52.0f);
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[0],    ImGuiTableColumnFlags_WidthFixed,  95.0f);  // char_item_id
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[1],    ImGuiTableColumnFlags_WidthFixed, 200.0f);  // asset_name
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[2],    ImGuiTableColumnFlags_WidthFixed,  95.0f);  // character_hash
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[3],    ImGuiTableColumnFlags_WidthFixed,  95.0f);  // hash_1
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[4],    ImGuiTableColumnFlags_WidthFixed, 200.0f);  // text_key
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[5],    ImGuiTableColumnFlags_WidthFixed, 200.0f);  // extra_text_key_1
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[6],    ImGuiTableColumnFlags_WidthFixed, 200.0f);  // extra_text_key_2
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[7],    ImGuiTableColumnFlags_WidthFixed,  60.0f);  // flag_7
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[8],    ImGuiTableColumnFlags_WidthFixed,  80.0f);  // unk_8
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[9],    ImGuiTableColumnFlags_WidthFixed,  60.0f);  // flag_9
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[10],   ImGuiTableColumnFlags_WidthFixed,  80.0f);  // unk_10
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[11],   ImGuiTableColumnFlags_WidthFixed,  80.0f);  // price
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[12],   ImGuiTableColumnFlags_WidthFixed,  80.0f);  // unk_12
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[13],   ImGuiTableColumnFlags_WidthFixed,  80.0f);  // unk_13
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[14],   ImGuiTableColumnFlags_WidthFixed,  95.0f);  // hash_2
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[15],   ImGuiTableColumnFlags_WidthFixed,  60.0f);  // flag_15
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[16],   ImGuiTableColumnFlags_WidthFixed,  80.0f);  // unk_16
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[17],   ImGuiTableColumnFlags_WidthFixed,  95.0f);  // hash_3
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[18],   ImGuiTableColumnFlags_WidthFixed,  80.0f);  // unk_18
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[19],   ImGuiTableColumnFlags_WidthFixed,  80.0f);  // unk_19
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[20],   ImGuiTableColumnFlags_WidthFixed,  80.0f);  // unk_20
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[21],   ImGuiTableColumnFlags_WidthFixed,  80.0f);  // unk_21
-            ImGui::TableHeadersRow();
+            auto& e = bin.customizeItemUniqueEntries[i];
+            ImGui::TableNextRow();
+            ImGui::PushID(i);
 
-            int deleteIdx = -1;
-            ImGuiListClipper clipper;
-            clipper.Begin((int)bin.customizeItemUniqueEntries.size());
-            while (clipper.Step())
+            ImGui::TableSetColumnIndex(0);
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.50f, 0.50f, 0.60f, 1.00f));
+            ImGui::Text("%d", i + 1);
+            ImGui::PopStyleColor();
+            ImGui::SameLine(0, 4.0f);
+            ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
+            if (ImGui::SmallButton("X")) deleteIdx = i;
+            ImGui::PopStyleColor(3);
+
+            auto U32Cell = [](const char* id, uint32_t& v) {
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                ImGui::InputScalar(id, ImGuiDataType_U32, &v);
+            };
+            auto StrCell = [](const char* id, char* buf, size_t sz) {
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                ImGui::InputText(id, buf, sz);
+            };
+            auto BoolCell = [](const char* id, bool& v) {
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                ImGui::Checkbox(id, &v);
+            };
+
+            ImGui::TableSetColumnIndex( 1);
             {
-                for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i)
-                {
-                    auto& e = bin.customizeItemUniqueEntries[i];
-                    ImGui::TableNextRow();
-                    ImGui::PushID(i);
-
-                    ImGui::TableSetColumnIndex(0);
-                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.50f, 0.50f, 0.60f, 1.00f));
-                    ImGui::Text("%d", i + 1);
-                    ImGui::PopStyleColor();
-                    ImGui::SameLine(0, 4.0f);
-                    ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
-                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
-                    ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
-                    if (ImGui::SmallButton("X")) deleteIdx = i;
-                    ImGui::PopStyleColor(3);
-
-                    auto U32Cell = [](const char* id, uint32_t& v) {
-                        ImGui::SetNextItemWidth(-FLT_MIN);
-                        ImGui::InputScalar(id, ImGuiDataType_U32, &v);
-                    };
-                    auto StrCell = [](const char* id, char* buf, size_t sz) {
-                        ImGui::SetNextItemWidth(-FLT_MIN);
-                        ImGui::InputText(id, buf, sz);
-                    };
-                    auto BoolCell = [](const char* id, bool& v) {
-                        ImGui::SetNextItemWidth(-FLT_MIN);
-                        ImGui::Checkbox(id, &v);
-                    };
-
-                    ImGui::TableSetColumnIndex( 1); U32Cell ("##cid",  e.char_item_id);
-                    ImGui::TableSetColumnIndex( 2); StrCell ("##an",   e.asset_name,        sizeof(e.asset_name));
-                    ImGui::TableSetColumnIndex( 3); U32Cell ("##ch",   e.character_hash);
-                    ImGui::TableSetColumnIndex( 4); U32Cell ("##h1",   e.hash_1);
-                    ImGui::TableSetColumnIndex( 5); StrCell ("##tk",   e.text_key,          sizeof(e.text_key));
-                    ImGui::TableSetColumnIndex( 6); StrCell ("##ek1",  e.extra_text_key_1,  sizeof(e.extra_text_key_1));
-                    ImGui::TableSetColumnIndex( 7); StrCell ("##ek2",  e.extra_text_key_2,  sizeof(e.extra_text_key_2));
-                    ImGui::TableSetColumnIndex( 8); BoolCell("##f7",   e.flag_7);
-                    ImGui::TableSetColumnIndex( 9); U32Cell ("##u8",   e.unk_8);
-                    ImGui::TableSetColumnIndex(10); BoolCell("##f9",   e.flag_9);
-                    ImGui::TableSetColumnIndex(11); U32Cell ("##u10",  e.unk_10);
-                    ImGui::TableSetColumnIndex(12); U32Cell ("##prc",  e.price);
-                    ImGui::TableSetColumnIndex(13); U32Cell ("##u12",  e.unk_12);
-                    ImGui::TableSetColumnIndex(14); U32Cell ("##u13",  e.unk_13);
-                    ImGui::TableSetColumnIndex(15); U32Cell ("##h2",   e.hash_2);
-                    ImGui::TableSetColumnIndex(16); BoolCell("##f15",  e.flag_15);
-                    ImGui::TableSetColumnIndex(17); U32Cell ("##u16",  e.unk_16);
-                    ImGui::TableSetColumnIndex(18); U32Cell ("##h3",   e.hash_3);
-                    ImGui::TableSetColumnIndex(19); U32Cell ("##u18",  e.unk_18);
-                    ImGui::TableSetColumnIndex(20); U32Cell ("##u19",  e.unk_19);
-                    ImGui::TableSetColumnIndex(21); U32Cell ("##u20",  e.unk_20);
-                    ImGui::TableSetColumnIndex(22); U32Cell ("##u21",  e.unk_21);
-
-                    ImGui::PopID();
+                int ddd = (int)(e.char_item_id % 1000u);
+                bool isDup  = idCounts.count(e.char_item_id) && idCounts.at(e.char_item_id) > 1;
+                bool isGame = FbsDataDict::Get().IsGameItemId(e.char_item_id);
+                bool warn   = isDup || isGame;
+                if (warn) ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.55f, 0.08f, 0.08f, 1.0f));
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                if (ImGui::InputInt("##ddd", &ddd, 0, 0)) {
+                    ddd = std::max(0, std::min(999, ddd));
+                    e.char_item_id = AssembleItemId(1, e.character_hash, e.hash_1, (uint32_t)ddd, e.char_item_id);
+                }
+                if (warn) ImGui::PopStyleColor();
+                if (warn && ImGui::IsItemHovered()) {
+                    if (isDup && isGame)
+                        ImGui::SetTooltip("Duplicate item_id: %u\nConflicts with a base game item ID", e.char_item_id);
+                    else if (isDup)
+                        ImGui::SetTooltip("Duplicate item_id: %u", e.char_item_id);
+                    else
+                        ImGui::SetTooltip("item_id %u conflicts with a base game item ID", e.char_item_id);
                 }
             }
-            if (deleteIdx >= 0)
-                bin.customizeItemUniqueEntries.erase(bin.customizeItemUniqueEntries.begin() + deleteIdx);
+            ImGui::TableSetColumnIndex( 2); StrCell ("##an",   e.asset_name,        sizeof(e.asset_name));
+            ImGui::TableSetColumnIndex( 3);
+            if (HashComboCell("##ch", e.character_hash, FbsDataDict::Get().GetCharHashCodeMap(), GetCharHashItems()))
+                e.char_item_id = AssembleItemId(1, e.character_hash, e.hash_1, e.char_item_id % 1000u, e.char_item_id);
+            ImGui::TableSetColumnIndex( 4);
+            if (HashComboCell("##h1", e.hash_1, FbsDataDict::Get().GetTypeHashCodeMap(), GetTypeHashItems()))
+                e.char_item_id = AssembleItemId(1, e.character_hash, e.hash_1, e.char_item_id % 1000u, e.char_item_id);
+            ImGui::TableSetColumnIndex( 5); StrCell ("##tk",   e.text_key,          sizeof(e.text_key));
+            ImGui::TableSetColumnIndex( 6); StrCell ("##ek1",  e.extra_text_key_1,  sizeof(e.extra_text_key_1));
+            ImGui::TableSetColumnIndex( 7); StrCell ("##ek2",  e.extra_text_key_2,  sizeof(e.extra_text_key_2));
+            ImGui::TableSetColumnIndex( 8); U32Cell ("##f7",   e.flag_7);
+            ImGui::TableSetColumnIndex( 9); U32Cell ("##u8",   e.unk_8);
+            ImGui::TableSetColumnIndex(10); BoolCell("##f9",   e.flag_9);
+            ImGui::TableSetColumnIndex(11); U32Cell ("##u10",  e.unk_10);
+            ImGui::TableSetColumnIndex(12); U32Cell ("##prc",  e.price);
+            ImGui::TableSetColumnIndex(13); U32Cell ("##u12",  e.unk_12);
+            ImGui::TableSetColumnIndex(14); U32Cell ("##u13",  e.unk_13);
+            ImGui::TableSetColumnIndex(15); U32Cell ("##h2",   e.hash_2);
+            ImGui::TableSetColumnIndex(16); BoolCell("##f15",  e.flag_15);
+            ImGui::TableSetColumnIndex(17); U32Cell ("##u16",  e.unk_16);
+            ImGui::TableSetColumnIndex(18); U32Cell ("##h3",   e.hash_3);
+            ImGui::TableSetColumnIndex(19); U32Cell ("##u18",  e.unk_18);
+            ImGui::TableSetColumnIndex(20); U32Cell ("##u19",  e.unk_19);
+            ImGui::TableSetColumnIndex(21); U32Cell ("##u20",  e.unk_20);
+            ImGui::TableSetColumnIndex(22); U32Cell ("##u21",  e.unk_21);
 
-            ImGui::EndTable();
+            ImGui::PopID();
         }
-        ImGui::EndTabItem();
     }
+    if (deleteIdx >= 0)
+        bin.customizeItemUniqueEntries.erase(bin.customizeItemUniqueEntries.begin() + deleteIdx);
 
-    if (ImGui::BeginTabItem("body_entries"))
-    {
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.42f, 0.42f, 0.54f, 1.00f));
-        ImGui::Text("(%d entries)", (int)bin.customizeItemUniqueBodyEntries.size());
-        ImGui::PopStyleColor();
-        const float addBtnW = 100.0f;
-        ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
-        if (ImGui::Button("+ Add Entry##body", ImVec2(addBtnW, 0)))
-            bin.customizeItemUniqueBodyEntries.push_back(CustomizeItemUniqueBodyEntry{});
-
-        if (ImGui::BeginTable("##CIUBodyTable", 3, tFlags, ImGui::GetContentRegionAvail()))
-        {
-            ImGui::TableSetupScrollFreeze(1, 1);
-            ImGui::TableSetupColumn("#",                                   ImGuiTableColumnFlags_WidthFixed, 52.0f);
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUniqueBody[0], ImGuiTableColumnFlags_WidthFixed, 200.0f);
-            ImGui::TableSetupColumn(FieldNames::CustomizeItemUniqueBody[1], ImGuiTableColumnFlags_WidthFixed, 95.0f);
-            ImGui::TableHeadersRow();
-
-            int deleteIdx = -1;
-            ImGuiListClipper clipper;
-            clipper.Begin((int)bin.customizeItemUniqueBodyEntries.size());
-            while (clipper.Step())
-            {
-                for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i)
-                {
-                    auto& e = bin.customizeItemUniqueBodyEntries[i];
-                    ImGui::TableNextRow();
-                    ImGui::PushID(i);
-
-                    ImGui::TableSetColumnIndex(0);
-                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.50f, 0.50f, 0.60f, 1.00f));
-                    ImGui::Text("%d", i + 1);
-                    ImGui::PopStyleColor();
-                    ImGui::SameLine(0, 4.0f);
-                    ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
-                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
-                    ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
-                    if (ImGui::SmallButton("X")) deleteIdx = i;
-                    ImGui::PopStyleColor(3);
-
-                    ImGui::TableSetColumnIndex(1);
-                    ImGui::SetNextItemWidth(-FLT_MIN);
-                    ImGui::InputText("##an", e.asset_name, sizeof(e.asset_name));
-                    ImGui::TableSetColumnIndex(2);
-                    ImGui::SetNextItemWidth(-FLT_MIN);
-                    ImGui::InputScalar("##cid", ImGuiDataType_U32, &e.char_item_id);
-
-                    ImGui::PopID();
-                }
-            }
-            if (deleteIdx >= 0)
-                bin.customizeItemUniqueBodyEntries.erase(bin.customizeItemUniqueBodyEntries.begin() + deleteIdx);
-
-            ImGui::EndTable();
-        }
-        ImGui::EndTabItem();
-    }
-
-    ImGui::EndTabBar();
+    ImGui::EndTable();
 }
 
 // -----------------------------------------------------------------------------
@@ -2074,8 +2484,8 @@ void FbsDataView::RenderCharacterSelectListEditor(ContentsBinData& bin)
         if (ImGui::BeginTable("##CSHashTable", 2, tFlags, ImGui::GetContentRegionAvail()))
         {
             ImGui::TableSetupScrollFreeze(1, 1);
-            ImGui::TableSetupColumn("#",                                 ImGuiTableColumnFlags_WidthFixed, 52.0f);
-            ImGui::TableSetupColumn(FieldNames::CharacterSelectHash[0],  ImGuiTableColumnFlags_WidthFixed, 95.0f);
+            ImGui::TableSetupColumn("#",                                 ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+            ImGui::TableSetupColumn(FieldNames::CharacterSelectHash[0],  ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kCharSelectHash[0]);
             ImGui::TableHeadersRow();
 
             int deleteIdx = -1;
@@ -2128,9 +2538,9 @@ void FbsDataView::RenderCharacterSelectListEditor(ContentsBinData& bin)
         if (ImGui::BeginTable("##CSParamTable", 3, tFlags, ImGui::GetContentRegionAvail()))
         {
             ImGui::TableSetupScrollFreeze(1, 1);
-            ImGui::TableSetupColumn("#",                                  ImGuiTableColumnFlags_WidthFixed, 52.0f);
-            ImGui::TableSetupColumn(FieldNames::CharacterSelectParam[0],  ImGuiTableColumnFlags_WidthFixed, 100.0f);
-            ImGui::TableSetupColumn(FieldNames::CharacterSelectParam[1],  ImGuiTableColumnFlags_WidthFixed, 80.0f);
+            ImGui::TableSetupColumn("#",                                  ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+            ImGui::TableSetupColumn(FieldNames::CharacterSelectParam[0],  ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kCharSelectParam[0]);
+            ImGui::TableSetupColumn(FieldNames::CharacterSelectParam[1],  ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kCharSelectParam[1]);
             ImGui::TableHeadersRow();
 
             int deleteIdx = -1;
@@ -2208,9 +2618,9 @@ void FbsDataView::RenderCustomizeItemProhibitDramaListEditor(ContentsBinData& bi
             return;
 
         ImGui::TableSetupScrollFreeze(1, 1);
-        ImGui::TableSetupColumn("#",                                     ImGuiTableColumnFlags_WidthFixed, 52.0f);
-        ImGui::TableSetupColumn(FieldNames::CustomizeItemProhibitDrama[0], ImGuiTableColumnFlags_WidthFixed, 80.0f);
-        ImGui::TableSetupColumn(FieldNames::CustomizeItemProhibitDrama[1], ImGuiTableColumnFlags_WidthFixed, 80.0f);
+        ImGui::TableSetupColumn("#",                                     ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+        ImGui::TableSetupColumn(FieldNames::CustomizeItemProhibitDrama[0], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kProhibitDrama[0]);
+        ImGui::TableSetupColumn(FieldNames::CustomizeItemProhibitDrama[1], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kProhibitDrama[1]);
         ImGui::TableHeadersRow();
 
         int deleteIdx = -1;
@@ -2358,10 +2768,9 @@ void FbsDataView::RenderBattleMotionListEditor(ContentsBinData& bin)
             return;
 
         ImGui::TableSetupScrollFreeze(1, 1);
-        ImGui::TableSetupColumn("#",                              ImGuiTableColumnFlags_WidthFixed, 52.0f);
-        ImGui::TableSetupColumn(FieldNames::BattleMotionEntry[0], ImGuiTableColumnFlags_WidthFixed, 80.0f);
-        ImGui::TableSetupColumn(FieldNames::BattleMotionEntry[1], ImGuiTableColumnFlags_WidthFixed, 80.0f);
-        ImGui::TableSetupColumn(FieldNames::BattleMotionEntry[2], ImGuiTableColumnFlags_WidthFixed, 80.0f);
+        ImGui::TableSetupColumn("#",                              ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+        for (int fi = 0; fi < 3; ++fi)
+            ImGui::TableSetupColumn(FieldNames::BattleMotionEntry[fi], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBattleMotion[fi]);
         ImGui::TableHeadersRow();
 
         int deleteIdx = -1;
@@ -2466,14 +2875,9 @@ void FbsDataView::RenderArcadeCpuListEditor(ContentsBinData& bin)
         if (ImGui::BeginTable("##ACCharTable", 8, tFlags, ImGui::GetContentRegionAvail()))
         {
             ImGui::TableSetupScrollFreeze(1, 1);
-            ImGui::TableSetupColumn("#",                               ImGuiTableColumnFlags_WidthFixed, 52.0f);
-            ImGui::TableSetupColumn(FieldNames::ArcadeCpuCharacter[0], ImGuiTableColumnFlags_WidthFixed, 95.0f);
-            ImGui::TableSetupColumn(FieldNames::ArcadeCpuCharacter[1], ImGuiTableColumnFlags_WidthFixed, 80.0f);
-            ImGui::TableSetupColumn(FieldNames::ArcadeCpuCharacter[2], ImGuiTableColumnFlags_WidthFixed, 80.0f);
-            ImGui::TableSetupColumn(FieldNames::ArcadeCpuCharacter[3], ImGuiTableColumnFlags_WidthFixed, 80.0f);
-            ImGui::TableSetupColumn(FieldNames::ArcadeCpuCharacter[4], ImGuiTableColumnFlags_WidthFixed, 80.0f);
-            ImGui::TableSetupColumn(FieldNames::ArcadeCpuCharacter[5], ImGuiTableColumnFlags_WidthFixed, 80.0f);
-            ImGui::TableSetupColumn(FieldNames::ArcadeCpuCharacter[6], ImGuiTableColumnFlags_WidthFixed, 80.0f);
+            ImGui::TableSetupColumn("#",                               ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+            for (int fi = 0; fi < 7; ++fi)
+                ImGui::TableSetupColumn(FieldNames::ArcadeCpuCharacter[fi], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kArcadeCpuCharacter[fi]);
             ImGui::TableHeadersRow();
 
             int deleteIdx = -1;
@@ -2542,8 +2946,8 @@ void FbsDataView::RenderArcadeCpuListEditor(ContentsBinData& bin)
             if (ImGui::BeginTable(tableId, 2, tFlags, ImGui::GetContentRegionAvail()))
             {
                 ImGui::TableSetupScrollFreeze(1, 1);
-                ImGui::TableSetupColumn("#",                           ImGuiTableColumnFlags_WidthFixed, 52.0f);
-                ImGui::TableSetupColumn(FieldNames::ArcadeCpuHash[0], ImGuiTableColumnFlags_WidthFixed, 95.0f);
+                ImGui::TableSetupColumn("#",                           ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+                ImGui::TableSetupColumn(FieldNames::ArcadeCpuHash[0], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kArcadeCpuHash[0]);
                 ImGui::TableHeadersRow();
 
                 int deleteIdx = -1;
@@ -2600,11 +3004,9 @@ void FbsDataView::RenderArcadeCpuListEditor(ContentsBinData& bin)
         if (ImGui::BeginTable("##ACRuleTable", 5, tFlags, ImGui::GetContentRegionAvail()))
         {
             ImGui::TableSetupScrollFreeze(1, 1);
-            ImGui::TableSetupColumn("#",                           ImGuiTableColumnFlags_WidthFixed, 52.0f);
-            ImGui::TableSetupColumn(FieldNames::ArcadeCpuRule[0], ImGuiTableColumnFlags_WidthFixed, 60.0f);
-            ImGui::TableSetupColumn(FieldNames::ArcadeCpuRule[1], ImGuiTableColumnFlags_WidthFixed, 60.0f);
-            ImGui::TableSetupColumn(FieldNames::ArcadeCpuRule[2], ImGuiTableColumnFlags_WidthFixed, 80.0f);
-            ImGui::TableSetupColumn(FieldNames::ArcadeCpuRule[3], ImGuiTableColumnFlags_WidthFixed, 80.0f);
+            ImGui::TableSetupColumn("#",                           ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+            for (int fi = 0; fi < 4; ++fi)
+                ImGui::TableSetupColumn(FieldNames::ArcadeCpuRule[fi], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kArcadeCpuRule[fi]);
             ImGui::TableHeadersRow();
 
             int deleteIdx = -1;
@@ -2689,12 +3091,9 @@ void FbsDataView::RenderBallRecommendListEditor(ContentsBinData& bin)
             if (ImGui::BeginTable(tableId, 6, tFlags, ImGui::GetContentRegionAvail()))
             {
                 ImGui::TableSetupScrollFreeze(1, 1);
-                ImGui::TableSetupColumn("#",                               ImGuiTableColumnFlags_WidthFixed, 52.0f);
-                ImGui::TableSetupColumn(FieldNames::BallRecommendEntry[0], ImGuiTableColumnFlags_WidthFixed, 95.0f);
-                ImGui::TableSetupColumn(FieldNames::BallRecommendEntry[1], ImGuiTableColumnFlags_WidthFixed, 200.0f);
-                ImGui::TableSetupColumn(FieldNames::BallRecommendEntry[2], ImGuiTableColumnFlags_WidthFixed, 200.0f);
-                ImGui::TableSetupColumn(FieldNames::BallRecommendEntry[3], ImGuiTableColumnFlags_WidthFixed, 80.0f);
-                ImGui::TableSetupColumn(FieldNames::BallRecommendEntry[4], ImGuiTableColumnFlags_WidthFixed, 80.0f);
+                ImGui::TableSetupColumn("#",                               ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+                for (int fi = 0; fi < 5; ++fi)
+                    ImGui::TableSetupColumn(FieldNames::BallRecommendEntry[fi], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBallRecommend[fi]);
                 ImGui::TableHeadersRow();
 
                 int deleteIdx = -1;
@@ -2933,8 +3332,8 @@ void FbsDataView::RenderBattleCommonListEditor(ContentsBinData& bin)
         if (ImGui::BeginTable("##BCSVTable", 2, tFlags, ImGui::GetContentRegionAvail()))
         {
             ImGui::TableSetupScrollFreeze(1, 1);
-            ImGui::TableSetupColumn("#",                                   ImGuiTableColumnFlags_WidthFixed, 52.0f);
-            ImGui::TableSetupColumn(FieldNames::BattleCommonSingleValue[0],ImGuiTableColumnFlags_WidthFixed, 80.0f);
+            ImGui::TableSetupColumn("#",                                   ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+            ImGui::TableSetupColumn(FieldNames::BattleCommonSingleValue[0],ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBattleCommonGeneric);
             ImGui::TableHeadersRow();
 
             int deleteIdx = -1;
@@ -2987,9 +3386,10 @@ void FbsDataView::RenderBattleCommonListEditor(ContentsBinData& bin)
         if (ImGui::BeginTable("##BCCSTable", 9, tFlags, ImGui::GetContentRegionAvail()))
         {
             ImGui::TableSetupScrollFreeze(1, 1);
-            ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 52.0f);
+            ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
             for (int fi = 0; fi < 8; ++fi)
-                ImGui::TableSetupColumn(FieldNames::BattleCommonCharacterScale[fi], ImGuiTableColumnFlags_WidthFixed, fi == 0 ? 95.0f : 75.0f);
+                ImGui::TableSetupColumn(FieldNames::BattleCommonCharacterScale[fi], ImGuiTableColumnFlags_WidthFixed,
+                    fi == 0 ? ColumnWidths::kBattleCommonCharacterScale0 : ColumnWidths::kBattleCommonCharacterScaleRest);
             ImGui::TableHeadersRow();
 
             int deleteIdx = -1;
@@ -3047,9 +3447,9 @@ void FbsDataView::RenderBattleCommonListEditor(ContentsBinData& bin)
         if (ImGui::BeginTable("##BCPairTable", 4, tFlags, ImGui::GetContentRegionAvail()))
         {
             ImGui::TableSetupScrollFreeze(1, 1);
-            ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 52.0f);
+            ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
             for (int fi = 0; fi < 3; ++fi)
-                ImGui::TableSetupColumn(FieldNames::BattleCommonPair[fi], ImGuiTableColumnFlags_WidthFixed, 80.0f);
+                ImGui::TableSetupColumn(FieldNames::BattleCommonPair[fi], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBattleCommonGeneric);
             ImGui::TableHeadersRow();
 
             int deleteIdx = -1;
@@ -3102,9 +3502,9 @@ void FbsDataView::RenderBattleCommonListEditor(ContentsBinData& bin)
         if (ImGui::BeginTable("##BCMiscTable", 4, tFlags, ImGui::GetContentRegionAvail()))
         {
             ImGui::TableSetupScrollFreeze(1, 1);
-            ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 52.0f);
+            ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
             for (int fi = 0; fi < 3; ++fi)
-                ImGui::TableSetupColumn(FieldNames::BattleCommonMisc[fi], ImGuiTableColumnFlags_WidthFixed, 80.0f);
+                ImGui::TableSetupColumn(FieldNames::BattleCommonMisc[fi], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBattleCommonGeneric);
             ImGui::TableHeadersRow();
 
             int deleteIdx = -1;
@@ -3193,10 +3593,10 @@ void FbsDataView::RenderBattleCpuListEditor(ContentsBinData& bin)
         if (ImGui::BeginTable("##BCRankTable", 49, tFlags, ImGui::GetContentRegionAvail()))
         {
             ImGui::TableSetupScrollFreeze(1, 1);
-            ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 52.0f);
+            ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
             for (int vi = 0; vi < 47; ++vi)
-                ImGui::TableSetupColumn(FieldNames::BattleCpuRank[vi], ImGuiTableColumnFlags_WidthFixed, 80.0f);
-            ImGui::TableSetupColumn(FieldNames::BattleCpuRank[47], ImGuiTableColumnFlags_WidthFixed, 130.0f);
+                ImGui::TableSetupColumn(FieldNames::BattleCpuRank[vi], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBattleCpuRankGeneric);
+            ImGui::TableSetupColumn(FieldNames::BattleCpuRank[47], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBattleCpuRank47);
             ImGui::TableHeadersRow();
 
             int deleteIdx = -1;
@@ -3257,9 +3657,9 @@ void FbsDataView::RenderBattleCpuListEditor(ContentsBinData& bin)
         if (ImGui::BeginTable("##BCStepTable", 5, tFlags, ImGui::GetContentRegionAvail()))
         {
             ImGui::TableSetupScrollFreeze(1, 1);
-            ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 52.0f);
+            ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
             for (int fi = 0; fi < 4; ++fi)
-                ImGui::TableSetupColumn(FieldNames::BattleCpuStep[fi], ImGuiTableColumnFlags_WidthFixed, 80.0f);
+                ImGui::TableSetupColumn(FieldNames::BattleCpuStep[fi], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBattleCpuStepGeneric);
             ImGui::TableHeadersRow();
 
             int deleteIdx = -1;
@@ -3424,11 +3824,9 @@ void FbsDataView::RenderRankListEditor(ContentsBinData& bin)
         if (ImGui::BeginTable("##RankItemTable", 5, tFlags, ImGui::GetContentRegionAvail()))
         {
             ImGui::TableSetupScrollFreeze(1, 1);
-            ImGui::TableSetupColumn("#",                     ImGuiTableColumnFlags_WidthFixed, 52.0f);
-            ImGui::TableSetupColumn(FieldNames::RankItem[0], ImGuiTableColumnFlags_WidthFixed, 95.0f);
-            ImGui::TableSetupColumn(FieldNames::RankItem[1], ImGuiTableColumnFlags_WidthFixed, 180.0f);
-            ImGui::TableSetupColumn(FieldNames::RankItem[2], ImGuiTableColumnFlags_WidthFixed, 130.0f);
-            ImGui::TableSetupColumn(FieldNames::RankItem[3], ImGuiTableColumnFlags_WidthFixed, 80.0f);
+            ImGui::TableSetupColumn("#",                     ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+            for (int fi = 0; fi < 4; ++fi)
+                ImGui::TableSetupColumn(FieldNames::RankItem[fi], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRankItem[fi]);
             ImGui::TableHeadersRow();
 
             int deleteIdx = -1;
@@ -3507,10 +3905,10 @@ void FbsDataView::RenderAssistInputListEditor(ContentsBinData& bin)
         return;
 
     ImGui::TableSetupScrollFreeze(1, 1);
-    ImGui::TableSetupColumn("#",                               ImGuiTableColumnFlags_WidthFixed, 52.0f);
-    ImGui::TableSetupColumn(FieldNames::AssistInputEntry[0],   ImGuiTableColumnFlags_WidthFixed, 95.0f);
+    ImGui::TableSetupColumn("#",                               ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+    ImGui::TableSetupColumn(FieldNames::AssistInputEntry[0],   ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kAssistInputEntry0);
     for (int vi = 1; vi < 59; ++vi)
-        ImGui::TableSetupColumn(FieldNames::AssistInputEntry[vi], ImGuiTableColumnFlags_WidthFixed, 60.0f);
+        ImGui::TableSetupColumn(FieldNames::AssistInputEntry[vi], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kAssistInputValue);
     ImGui::TableHeadersRow();
 
     int deleteIdx = -1;
@@ -3557,3 +3955,205 @@ void FbsDataView::RenderAssistInputListEditor(ContentsBinData& bin)
     ImGui::EndTable();
 }
 
+// -----------------------------------------------------------------------------
+//  Item ID popup editor  (AXXYYZZZ decomposed into XX/YY/ZZZ fields)
+// -----------------------------------------------------------------------------
+
+
+// -----------------------------------------------------------------------------
+//  Mod info edit popup
+// -----------------------------------------------------------------------------
+
+void FbsDataView::RenderInfoEditPopup()
+{
+    if (m_infoEditPending) {
+        ImGui::OpenPopup("##info_edit");
+        m_infoEditPending = false;
+    }
+    if (!ImGui::BeginPopup("##info_edit")) return;
+
+    ModInfo& info    = m_data.info;
+    const bool isNew = m_data.isNew;
+
+    ImGui::Text("Mod Information");
+    ImGui::Separator();
+
+    // Author
+    ImGui::Text("Author");
+    ImGui::SameLine(100.0f);
+    ImGui::SetNextItemWidth(260.0f);
+    if (!isNew) ImGui::BeginDisabled();
+    ImGui::InputText("##info_author", info.author, sizeof(info.author));
+    if (!isNew) ImGui::EndDisabled();
+
+    // Description
+    ImGui::Text("Description");
+    ImGui::SameLine(100.0f);
+    ImGui::SetNextItemWidth(260.0f);
+    if (!isNew) ImGui::BeginDisabled();
+    ImGui::InputText("##info_desc", info.description, sizeof(info.description));
+    if (!isNew) ImGui::EndDisabled();
+
+    // Version (always editable)
+    ImGui::Text("Version");
+    ImGui::SameLine(100.0f);
+    ImGui::SetNextItemWidth(260.0f);
+    ImGui::InputText("##info_ver", info.version, sizeof(info.version));
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Text("Custom GTB Tables");
+
+    int removeGtb = -1;
+    for (int i = 0; i < (int)m_data.customGtbNames.size(); ++i)
+    {
+        ImGui::PushID(i);
+        char buf[256] = {};
+        strncpy_s(buf, m_data.customGtbNames[i].c_str(), _TRUNCATE);
+
+        const bool valid = IsValidGtbManifestName(m_data.customGtbNames[i]);
+        if (!valid)
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.90f, 0.35f, 0.35f, 1.00f));
+
+        ImGui::SetNextItemWidth(260.0f);
+        if (ImGui::InputText("##gtb_name", buf, sizeof(buf)))
+            m_data.customGtbNames[i] = buf;
+
+        if (!valid)
+            ImGui::PopStyleColor();
+
+        ImGui::SameLine(0, 6.0f);
+        if (ImGui::SmallButton("X"))
+            removeGtb = i;
+
+        ImGui::PopID();
+    }
+
+    if (removeGtb >= 0)
+        m_data.customGtbNames.erase(m_data.customGtbNames.begin() + removeGtb);
+
+    if (ImGui::Button("+ Add GTB Table"))
+        m_data.customGtbNames.push_back("GTB_");
+
+    ImGui::Spacing();
+    if (ImGui::Button("Close"))
+        ImGui::CloseCurrentPopup();
+
+    ImGui::EndPopup();
+}
+
+// -----------------------------------------------------------------------------
+//  customize_panel_list editor
+// -----------------------------------------------------------------------------
+
+void FbsDataView::RenderCustomizePanelListEditor(ContentsBinData& bin)
+{
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.82f, 1.00f, 1.00f));
+    ImGui::Text("customize_panel_list.bin");
+    ImGui::PopStyleColor();
+    ImGui::SameLine();
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.42f, 0.42f, 0.54f, 1.00f));
+    ImGui::Text("(%d entries)", (int)bin.customizePanelEntries.size());
+    ImGui::PopStyleColor();
+
+    const float addBtnW = 100.0f;
+    ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
+    if (ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
+        bin.customizePanelEntries.push_back(bin.customizePanelEntries.empty()
+            ? CustomizePanelEntry{}
+            : bin.customizePanelEntries.back());
+
+    ImGui::Separator();
+
+    constexpr ImGuiTableFlags tFlags =
+        ImGuiTableFlags_ScrollX | ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg |
+        ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersInnerV |
+        ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable |
+        ImGuiTableFlags_Hideable | ImGuiTableFlags_SizingFixedFit;
+
+    // cols: # + 11 fields
+    if (!ImGui::BeginTable("##CPLTable", 12, tFlags, ImGui::GetContentRegionAvail()))
+        return;
+
+    ImGui::TableSetupScrollFreeze(1, 1);
+    ImGui::TableSetupColumn("#",                                      ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+    for (int ci = 0; ci < FieldNames::CustomizePanelEntryCount; ++ci)
+        ImGui::TableSetupColumn(FieldNames::CustomizePanelEntry[ci],  ImGuiTableColumnFlags_WidthFixed,
+            (ci >= 5 && ci <= 8) ? ColumnWidths::kCustomizePanelString : ColumnWidths::kCustomizePanelDefault);
+    ImGui::TableHeadersRow();
+
+    int deleteIdx = -1;
+
+    for (int i = 0; i < (int)bin.customizePanelEntries.size(); ++i)
+    {
+        auto& e = bin.customizePanelEntries[i];
+        ImGui::TableNextRow();
+        ImGui::PushID(i);
+
+        ImGui::TableSetColumnIndex(0);
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.50f, 0.50f, 0.60f, 1.00f));
+        ImGui::Text("%d", i + 1);
+        ImGui::PopStyleColor();
+        ImGui::SameLine(0, 4.0f);
+        ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
+        if (ImGui::SmallButton("X")) deleteIdx = i;
+        ImGui::PopStyleColor(3);
+
+        auto U32Cell = [](const char* id, uint32_t& v) {
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            ImGui::InputScalar(id, ImGuiDataType_U32, &v);
+        };
+        auto StrCell = [](const char* id, char* buf, size_t sz) {
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            ImGui::InputText(id, buf, sz);
+        };
+
+        ImGui::TableSetColumnIndex(1);  U32Cell("##ph",   e.panel_hash);
+        ImGui::TableSetColumnIndex(2);  U32Cell("##pid",  e.panel_id);
+        ImGui::TableSetColumnIndex(3);  U32Cell("##prc",  e.price);
+        ImGui::TableSetColumnIndex(4);  U32Cell("##cat",  e.category);
+        ImGui::TableSetColumnIndex(5);  U32Cell("##sid",  e.sort_id);
+        ImGui::TableSetColumnIndex(6);  StrCell("##tkey", e.text_key,  sizeof(e.text_key));
+        ImGui::TableSetColumnIndex(7);  StrCell("##tx1",  e.texture_1, sizeof(e.texture_1));
+        ImGui::TableSetColumnIndex(8);  StrCell("##tx2",  e.texture_2, sizeof(e.texture_2));
+        ImGui::TableSetColumnIndex(9);  StrCell("##tx3",  e.texture_3, sizeof(e.texture_3));
+        ImGui::TableSetColumnIndex(10); ImGui::Checkbox("##f9", &e.flag_9);
+        ImGui::TableSetColumnIndex(11); U32Cell("##h10",  e.hash_10);
+
+        ImGui::PopID();
+    }
+
+    if (deleteIdx >= 0)
+        bin.customizePanelEntries.erase(bin.customizePanelEntries.begin() + deleteIdx);
+
+    ImGui::EndTable();
+}
+
+// -----------------------------------------------------------------------------
+//  Save confirmation popup (shown when mod info is empty)
+// -----------------------------------------------------------------------------
+
+void FbsDataView::RenderSaveConfirmPopup()
+{
+    if (m_saveConfirmPending) {
+        ImGui::OpenPopup("##save_confirm");
+        m_saveConfirmPending = false;
+    }
+    if (!ImGui::BeginPopupModal("##save_confirm", nullptr,
+                                ImGuiWindowFlags_AlwaysAutoResize)) return;
+
+    ImGui::TextUnformatted("Mod info is not filled in. Save anyway?");
+    ImGui::Spacing();
+
+    if (ImGui::Button("Confirm", ImVec2(100.0f, 0.f))) {
+        ImGui::CloseCurrentPopup();
+        DoSave();
+    }
+    ImGui::SameLine(0, 8.0f);
+    if (ImGui::Button("Cancel", ImVec2(100.0f, 0.f)))
+        ImGui::CloseCurrentPopup();
+
+    ImGui::EndPopup();
+}

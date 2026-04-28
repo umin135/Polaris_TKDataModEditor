@@ -1,11 +1,10 @@
-# 상위 제외
 /_references
 /.vs
 /.claude
 /x64
 /data/Meshes
 /res-wip
-/_extraTools
+/_extraTools/FbsdataExtract
 
 build.bat
 CLAUD.md

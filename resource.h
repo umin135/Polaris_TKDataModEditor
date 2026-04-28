@@ -11,10 +11,10 @@
 #define IDR_PREVIEW_MESHES_HAND 402   // data/Meshes_hand/preview_meshes_hand.pack
 
 // data/interfacedata/* embedded as RCDATA fallback (disk files override when present)
-#define IDR_DATA_CHARLIST 301   // characterList.txt
 #define IDR_DATA_REQTXT   302   // editorRequirements.txt
 #define IDR_DATA_PROPTXT  303   // editorProperties.txt
 #define IDR_DATA_CMDTXT   304   // editorCommands.txt
 #define IDR_DATA_NAMEKEYS 305   // name_keys.json
 #define IDR_DATA_SUPPKEYS 306   // supplement_name_keys.json
 #define IDR_DATA_ANIMKEYS 307   // anim_keys.json
+#define IDR_DATA_FBSDICT  308   // data/fbsdatas/data.json

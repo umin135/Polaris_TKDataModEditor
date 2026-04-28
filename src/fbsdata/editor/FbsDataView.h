@@ -1,6 +1,7 @@
 ﻿#pragma once
 #include "fbsdata/data/ModData.h"
 #include <string>
+#include <cstdint>
 
 // FbsData editor view -- loads/saves .tkmod files and renders per-bin editors.
 // Layout: [Toolbar (Save/Load)] | [Editor area] | [Contents List]
@@ -19,6 +20,9 @@ private:
     void RenderEditorArea();
     void RenderContentsList(float listWidth);
     void RenderAddPopup();
+    void RenderInfoEditPopup();
+    void RenderSaveConfirmPopup();
+    void DoSave();
 
     // Per-type editors
     void RenderCustomizeItemCommonEditor(ContentsBinData& bin);
@@ -45,6 +49,7 @@ private:
     void RenderBattleCpuListEditor(ContentsBinData& bin);
     void RenderRankListEditor(ContentsBinData& bin);
     void RenderAssistInputListEditor(ContentsBinData& bin);
+    void RenderCustomizePanelListEditor(ContentsBinData& bin);
 
     ModData m_data;
 
@@ -52,7 +57,10 @@ public:
     ModData& GetModData() { return m_data; }
 
 private:
-    bool    m_showSaveResult = false;
-    bool    m_lastSaveOk     = false;
-    float   m_statusTimer    = 0.0f;
+    bool    m_modActive          = false; // true after New or successful Load
+    bool    m_showSaveResult    = false;
+    bool    m_lastSaveOk        = false;
+    float   m_statusTimer       = 0.0f;
+    bool    m_infoEditPending   = false;  // open info edit popup next frame
+    bool    m_saveConfirmPending = false; // open save-without-info confirm popup next frame
 };

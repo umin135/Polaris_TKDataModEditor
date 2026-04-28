@@ -13,10 +13,10 @@ IDR_PREVIEW_MESHES      RCDATA "data\\Meshes\\preview_meshes.pack"
 IDR_PREVIEW_MESHES_HAND RCDATA "data\\Meshes_hand\\preview_meshes_hand.pack"
 
 // Interface data files (disk files take priority at runtime; these are fallback)
-IDR_DATA_CHARLIST RCDATA "data\\interfacedata\\characterList.txt"
 IDR_DATA_REQTXT   RCDATA "data\\interfacedata\\editorRequirements.txt"
 IDR_DATA_PROPTXT  RCDATA "data\\interfacedata\\editorProperties.txt"
 IDR_DATA_CMDTXT   RCDATA "data\\interfacedata\\editorCommands.txt"
 IDR_DATA_NAMEKEYS RCDATA "data\\interfacedata\\name_keys.json"
 IDR_DATA_SUPPKEYS RCDATA "data\\interfacedata\\supplement_name_keys.json"
 IDR_DATA_ANIMKEYS RCDATA "data\\interfacedata\\anim_keys.json"
+IDR_DATA_FBSDICT  RCDATA "data\\fbsdatas\\data.json"

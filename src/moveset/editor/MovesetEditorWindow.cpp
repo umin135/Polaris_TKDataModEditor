@@ -5980,7 +5980,7 @@ void MovesetEditorWindow::RenderCommandCreator()
     // ---- Standalone banner ----
     if (!m_cmdCreator.target) {
         ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.25f, 0.15f, 0.0f, 1.0f));
-        if (ImGui::BeginChild("##cc_banner", ImVec2(-1, 42), ImGuiChildFlags_Borders)) {
+        if (ImGui::BeginChild("##cc_banner", ImVec2(-1, 42), ImGuiChildFlags_Borders, ImGuiWindowFlags_NoScrollbar)) {
             ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 4);
             ImGui::TextColored(ImVec4(1.f, 0.85f, 0.f, 1.f), "Standalone Mode:");
             ImGui::SameLine();
@@ -5993,7 +5993,7 @@ void MovesetEditorWindow::RenderCommandCreator()
 
     // ---- Raw value display ----
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.10f, 0.10f, 0.12f, 1.0f));
-    if (ImGui::BeginChild("##cc_hdr", ImVec2(-1, 98), ImGuiChildFlags_Borders)) {
+    if (ImGui::BeginChild("##cc_hdr", ImVec2(-1, 98), ImGuiChildFlags_Borders, ImGuiWindowFlags_NoScrollbar)) {
         float avail = ImGui::GetContentRegionAvail().x;
 
         // "RAW VALUE (HEX)" left, "Mode: 0xXX" right
@@ -6082,7 +6082,7 @@ void MovesetEditorWindow::RenderCommandCreator()
                                    - sty.FramePadding.x * 2 - sty.ItemSpacing.x;
                         ImGui::SameLine(cx);
                     }
-                    if (ImGui::SmallButton("Clear##dirclr")) val &= ~kCCDirMask;
+                    if (ImGui::SmallButton("Clear##dirclr")) val &= ~uint64_t(0xFFFFFFFF); // clear all low-32 bits (dir + any preset range)
                     ImGui::Separator();
                     ImGui::Spacing();
 
@@ -6110,7 +6110,9 @@ void MovesetEditorWindow::RenderCommandCreator()
                     ImGui::EndGroup();
                     ImGui::SameLine();
 
-                    // Buttons column
+                    // Buttons column (disabled in Direction Only mode)
+                    bool dirOnly = (val & kCCModeMask) == kCCModeDirOnly;
+                    ImGui::BeginDisabled(dirOnly);
                     ImGui::BeginGroup();
                     ImGui::TextColored(ImVec4(1.f, 0.4f, 0.4f, 1.f), "Buttons");
                     {
@@ -6160,6 +6162,7 @@ void MovesetEditorWindow::RenderCommandCreator()
                         if (s < 2) ImGui::Spacing();
                     }
                     ImGui::EndGroup();
+                    ImGui::EndDisabled();
                 }
                 ImGui::EndChild();
                 ImGui::EndTabItem();
@@ -6196,7 +6199,7 @@ void MovesetEditorWindow::RenderCommandCreator()
                         ImGui::PushStyleColor(ImGuiCol_ChildBg,
                             selected ? ImVec4(0.10f, 0.28f, 0.10f, 1.0f)
                                      : ImVec4(0.14f, 0.14f, 0.14f, 1.0f));
-                        if (ImGui::BeginChild("##preset_card", ImVec2(cardW, 52), ImGuiChildFlags_Borders)) {
+                        if (ImGui::BeginChild("##preset_card", ImVec2(cardW, 52), ImGuiChildFlags_Borders, ImGuiWindowFlags_NoScrollbar)) {
                             ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 4);
                             ImGui::TextUnformatted(kPresets[i].name);
                             ImGui::TextDisabled("%s", kPresets[i].hexStr);
@@ -6257,7 +6260,7 @@ void MovesetEditorWindow::RenderCommandCreator()
                             ImGui::PushStyleColor(ImGuiCol_ChildBg,
                                 selected ? ImVec4(0.10f, 0.25f, 0.10f, 1.0f)
                                          : ImVec4(0.12f, 0.12f, 0.12f, 1.0f));
-                            if (ImGui::BeginChild("##seq_row", ImVec2(-1, 32), ImGuiChildFlags_Borders)) {
+                            if (ImGui::BeginChild("##seq_row", ImVec2(-1, 32), ImGuiChildFlags_Borders, ImGuiWindowFlags_NoScrollbar)) {
                                 ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 6);
                                 ImGui::TextColored(kGreen, "#%d", (int)i);
                                 ImGui::SameLine(48);

@@ -17,23 +17,23 @@ namespace FieldNames
     // -- customize_item_common_list.bin ----------------------------------------
     //    Entry type : CustomizeItemCommonEntry   (26 fields, id 0..25)
     constexpr const char* CommonItem[26] = {
-        "item_id",         // id:  0 | uint32
-        "item_no",         // id:  1 | uint32
-        "item_code",       // id:  2 | string
-        "hash_0",          // id:  3 | uint32
-        "hash_1",          // id:  4 | uint32
-        "text_key",        // id:  5 | string
-        "package_id",      // id:  6 | string
-        "package_sub_id",  // id:  7 | string
-        "unk_8",           // id:  8 | uint32  (unknown)
+        "Item ID",         // id:  0 | uint32
+        "Local Item ID",   // id:  1 | uint32
+        "AssetName",       // id:  2 | string
+        "Character ID",    // id:  3 | uint32  
+        "ItemPosition ID", // id:  4 | uint32
+        "Name Key",        // id:  5 | string
+        "Extra Text Key 1",// id:  6 | string
+        "Extra Text Key 2",// id:  7 | string
+        "isDefaultKey",    // id:  8 | uint32  (unknown)
         "shop_sort_id",    // id:  9 | uint32
-        "is_enabled",      // id: 10 | bool
-        "unk_11",          // id: 11 | uint32  (unknown)
-        "price",           // id: 12 | uint32
-        "unk_13",          // id: 13 | bool    (unknown)
+        "Visiblity",       // id: 10 | bool
+        "Rarity",          // id: 11 | uint32  (unknown)
+        "Price",           // id: 12 | uint32
+        "unk_13",           // id: 13 | bool    (unknown)
         "category_no",     // id: 14 | uint32
         "hash_2",          // id: 15 | uint32
-        "unk_16",          // id: 16 | bool    (unknown)
+        "isColorable",     // id: 16 | bool    (unknown)
         "unk_17",          // id: 17 | uint32  (unknown)
         "hash_3",          // id: 18 | uint32
         "unk_19",          // id: 19 | uint32  (unknown)
@@ -41,10 +41,38 @@ namespace FieldNames
         "unk_21",          // id: 21 | uint32  (unknown)
         "unk_22",          // id: 22 | uint32  (unknown)
         "hash_4",          // id: 23 | uint32
-        "unk_24",          // id: 24 | uint32
-        "sort_group",      // id: 25 | uint32
+        "unk_24",          // id: 24 | uint32  (unknown)
+        "Game Version",      // id: 25 | uint32
     };
     constexpr int CommonItemCount = 26;
+
+    // -- customize_item_unique_list.bin -- unique entry -------------------------
+    //    Entry type : CustomizeItemUniqueEntry   (22 fields, id 0..21)
+    constexpr const char* CustomizeItemUnique[22] = {
+        "Item ID",         // id:  0 | uint32
+        "AssetName",       // id:  1 | string
+        "Character ID",       // id:  2 | uint32  (character hash)
+        "ItemPosition ID",    // id:  3 | uint32
+        "Name Key",        // id:  4 | string
+        "Extra Text Key 1",// id:  5 | string
+        "Extra Text Key 2",// id:  6 | string
+        "IsDefault",       // id:  7 | uint32
+        "unk_8",           // id:  8 | uint32
+        "Visiblity",       // id:  9 | bool
+        "Rarity",          // id: 10 | uint32
+        "Price",           // id: 11 | uint32
+        "unk_12",          // id: 12 | uint32
+        "unk_13",          // id: 13 | uint32
+        "hash_2",          // id: 14 | uint32
+        "isColorable",     // id: 15 | bool
+        "unk_16",          // id: 16 | uint32
+        "hash_3",          // id: 17 | uint32
+        "unk_18",          // id: 18 | uint32
+        "unk_19",          // id: 19 | uint32
+        "unk_20",          // id: 20 | uint32
+        "Game Version",    // id: 21 | uint32
+    };
+    constexpr int CustomizeItemUniqueCount = 22;
 
     // -- character_list.bin ----------------------------------------------------
     //    Entry type : CharacterEntry   (15 fields, id 0..14)
@@ -331,34 +359,6 @@ namespace FieldNames
         "cyl2_unk_hash",   // id: 18 | uint32
     };
     constexpr int BodyCylinderDataEntryCount = 19;
-
-    // -- customize_item_unique_list.bin -- unique entry -------------------------
-    //    Entry type : CustomizeItemUniqueEntry   (22 fields, id 0..21)
-    constexpr const char* CustomizeItemUnique[22] = {
-        "char_item_id",    // id:  0 | uint32
-        "asset_name",      // id:  1 | string
-        "character_hash",  // id:  2 | uint32
-        "hash_1",          // id:  3 | uint32
-        "text_key",        // id:  4 | string
-        "extra_text_key_1",// id:  5 | string
-        "extra_text_key_2",// id:  6 | string
-        "flag_7",          // id:  7 | bool
-        "unk_8",           // id:  8 | uint32
-        "flag_9",          // id:  9 | bool
-        "unk_10",          // id: 10 | uint32
-        "price",           // id: 11 | uint32
-        "unk_12",          // id: 12 | uint32
-        "unk_13",          // id: 13 | uint32
-        "hash_2",          // id: 14 | uint32
-        "flag_15",         // id: 15 | bool
-        "unk_16",          // id: 16 | uint32
-        "hash_3",          // id: 17 | uint32
-        "unk_18",          // id: 18 | uint32
-        "unk_19",          // id: 19 | uint32
-        "unk_20",          // id: 20 | uint32
-        "unk_21",          // id: 21 | uint32
-    };
-    constexpr int CustomizeItemUniqueCount = 22;
 
     // -- customize_item_unique_list.bin -- body entry ---------------------------
     //    Entry type : CustomizeItemUniqueBodyEntry   (2 fields, id 0..1)
@@ -714,4 +714,21 @@ namespace FieldNames
         "value_58",        // id: 58 | int32
     };
     constexpr int AssistInputEntryCount = 59;
+
+    // -- customize_panel_list.bin ---------------------------------------------
+    //    Entry type : CustomizePanelEntry   (11 fields, id 0..10)
+    constexpr const char* CustomizePanelEntry[11] = {
+        "panel_hash",  // id:  0 | uint32
+        "panel_id",    // id:  1 | uint32
+        "price",       // id:  2 | uint32
+        "category",    // id:  3 | uint32
+        "sort_id",     // id:  4 | uint32
+        "text_key",    // id:  5 | string
+        "texture_1",   // id:  6 | string
+        "texture_2",   // id:  7 | string
+        "texture_3",   // id:  8 | string
+        "flag_9",      // id:  9 | bool
+        "hash_10",     // id: 10 | uint32
+    };
+    constexpr int CustomizePanelEntryCount = 11;
 }

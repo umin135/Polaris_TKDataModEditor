@@ -5,6 +5,7 @@
 #include "devmode/FbsDevView.h"
 #include "devmode/FbsBinaryIO.h"
 #include "fbsdata/data/FieldNames.h"
+#include "fbsdata/data/DefaultValues.h"
 #include "imgui/imgui.h"
 #include <cstring>
 #include <string>
@@ -199,7 +200,7 @@ void FbsDevView::RenderCustomizeItemCommonEditor(ContentsBinData& bin)
     const float addBtnW = 100.0f;
     ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
     if (ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
-        bin.commonEntries.push_back(CustomizeItemCommonEntry{});
+        bin.commonEntries.push_back(DefaultValues::CommonEntry());
 
     ImGui::Separator();
 

@@ -12,6 +12,7 @@
 #include <vector>
 #include <cstdint>
 #include <unordered_set>
+#include <algorithm>
 
 #pragma comment(lib, "comdlg32.lib")
 
@@ -265,13 +266,144 @@ static std::string BuildCustomizeItemCommonJson(const ContentsBinData& bin)
     return j;
 }
 
-static std::string BuildModInfoJson()
+static std::string EscapeJsonStr(const char* s)
 {
-    return "{\n"
-           "  \"Author\": \"\",\n"
-           "  \"Description\": \"\",\n"
-           "  \"Version\": \"1.0.0\"\n"
-           "}\n";
+    std::string r;
+    for (const char* p = s; *p; ++p)
+    {
+        if      (*p == '"')  r += "\\\"";
+        else if (*p == '\\') r += "\\\\";
+        else if (*p == '\n') r += "\\n";
+        else if (*p == '\r') r += "\\r";
+        else                 r += *p;
+    }
+    return r;
+}
+
+static std::string BuildModInfoJson(const ModInfo& info)
+{
+    std::string j = "{\n";
+    j += "  \"Author\": \""      + EscapeJsonStr(info.author)      + "\",\n";
+    j += "  \"Description\": \"" + EscapeJsonStr(info.description) + "\",\n";
+    j += "  \"Version\": \""     + EscapeJsonStr(info.version)     + "\"\n";
+    j += "}\n";
+    return j;
+}
+
+static bool IsGtbNameChar(char c)
+{
+    return (c >= 'A' && c <= 'Z')
+        || (c >= 'a' && c <= 'z')
+        || (c >= '0' && c <= '9')
+        || c == '_';
+}
+
+static std::string TrimString(const std::string& s)
+{
+    size_t a = 0;
+    while (a < s.size() && (s[a] == ' ' || s[a] == '\t' || s[a] == '\n' || s[a] == '\r')) ++a;
+    size_t b = s.size();
+    while (b > a && (s[b - 1] == ' ' || s[b - 1] == '\t' || s[b - 1] == '\n' || s[b - 1] == '\r')) --b;
+    return s.substr(a, b - a);
+}
+
+static std::string NormalizeGtbName(std::string name)
+{
+    name = TrimString(name);
+    std::replace(name.begin(), name.end(), '\\', '/');
+    size_t slash = name.find_last_of('/');
+    if (slash != std::string::npos)
+        name = name.substr(slash + 1);
+    size_t dot = name.find('.');
+    if (dot != std::string::npos)
+        name = name.substr(0, dot);
+    return name;
+}
+
+static bool IsValidGtbName(const std::string& name)
+{
+    if (name.size() <= 4) return false;
+    if (name.rfind("GTB_", 0) != 0) return false;
+    for (char c : name)
+        if (!IsGtbNameChar(c))
+            return false;
+    return true;
+}
+
+static std::vector<std::string> NormalizeGtbNames(const std::vector<std::string>& names)
+{
+    std::vector<std::string> out;
+    std::unordered_set<std::string> seen;
+    for (const auto& raw : names)
+    {
+        std::string name = NormalizeGtbName(raw);
+        if (!IsValidGtbName(name)) continue;
+        if (seen.insert(name).second)
+            out.push_back(name);
+    }
+    return out;
+}
+
+static std::string BuildGtbManifestJson(const std::vector<std::string>& names)
+{
+    std::string j = "{\n  \"names\": [\n";
+    for (size_t i = 0; i < names.size(); ++i)
+    {
+        if (i > 0) j += ",\n";
+        j += "    \"" + JsonEsc(names[i].c_str()) + "\"";
+    }
+    j += "\n  ]\n}\n";
+    return j;
+}
+
+static void CollectGtbNamesFromJson(const std::string& json, std::vector<std::string>& out)
+{
+    std::unordered_set<std::string> seen(out.begin(), out.end());
+    const char* p = json.c_str();
+    const char* end = p + json.size();
+    while (p < end)
+    {
+        const char* hit = strstr(p, "GTB_");
+        if (!hit) break;
+        const char* q = hit;
+        while (q < end && IsGtbNameChar(*q)) ++q;
+        std::string name(hit, q);
+        name = NormalizeGtbName(name);
+        if (IsValidGtbName(name) && seen.insert(name).second)
+            out.push_back(name);
+        p = q;
+    }
+}
+
+static void ParseModInfoJson(const char* buf, size_t sz, ModInfo& info)
+{
+    std::string s(buf, sz);
+    auto findStr = [&](const char* key, char* out, size_t outSz) {
+        std::string pat = std::string("\"") + key + "\"";
+        size_t p = s.find(pat);
+        if (p == std::string::npos) return;
+        size_t c = s.find(':', p + pat.size());
+        if (c == std::string::npos) return;
+        size_t q1 = s.find('"', c + 1);
+        if (q1 == std::string::npos) return;
+        std::string val;
+        size_t q = q1 + 1;
+        while (q < s.size() && s[q] != '"') {
+            if (s[q] == '\\' && q + 1 < s.size()) {
+                ++q;
+                if      (s[q] == 'n')  val += '\n';
+                else if (s[q] == 'r')  val += '\r';
+                else                   val += s[q];
+            } else {
+                val += s[q];
+            }
+            ++q;
+        }
+        strncpy_s(out, outSz, val.c_str(), _TRUNCATE);
+    };
+    findStr("Author",      info.author,      sizeof(info.author));
+    findStr("Description", info.description, sizeof(info.description));
+    findStr("Version",     info.version,     sizeof(info.version));
 }
 
 // ???????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????//  JSON parser helpers (minimal, for known structures)
@@ -1357,7 +1489,7 @@ static std::string BuildCustomizeItemUniqueListJson(const ContentsBinData& bin)
         j += "        \"id_4\": \"" + JsonEsc(e.text_key)             + "\",\n";
         j += "        \"id_5\": \"" + JsonEsc(e.extra_text_key_1)     + "\",\n";
         j += "        \"id_6\": \"" + JsonEsc(e.extra_text_key_2)     + "\",\n";
-        j += std::string("        \"id_7\": ")  + (e.flag_7  ? "true" : "false") + ",\n";
+        j += "        \"id_7\": "   + std::to_string(e.flag_7)         + ",\n";
         j += "        \"id_8\": "   + std::to_string(e.unk_8)         + ",\n";
         j += std::string("        \"id_9\": ")  + (e.flag_9  ? "true" : "false") + ",\n";
         j += "        \"id_10\": "  + std::to_string(e.unk_10)        + ",\n";
@@ -1401,7 +1533,7 @@ static bool ParseCustomizeItemUniqueListJson(const std::string& json, ContentsBi
             { auto* fp = FindField(s, e, "id_4");  ParseString(fp, e, entry.text_key, sizeof(entry.text_key)); }
             { auto* fp = FindField(s, e, "id_5");  ParseString(fp, e, entry.extra_text_key_1, sizeof(entry.extra_text_key_1)); }
             { auto* fp = FindField(s, e, "id_6");  ParseString(fp, e, entry.extra_text_key_2, sizeof(entry.extra_text_key_2)); }
-            { auto* fp = FindField(s, e, "id_7");  ParseBool(fp,   e, entry.flag_7); }
+            { auto* fp = FindField(s, e, "id_7");  ParseUInt32(fp, e, entry.flag_7); }
             { auto* fp = FindField(s, e, "id_8");  ParseUInt32(fp, e, entry.unk_8); }
             { auto* fp = FindField(s, e, "id_9");  ParseBool(fp,   e, entry.flag_9); }
             { auto* fp = FindField(s, e, "id_10"); ParseUInt32(fp, e, entry.unk_10); }
@@ -2290,6 +2422,68 @@ static bool ParseAssistInputListJson(const std::string& json, ContentsBinData& b
     return true;
 }
 
+// -----------------------------------------------------------------------------
+//  customize_panel_list JSON builder / parser
+// -----------------------------------------------------------------------------
+
+static std::string BuildCustomizePanelListJson(const ContentsBinData& bin)
+{
+    std::string j = "{\n  \"version\": 1,\n  \"data\": {\n    \"entries\": [\n";
+    for (size_t i = 0; i < bin.customizePanelEntries.size(); ++i)
+    {
+        if (i > 0) j += ",\n";
+        const auto& e = bin.customizePanelEntries[i];
+        j += "      {\n";
+        j += "        \"id_0\": "   + std::to_string(e.panel_hash) + ",\n";
+        j += "        \"id_1\": "   + std::to_string(e.panel_id)   + ",\n";
+        j += "        \"id_2\": "   + std::to_string(e.price)      + ",\n";
+        j += "        \"id_3\": "   + std::to_string(e.category)   + ",\n";
+        j += "        \"id_4\": "   + std::to_string(e.sort_id)    + ",\n";
+        j += "        \"id_5\": \""  + JsonEsc(e.text_key)          + "\",\n";
+        j += "        \"id_6\": \""  + JsonEsc(e.texture_1)         + "\",\n";
+        j += "        \"id_7\": \""  + JsonEsc(e.texture_2)         + "\",\n";
+        j += "        \"id_8\": \""  + JsonEsc(e.texture_3)         + "\",\n";
+        j += "        \"id_9\": "   + std::string(e.flag_9 ? "true" : "false") + ",\n";
+        j += "        \"id_10\": "  + std::to_string(e.hash_10)    + "\n";
+        j += "      }";
+    }
+    j += "\n    ]\n  }\n}\n";
+    return j;
+}
+
+static bool ParseCustomizePanelListJson(const std::string& json, ContentsBinData& bin)
+{
+    const char* p = json.c_str();
+    const char* ef = strstr(p, "\"entries\""); if (!ef) return false;
+    const char* arr = strchr(ef, '['); if (!arr) return false;
+    ++arr;
+    while (true)
+    {
+        arr = SkipWS(arr);
+        if (*arr == ']' || *arr == '\0') break;
+        if (*arr == '{')
+        {
+            const char* objEnd = SkipObject(arr); if (!objEnd) break;
+            CustomizePanelEntry e{};
+            { auto* fp = FindField(arr, objEnd, "id_0");  ParseUInt32(fp, objEnd, e.panel_hash); }
+            { auto* fp = FindField(arr, objEnd, "id_1");  ParseUInt32(fp, objEnd, e.panel_id);   }
+            { auto* fp = FindField(arr, objEnd, "id_2");  ParseUInt32(fp, objEnd, e.price);      }
+            { auto* fp = FindField(arr, objEnd, "id_3");  ParseUInt32(fp, objEnd, e.category);   }
+            { auto* fp = FindField(arr, objEnd, "id_4");  ParseUInt32(fp, objEnd, e.sort_id);    }
+            { auto* fp = FindField(arr, objEnd, "id_5");  ParseString(fp, objEnd, e.text_key,  sizeof(e.text_key));  }
+            { auto* fp = FindField(arr, objEnd, "id_6");  ParseString(fp, objEnd, e.texture_1, sizeof(e.texture_1)); }
+            { auto* fp = FindField(arr, objEnd, "id_7");  ParseString(fp, objEnd, e.texture_2, sizeof(e.texture_2)); }
+            { auto* fp = FindField(arr, objEnd, "id_8");  ParseString(fp, objEnd, e.texture_3, sizeof(e.texture_3)); }
+            { auto* fp = FindField(arr, objEnd, "id_9");  ParseBool(fp, objEnd, e.flag_9);       }
+            { auto* fp = FindField(arr, objEnd, "id_10"); ParseUInt32(fp, objEnd, e.hash_10);    }
+            bin.customizePanelEntries.push_back(e);
+            arr = objEnd;
+        }
+        while (*arr == ',' || *arr == ' ' || *arr == '\n' || *arr == '\r' || *arr == '\t') ++arr;
+    }
+    return true;
+}
+
 // ???????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????//  Win32 file dialogs + wide/narrow conversion
 // ???????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
 static std::string WideToUtf8(const wchar_t* w)
@@ -2352,6 +2546,13 @@ namespace TkmodIO
     std::vector<std::string> Validate(const ModData& data)
     {
         std::vector<std::string> errors;
+
+        for (size_t i = 0; i < data.customGtbNames.size(); ++i)
+        {
+            const std::string name = TrimString(data.customGtbNames[i]);
+            if (!IsValidGtbName(name))
+                errors.push_back("custom GTB name[" + std::to_string(i) + "] must match GTB_[A-Za-z0-9_]+");
+        }
 
         for (size_t bi = 0; bi < data.contents.size(); ++bi)
         {
@@ -2451,7 +2652,7 @@ namespace TkmodIO
         {
             ZipEntry e;
             e.name = "mod_info.json";
-            const std::string json = BuildModInfoJson();
+            const std::string json = BuildModInfoJson(data.info);
             e.data.assign(json.begin(), json.end());
             entries.push_back(std::move(e));
         }
@@ -2508,11 +2709,23 @@ namespace TkmodIO
                 json = BuildRankListJson(bin);
             else if (bin.type == BinType::AssistInputList)
                 json = BuildAssistInputListJson(bin);
+            else if (bin.type == BinType::CustomizePanelList)
+                json = BuildCustomizePanelListJson(bin);
             else
                 continue;
 
             ZipEntry e;
             e.name = "fbsdata_mod/" + bin.name + ".json";
+            e.data.assign(json.begin(), json.end());
+            entries.push_back(std::move(e));
+        }
+
+        const std::vector<std::string> gtbNames = NormalizeGtbNames(data.customGtbNames);
+        if (!gtbNames.empty())
+        {
+            ZipEntry e;
+            e.name = "gtb_mod/gtb_mod.json";
+            const std::string json = BuildGtbManifestJson(gtbNames);
             e.data.assign(json.begin(), json.end());
             entries.push_back(std::move(e));
         }
@@ -2529,7 +2742,19 @@ namespace TkmodIO
 
         for (const auto& zf : zipFiles)
         {
-            if (zf.name == "mod_info.json") continue;  // future: parse author/desc/ver
+            if (zf.name == "mod_info.json") {
+                ParseModInfoJson(reinterpret_cast<const char*>(zf.data.data()),
+                                 zf.data.size(), loaded.info);
+                continue;
+            }
+
+            if (zf.name.rfind("gtb_mod/", 0) == 0 && zf.name.size() >= 6 &&
+                _stricmp(zf.name.c_str() + zf.name.size() - 5, ".json") == 0)
+            {
+                const std::string jsonStr(zf.data.begin(), zf.data.end());
+                CollectGtbNamesFromJson(jsonStr, loaded.customGtbNames);
+                continue;
+            }
 
             // Expect "fbsdata_mod/<binname>.json"
             const std::string prefix = "fbsdata_mod/";
@@ -2764,11 +2989,21 @@ namespace TkmodIO
                 loaded.selectedIndex = static_cast<int>(loaded.contents.size());
                 loaded.contents.push_back(std::move(bin));
             }
+            else if (binName == "customize_panel_list.bin")
+            {
+                ContentsBinData bin;
+                bin.type = BinType::CustomizePanelList;
+                bin.name = binName;
+                ParseCustomizePanelListJson(jsonStr, bin);
+                loaded.selectedIndex = static_cast<int>(loaded.contents.size());
+                loaded.contents.push_back(std::move(bin));
+            }
             // Additional bin types will be handled here as they are implemented
         }
 
-        if (loaded.contents.empty()) return false;
+        if (loaded.contents.empty() && loaded.customGtbNames.empty()) return false;
 
+        loaded.isNew = false;
         data = std::move(loaded);
         return true;
     }

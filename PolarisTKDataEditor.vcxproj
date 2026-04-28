@@ -160,7 +160,10 @@ xcopy /Y /Q "$(ProjectDir)data\kamui-hashes\version.json" "$(OutDir)res\kamui-ha
 xcopy /Y /Q "$(ProjectDir)data\kamui-hashes\data.json"    "$(OutDir)res\kamui-hashes\"
 if not exist "$(OutDir)res\MovesetDatas\" mkdir "$(OutDir)res\MovesetDatas\"
 xcopy /Y /Q "$(ProjectDir)data\MovesetDatas\version.json" "$(OutDir)res\MovesetDatas\"
-xcopy /Y /Q "$(ProjectDir)data\MovesetDatas\data.json"    "$(OutDir)res\MovesetDatas\"</Command>
+xcopy /Y /Q "$(ProjectDir)data\MovesetDatas\data.json"    "$(OutDir)res\MovesetDatas\"
+if not exist "$(OutDir)res\fbsdatas\" mkdir "$(OutDir)res\fbsdatas\"
+xcopy /Y /Q "$(ProjectDir)data\fbsdatas\version.json"     "$(OutDir)res\fbsdatas\"
+xcopy /Y /Q "$(ProjectDir)data\fbsdatas\data.json"        "$(OutDir)res\fbsdatas\"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <!-- ════════════════════════════════════════════════════════ -->
@@ -168,6 +171,8 @@ xcopy /Y /Q "$(ProjectDir)data\MovesetDatas\data.json"    "$(OutDir)res\MovesetD
   <!-- ════════════════════════════════════════════════════════ -->
   <ItemGroup>
     <ClCompile Include="src\GameStatic.cpp" />
+    <ClCompile Include="src\FbsDataDict.cpp" />
+    <ClCompile Include="src\FbsDataDictUpdater.cpp" />
     <ClCompile Include="src\KamuiDictUpdater.cpp" />
     <ClCompile Include="src\MovesetDataDictUpdater.cpp" />
     <ClCompile Include="src\main.cpp" />

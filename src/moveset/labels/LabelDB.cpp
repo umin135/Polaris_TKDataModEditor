@@ -82,50 +82,6 @@ void LabelDB::Load(const std::string& dir)
     ParseFile(base + "editorProperties.txt",   m_prop);
     ParseFile(base + "editorCommands.txt",     m_cmd);
 
-    // characterList.txt: id,name,code  (code column is optional for back-compat)
-    {
-        m_charas.clear();
-        m_charasCodes.clear();
-        std::ifstream cf(base + "characterList.txt");
-        std::string line;
-        while (std::getline(cf, line))
-        {
-            if (line.empty() || line[0] == '#') continue;
-
-            // col0 = id, col1 = name, col2 = code (optional)
-            size_t c1 = line.find(',');
-            if (c1 == std::string::npos) continue;
-            size_t c2 = line.find(',', c1 + 1);
-
-            std::string idStr  = line.substr(0, c1);
-            std::string name   = (c2 != std::string::npos)
-                                 ? line.substr(c1 + 1, c2 - c1 - 1)
-                                 : line.substr(c1 + 1);
-            std::string code   = (c2 != std::string::npos)
-                                 ? line.substr(c2 + 1)
-                                 : std::string{};
-
-            // Trim trailing whitespace / CR
-            auto trim = [](std::string& s) {
-                while (!s.empty() && (s.back() == '\r' || s.back() == '\n' || s.back() == ' '))
-                    s.pop_back();
-            };
-            trim(idStr); trim(name); trim(code);
-            if (idStr.empty()) continue;
-
-            uint32_t id = 0;
-            try {
-                if (idStr.size() > 2 && idStr[0] == '0' && (idStr[1] == 'x' || idStr[1] == 'X'))
-                    id = static_cast<uint32_t>(std::stoull(idStr, nullptr, 16));
-                else
-                    id = static_cast<uint32_t>(std::stoull(idStr, nullptr, 10));
-            } catch (...) { continue; }
-
-            if (!name.empty()) m_charas[id]      = std::move(name);
-            if (!code.empty()) m_charasCodes[id] = std::move(code);
-        }
-    }
-
     m_loaded = (!m_req.empty() || !m_prop.empty() || !m_cmd.empty());
 }
 
@@ -233,18 +189,6 @@ const char* LabelDB::GetAnimName(uint32_t key) const
 {
     auto it = m_animNames.find(key);
     return it != m_animNames.end() ? it->second.c_str() : nullptr;
-}
-
-const char* LabelDB::CharaName(uint32_t id) const
-{
-    auto it = m_charas.find(id);
-    return it != m_charas.end() ? it->second.c_str() : nullptr;
-}
-
-const char* LabelDB::CharaCode(uint32_t id) const
-{
-    auto it = m_charasCodes.find(id);
-    return it != m_charasCodes.end() ? it->second.c_str() : nullptr;
 }
 
 // -------------------------------------------------------------
@@ -360,53 +304,6 @@ static std::pair<const char*, size_t> GetResourceData(int id)
 }
 
 // -------------------------------------------------------------
-//  ParseCharaListBuffer  (memory-based counterpart to characterList.txt loading in Load())
-// -------------------------------------------------------------
-
-static void ParseCharaListBuffer(const char* buf, size_t sz,
-                                 std::unordered_map<uint32_t, std::string>& names,
-                                 std::unordered_map<uint32_t, std::string>& codes)
-{
-    const char* end = buf + sz;
-    while (buf < end)
-    {
-        const char* lineEnd = buf;
-        while (lineEnd < end && *lineEnd != '\n') ++lineEnd;
-
-        std::string line(buf, lineEnd);
-        buf = (lineEnd < end) ? lineEnd + 1 : end;
-
-        if (line.empty() || line[0] == '#') continue;
-
-        size_t c1 = line.find(',');
-        if (c1 == std::string::npos) continue;
-        size_t c2 = line.find(',', c1 + 1);
-
-        std::string idStr = line.substr(0, c1);
-        std::string name  = (c2 != std::string::npos) ? line.substr(c1 + 1, c2 - c1 - 1) : line.substr(c1 + 1);
-        std::string code  = (c2 != std::string::npos) ? line.substr(c2 + 1) : std::string{};
-
-        auto trim = [](std::string& s) {
-            while (!s.empty() && (s.back() == '\r' || s.back() == '\n' || s.back() == ' '))
-                s.pop_back();
-        };
-        trim(idStr); trim(name); trim(code);
-        if (idStr.empty()) continue;
-
-        uint32_t id = 0;
-        try {
-            if (idStr.size() > 2 && idStr[0] == '0' && (idStr[1] == 'x' || idStr[1] == 'X'))
-                id = static_cast<uint32_t>(std::stoull(idStr, nullptr, 16));
-            else
-                id = static_cast<uint32_t>(std::stoull(idStr, nullptr, 10));
-        } catch (...) { continue; }
-
-        if (!name.empty()) names[id] = std::move(name);
-        if (!code.empty()) codes[id] = std::move(code);
-    }
-}
-
-// -------------------------------------------------------------
 //  LoadFromResources
 //  Loads all interface-data files from embedded RCDATA resources.
 //  Used as fallback when disk files are not present.
@@ -423,11 +320,6 @@ void LabelDB::LoadFromResources()
     if (req.first  && req.second)  ParseBuffer(req.first,  req.second,  m_req);
     if (prop.first && prop.second) ParseBuffer(prop.first, prop.second, m_prop);
     if (cmd.first  && cmd.second)  ParseBuffer(cmd.first,  cmd.second,  m_cmd);
-
-    m_charas.clear(); m_charasCodes.clear();
-    std::pair<const char*, size_t> chara = GetResourceData(IDR_DATA_CHARLIST);
-    if (chara.first && chara.second)
-        ParseCharaListBuffer(chara.first, chara.second, m_charas, m_charasCodes);
 
     m_loaded = (!m_req.empty() || !m_prop.empty() || !m_cmd.empty());
 
