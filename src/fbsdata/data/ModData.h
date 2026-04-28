@@ -728,6 +728,7 @@ struct ModInfo
 struct ModData
 {
     std::vector<ContentsBinData> contents;
+    std::vector<std::string> customGtbNames;
     int     selectedIndex = -1;
     ModInfo info;
     bool    isNew = true;  // true = created via New, false = loaded from .tkmod

@@ -12,6 +12,7 @@
 #include <vector>
 #include <cstdint>
 #include <unordered_set>
+#include <algorithm>
 
 #pragma comment(lib, "comdlg32.lib")
 
@@ -287,6 +288,91 @@ static std::string BuildModInfoJson(const ModInfo& info)
     j += "  \"Version\": \""     + EscapeJsonStr(info.version)     + "\"\n";
     j += "}\n";
     return j;
+}
+
+static bool IsGtbNameChar(char c)
+{
+    return (c >= 'A' && c <= 'Z')
+        || (c >= 'a' && c <= 'z')
+        || (c >= '0' && c <= '9')
+        || c == '_';
+}
+
+static std::string TrimString(const std::string& s)
+{
+    size_t a = 0;
+    while (a < s.size() && (s[a] == ' ' || s[a] == '\t' || s[a] == '\n' || s[a] == '\r')) ++a;
+    size_t b = s.size();
+    while (b > a && (s[b - 1] == ' ' || s[b - 1] == '\t' || s[b - 1] == '\n' || s[b - 1] == '\r')) --b;
+    return s.substr(a, b - a);
+}
+
+static std::string NormalizeGtbName(std::string name)
+{
+    name = TrimString(name);
+    std::replace(name.begin(), name.end(), '\\', '/');
+    size_t slash = name.find_last_of('/');
+    if (slash != std::string::npos)
+        name = name.substr(slash + 1);
+    size_t dot = name.find('.');
+    if (dot != std::string::npos)
+        name = name.substr(0, dot);
+    return name;
+}
+
+static bool IsValidGtbName(const std::string& name)
+{
+    if (name.size() <= 4) return false;
+    if (name.rfind("GTB_", 0) != 0) return false;
+    for (char c : name)
+        if (!IsGtbNameChar(c))
+            return false;
+    return true;
+}
+
+static std::vector<std::string> NormalizeGtbNames(const std::vector<std::string>& names)
+{
+    std::vector<std::string> out;
+    std::unordered_set<std::string> seen;
+    for (const auto& raw : names)
+    {
+        std::string name = NormalizeGtbName(raw);
+        if (!IsValidGtbName(name)) continue;
+        if (seen.insert(name).second)
+            out.push_back(name);
+    }
+    return out;
+}
+
+static std::string BuildGtbManifestJson(const std::vector<std::string>& names)
+{
+    std::string j = "{\n  \"names\": [\n";
+    for (size_t i = 0; i < names.size(); ++i)
+    {
+        if (i > 0) j += ",\n";
+        j += "    \"" + JsonEsc(names[i].c_str()) + "\"";
+    }
+    j += "\n  ]\n}\n";
+    return j;
+}
+
+static void CollectGtbNamesFromJson(const std::string& json, std::vector<std::string>& out)
+{
+    std::unordered_set<std::string> seen(out.begin(), out.end());
+    const char* p = json.c_str();
+    const char* end = p + json.size();
+    while (p < end)
+    {
+        const char* hit = strstr(p, "GTB_");
+        if (!hit) break;
+        const char* q = hit;
+        while (q < end && IsGtbNameChar(*q)) ++q;
+        std::string name(hit, q);
+        name = NormalizeGtbName(name);
+        if (IsValidGtbName(name) && seen.insert(name).second)
+            out.push_back(name);
+        p = q;
+    }
 }
 
 static void ParseModInfoJson(const char* buf, size_t sz, ModInfo& info)
@@ -2461,6 +2547,13 @@ namespace TkmodIO
     {
         std::vector<std::string> errors;
 
+        for (size_t i = 0; i < data.customGtbNames.size(); ++i)
+        {
+            const std::string name = TrimString(data.customGtbNames[i]);
+            if (!IsValidGtbName(name))
+                errors.push_back("custom GTB name[" + std::to_string(i) + "] must match GTB_[A-Za-z0-9_]+");
+        }
+
         for (size_t bi = 0; bi < data.contents.size(); ++bi)
         {
             const auto& bin = data.contents[bi];
@@ -2627,6 +2720,16 @@ namespace TkmodIO
             entries.push_back(std::move(e));
         }
 
+        const std::vector<std::string> gtbNames = NormalizeGtbNames(data.customGtbNames);
+        if (!gtbNames.empty())
+        {
+            ZipEntry e;
+            e.name = "gtb_mod/gtb_mod.json";
+            const std::string json = BuildGtbManifestJson(gtbNames);
+            e.data.assign(json.begin(), json.end());
+            entries.push_back(std::move(e));
+        }
+
         return WriteZip(path, entries);
     }
 
@@ -2642,6 +2745,14 @@ namespace TkmodIO
             if (zf.name == "mod_info.json") {
                 ParseModInfoJson(reinterpret_cast<const char*>(zf.data.data()),
                                  zf.data.size(), loaded.info);
+                continue;
+            }
+
+            if (zf.name.rfind("gtb_mod/", 0) == 0 && zf.name.size() >= 6 &&
+                _stricmp(zf.name.c_str() + zf.name.size() - 5, ".json") == 0)
+            {
+                const std::string jsonStr(zf.data.begin(), zf.data.end());
+                CollectGtbNamesFromJson(jsonStr, loaded.customGtbNames);
                 continue;
             }
 
@@ -2890,7 +3001,7 @@ namespace TkmodIO
             // Additional bin types will be handled here as they are implemented
         }
 
-        if (loaded.contents.empty()) return false;
+        if (loaded.contents.empty() && loaded.customGtbNames.empty()) return false;
 
         loaded.isNew = false;
         data = std::move(loaded);

@@ -139,6 +139,21 @@ static const float LIST_WIDTH = 290.0f;  // Contents List panel width
 static void FixCommonItemIds(std::vector<CustomizeItemCommonEntry>& entries);
 static void FixUniqueItemIds(std::vector<CustomizeItemUniqueEntry>& entries);
 
+static bool IsValidGtbManifestName(const std::string& name)
+{
+    if (name.size() <= 4) return false;
+    if (name.rfind("GTB_", 0) != 0) return false;
+    for (char c : name)
+    {
+        const bool ok = (c >= 'A' && c <= 'Z')
+                     || (c >= 'a' && c <= 'z')
+                     || (c >= '0' && c <= '9')
+                     || c == '_';
+        if (!ok) return false;
+    }
+    return true;
+}
+
 void FbsDataView::DoSave()
 {
     for (auto& bin : m_data.contents)
@@ -3984,6 +3999,41 @@ void FbsDataView::RenderInfoEditPopup()
     ImGui::SameLine(100.0f);
     ImGui::SetNextItemWidth(260.0f);
     ImGui::InputText("##info_ver", info.version, sizeof(info.version));
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Text("Custom GTB Tables");
+
+    int removeGtb = -1;
+    for (int i = 0; i < (int)m_data.customGtbNames.size(); ++i)
+    {
+        ImGui::PushID(i);
+        char buf[256] = {};
+        strncpy_s(buf, m_data.customGtbNames[i].c_str(), _TRUNCATE);
+
+        const bool valid = IsValidGtbManifestName(m_data.customGtbNames[i]);
+        if (!valid)
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.90f, 0.35f, 0.35f, 1.00f));
+
+        ImGui::SetNextItemWidth(260.0f);
+        if (ImGui::InputText("##gtb_name", buf, sizeof(buf)))
+            m_data.customGtbNames[i] = buf;
+
+        if (!valid)
+            ImGui::PopStyleColor();
+
+        ImGui::SameLine(0, 6.0f);
+        if (ImGui::SmallButton("X"))
+            removeGtb = i;
+
+        ImGui::PopID();
+    }
+
+    if (removeGtb >= 0)
+        m_data.customGtbNames.erase(m_data.customGtbNames.begin() + removeGtb);
+
+    if (ImGui::Button("+ Add GTB Table"))
+        m_data.customGtbNames.push_back("GTB_");
 
     ImGui::Spacing();
     if (ImGui::Button("Close"))
