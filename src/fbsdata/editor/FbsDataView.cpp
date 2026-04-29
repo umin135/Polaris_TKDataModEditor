@@ -2003,6 +2003,73 @@ void FbsDataView::RenderDramaPlayerStartListEditor(ContentsBinData& bin)
 //  stage_list editor
 // -----------------------------------------------------------------------------
 
+namespace stage_list_helpers {
+
+// Polaris loader assigns custom slots from this pool at runtime; mirror the
+// constants in PolarisTkdataModLoader/src/patchers/patcher_stage_newid.h.
+constexpr uint32_t kCustomSlotBase = 48;
+constexpr uint32_t kCustomSlotMax  = 104;
+constexpr size_t   kTableCap       = 64;
+
+// Vanilla stage_hash set (from docs/adding-custom-stage.md §7). Used to warn
+// authors when their picked hash collides with a baked switch arm -- collision
+// causes the parser to dispatch to the vanilla slot instead of the cave's
+// runtime-assigned slot, which usually isn't what the author wants.
+constexpr uint32_t kVanillaStageHashes[] = {
+    0x78CFEB4Du, 0xDE1FC218u, 0xFDD19224u, 0xA0E2698Cu, 0xB808ABDFu,
+    0xB49F515Au, 0xF2215EA2u, 0xD1DBD9A8u, 0x224C2FE4u, 0x78AF4AE6u,
+    0x64FD9798u, 0xE09217F5u, 0x583EA215u, 0x73D58236u, 0x100CB6F6u,
+    0xE924EC09u, 0xF2DB49F9u, 0x56CCF333u, 0xD0AAEDB0u, 0x4A12EE31u,
+    0x3A8582C9u, 0xFF34065Au, 0x5A071E31u, 0xA1E006A5u, 0xEE1507BFu,
+    0xA88884F5u, 0x9E981F8Cu, 0x06846A06u, 0xABD68CFFu, 0x647D12BDu,
+    0x20FD3C7Cu, 0xEF2B1D63u, 0xD7B648E3u, 0x4FFE2A89u, 0xF35952D4u,
+    0x01386500u, 0x7E4EDBF1u, 0x4D77B922u, 0x0407CD58u, 0x6D5FBB9Au,
+    0x551D7463u, 0x04FC39CCu, 0x532AB637u, 0x9933F988u, 0x961B9D87u,
+    0x5777900Du, 0x29DE2FCEu, 0xDFA5F8CDu,
+};
+
+static bool IsVanillaStageHash(uint32_t h)
+{
+    for (uint32_t v : kVanillaStageHashes) if (v == h) return true;
+    return false;
+}
+
+static uint32_t Crc32Bytes(const uint8_t* data, size_t len)
+{
+    static uint32_t s_table[256];
+    static bool     s_init = false;
+    if (!s_init)
+    {
+        for (uint32_t i = 0; i < 256; ++i)
+        {
+            uint32_t c = i;
+            for (int j = 0; j < 8; ++j)
+                c = (c & 1) ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
+            s_table[i] = c;
+        }
+        s_init = true;
+    }
+    uint32_t crc = 0xFFFFFFFFu;
+    for (size_t i = 0; i < len; ++i)
+        crc = s_table[(crc ^ data[i]) & 0xFF] ^ (crc >> 8);
+    return crc ^ 0xFFFFFFFFu;
+}
+
+// Stable hash from stage_code: CRC32 of the string. If the result lands on a
+// vanilla hash (vanishingly unlikely but possible), flip the top bit so the
+// loader's switch-default path catches it instead of a vanilla switch arm.
+static uint32_t AutoStageHash(const char* stageCode)
+{
+    if (!stageCode || !stageCode[0]) return 0;
+    uint32_t h = Crc32Bytes(reinterpret_cast<const uint8_t*>(stageCode),
+                            std::strlen(stageCode));
+    if (h == 0) h = 0xDEAD0001u;
+    if (IsVanillaStageHash(h)) h ^= 0x80000000u;
+    return h;
+}
+
+} // namespace stage_list_helpers
+
 void FbsDataView::RenderStageListEditor(ContentsBinData& bin)
 {
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.82f, 1.00f, 1.00f));
@@ -2017,6 +2084,19 @@ void FbsDataView::RenderStageListEditor(ContentsBinData& bin)
     ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
     if (ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
         bin.stageEntries.push_back(StageEntry{});
+
+    // Authoring note: the loader's stage-id cave is now table-driven. Authors
+    // pick any unique stage_hash and the loader maps it to a free slot in
+    // [48..104) at merge time. Up to 64 custom stages may coexist. Hashes that
+    // collide with a vanilla switch arm dispatch to the vanilla slot instead.
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.62f, 0.72f, 1.00f));
+    ImGui::TextWrapped(
+        "stage_hash: pick any unique 32-bit value. Loader auto-assigns slot at runtime "
+        "(pool %u..%u, cap %zu). Use the 'Auto' button to derive a stable hash from stage_code.",
+        stage_list_helpers::kCustomSlotBase,
+        stage_list_helpers::kCustomSlotMax - 1,
+        stage_list_helpers::kTableCap);
+    ImGui::PopStyleColor();
 
     ImGui::Separator();
 
@@ -2039,6 +2119,11 @@ void FbsDataView::RenderStageListEditor(ContentsBinData& bin)
     ImGui::TableHeadersRow();
 
     int deleteIdx = -1;
+    int duplicateIdx = -1;
+    int pasteIdx = -1;
+    static StageEntry s_clipboard;
+    static bool       s_clipboardValid = false;
+
     ImGuiListClipper clipper;
     clipper.Begin((int)bin.stageEntries.size());
     while (clipper.Step())
@@ -2053,6 +2138,25 @@ void FbsDataView::RenderStageListEditor(ContentsBinData& bin)
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.50f, 0.50f, 0.60f, 1.00f));
             ImGui::Text("%d", i + 1);
             ImGui::PopStyleColor();
+            // Right-click on the row index opens a context menu (copy / paste /
+            // duplicate / delete). Anchored to the # cell so right-clicking inside
+            // an input field still goes to the input, not this menu.
+            if (ImGui::BeginPopupContextItem("##stageRowCtx"))
+            {
+                if (ImGui::MenuItem("Copy"))
+                {
+                    s_clipboard = e;
+                    s_clipboardValid = true;
+                }
+                if (ImGui::MenuItem("Paste", nullptr, false, s_clipboardValid))
+                    pasteIdx = i;
+                if (ImGui::MenuItem("Duplicate (insert below)"))
+                    duplicateIdx = i;
+                ImGui::Separator();
+                if (ImGui::MenuItem("Delete"))
+                    deleteIdx = i;
+                ImGui::EndPopup();
+            }
             ImGui::SameLine(0, 4.0f);
             ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
@@ -2084,7 +2188,41 @@ void FbsDataView::RenderStageListEditor(ContentsBinData& bin)
                 switch (fid)
                 {
                 case 0: StrCell(lbl, e.stage_code, sizeof(e.stage_code)); break;
-                case 1: U32Cell(lbl, e.stage_hash); break;
+                case 1: {
+                    // Input + small "Auto" button on the same row. Tooltip shows
+                    // assigned-slot context and warns on vanilla collision.
+                    const float btnW = 38.0f;
+                    const float spacing = ImGui::GetStyle().ItemInnerSpacing.x;
+                    float availW = ImGui::GetContentRegionAvail().x;
+                    ImGui::SetNextItemWidth(availW - btnW - spacing);
+                    ImGui::InputScalar(lbl, ImGuiDataType_U32, &e.stage_hash);
+                    if (ImGui::IsItemHovered())
+                    {
+                        ImGui::BeginTooltip();
+                        if (e.stage_hash == 0)
+                            ImGui::TextUnformatted("0 = parser drops this entry. Set a non-zero value.");
+                        else if (stage_list_helpers::IsVanillaStageHash(e.stage_hash))
+                            ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.45f, 1.0f),
+                                "Collides with a vanilla stage hash -- parser will dispatch\n"
+                                "to the baked slot, ignoring the loader's runtime table.\n"
+                                "Use 'Auto' or pick a different value to route via the cave.");
+                        else
+                            ImGui::TextUnformatted(
+                                "Loader assigns a slot from pool [48..104) at merge time.\n"
+                                "Hash must be unique across all installed .tkmods.");
+                        ImGui::EndTooltip();
+                    }
+                    ImGui::SameLine(0, spacing);
+                    char btnId[24];
+                    snprintf(btnId, sizeof(btnId), "Auto##h%d", i);
+                    if (ImGui::Button(btnId, ImVec2(btnW, 0)))
+                        e.stage_hash = stage_list_helpers::AutoStageHash(e.stage_code);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Generate stage_hash = CRC32(stage_code).\n"
+                                          "Stable across rebuilds; collisions across mods are\n"
+                                          "the author's responsibility.");
+                    break;
+                }
                 case 2: BoolCell(lbl, e.is_selectable); break;
                 case 3: F32Cell(lbl, e.camera_offset); break;
                 case 4: U32Cell(lbl, e.parent_stage_index); break;
@@ -2126,6 +2264,18 @@ void FbsDataView::RenderStageListEditor(ContentsBinData& bin)
 
             ImGui::PopID();
         }
+    }
+    // Apply mutations after the render pass to keep iterator/index validity.
+    // Order: paste (in place) -> duplicate (insert) -> delete.
+    if (pasteIdx >= 0 && s_clipboardValid &&
+        pasteIdx < (int)bin.stageEntries.size())
+    {
+        bin.stageEntries[pasteIdx] = s_clipboard;
+    }
+    if (duplicateIdx >= 0 && duplicateIdx < (int)bin.stageEntries.size())
+    {
+        StageEntry copy = bin.stageEntries[duplicateIdx];
+        bin.stageEntries.insert(bin.stageEntries.begin() + duplicateIdx + 1, copy);
     }
     if (deleteIdx >= 0)
         bin.stageEntries.erase(bin.stageEntries.begin() + deleteIdx);

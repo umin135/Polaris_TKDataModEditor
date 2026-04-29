@@ -119,7 +119,7 @@ namespace ColumnWidths
     constexpr float kDramaPlayerStart[9] = { 95.0f, 80.0f, 95.0f, 95.0f, 80.0f, 80.0f, 95.0f, 80.0f };
 
     constexpr float kStage[37] = {
-        140.0f, 95.0f, 74.0f, 88.0f, 86.0f, 95.0f,
+        140.0f, 150.0f, 74.0f, 88.0f, 86.0f, 95.0f,
         64.0f, 64.0f, 64.0f, 64.0f, 64.0f, 64.0f, 64.0f, 64.0f, 64.0f, 64.0f, 64.0f,
         78.0f, 78.0f, 64.0f, 64.0f, 88.0f, 88.0f, 74.0f, 82.0f, 74.0f, 170.0f, 74.0f,
         124.0f, 200.0f, 200.0f, 160.0f,
