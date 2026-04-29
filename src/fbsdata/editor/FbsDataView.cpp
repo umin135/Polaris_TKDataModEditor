@@ -2026,17 +2026,16 @@ void FbsDataView::RenderStageListEditor(ContentsBinData& bin)
         ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable |
         ImGuiTableFlags_Hideable | ImGuiTableFlags_SizingFixedFit;
 
-    // cols: #, stage_code, stage_hash, is_selectable, camera_offset, parent_stage_index,
-    //       is_online_enabled, is_ranked_enabled, arena_width, arena_depth,
-    //       group_id, stage_name_key, stage_mode, is_default_variant
-    if (!ImGui::BeginTable("##StageTable", 14, tFlags, ImGui::GetContentRegionAvail()))
+    constexpr int kStageFieldCount = FieldNames::StageEntryCount;
+
+    if (!ImGui::BeginTable("##StageTable", 1 + kStageFieldCount, tFlags, ImGui::GetContentRegionAvail()))
         return;
 
     ImGui::TableSetupScrollFreeze(1, 1);
-    static const int k_StageIds[] = { 0, 1, 2, 3, 4, 17, 18, 21, 22, 28, 29, 34, 36 };
-    ImGui::TableSetupColumn("#",                          ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
-    for (int ci = 0; ci < 13; ++ci)
-        ImGui::TableSetupColumn(FieldNames::StageEntry[k_StageIds[ci]], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kStage[ci]);
+    ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
+    for (int fi = 0; fi < kStageFieldCount; ++fi)
+        ImGui::TableSetupColumn(FieldNames::StageEntry[fi], ImGuiTableColumnFlags_WidthFixed,
+                                ColumnWidths::kStage[fi]);
     ImGui::TableHeadersRow();
 
     int deleteIdx = -1;
@@ -2077,19 +2076,53 @@ void FbsDataView::RenderStageListEditor(ContentsBinData& bin)
                 ImGui::Checkbox(id, &v);
             };
 
-            ImGui::TableSetColumnIndex(1);  StrCell("##sc",  e.stage_code,         sizeof(e.stage_code));
-            ImGui::TableSetColumnIndex(2);  U32Cell("##sh",  e.stage_hash);
-            ImGui::TableSetColumnIndex(3);  BoolCell("##isel", e.is_selectable);
-            ImGui::TableSetColumnIndex(4);  F32Cell("##cam", e.camera_offset);
-            ImGui::TableSetColumnIndex(5);  U32Cell("##psi", e.parent_stage_index);
-            ImGui::TableSetColumnIndex(6);  BoolCell("##ion", e.is_online_enabled);
-            ImGui::TableSetColumnIndex(7);  BoolCell("##irk", e.is_ranked_enabled);
-            ImGui::TableSetColumnIndex(8);  U32Cell("##aw",  e.arena_width);
-            ImGui::TableSetColumnIndex(9);  U32Cell("##ad",  e.arena_depth);
-            ImGui::TableSetColumnIndex(10); StrCell("##gid", e.group_id,            sizeof(e.group_id));
-            ImGui::TableSetColumnIndex(11); StrCell("##snk", e.stage_name_key,      sizeof(e.stage_name_key));
-            ImGui::TableSetColumnIndex(12); U32Cell("##sm",  e.stage_mode);
-            ImGui::TableSetColumnIndex(13); BoolCell("##idv", e.is_default_variant);
+            for (int fid = 0; fid < kStageFieldCount; ++fid)
+            {
+                ImGui::TableSetColumnIndex(1 + fid);
+                char lbl[24];
+                snprintf(lbl, sizeof(lbl), "##f%d", fid);
+                switch (fid)
+                {
+                case 0: StrCell(lbl, e.stage_code, sizeof(e.stage_code)); break;
+                case 1: U32Cell(lbl, e.stage_hash); break;
+                case 2: BoolCell(lbl, e.is_selectable); break;
+                case 3: F32Cell(lbl, e.camera_offset); break;
+                case 4: U32Cell(lbl, e.parent_stage_index); break;
+                case 5: U32Cell(lbl, e.variant_hash); break;
+                case 6: BoolCell(lbl, e.has_weather); break;
+                case 7: BoolCell(lbl, e.is_active); break;
+                case 8: BoolCell(lbl, e.flag_interlocked); break;
+                case 9: BoolCell(lbl, e.flag_ocean); break;
+                case 10: BoolCell(lbl, e.flag_10); break;
+                case 11: BoolCell(lbl, e.flag_infinite); break;
+                case 12: BoolCell(lbl, e.flag_battle); break;
+                case 13: BoolCell(lbl, e.flag_13); break;
+                case 14: BoolCell(lbl, e.flag_balcony); break;
+                case 15: BoolCell(lbl, e.flag_15); break;
+                case 16: BoolCell(lbl, e.reserved_16); break;
+                case 17: BoolCell(lbl, e.is_online_enabled); break;
+                case 18: BoolCell(lbl, e.is_ranked_enabled); break;
+                case 19: BoolCell(lbl, e.reserved_19); break;
+                case 20: BoolCell(lbl, e.reserved_20); break;
+                case 21: U32Cell(lbl, e.arena_width); break;
+                case 22: U32Cell(lbl, e.arena_depth); break;
+                case 23: U32Cell(lbl, e.reserved_23); break;
+                case 24: U32Cell(lbl, e.arena_param); break;
+                case 25: U32Cell(lbl, e.extra_width); break;
+                case 26: StrCell(lbl, e.extra_group, sizeof(e.extra_group)); break;
+                case 27: U32Cell(lbl, e.extra_depth); break;
+                case 28: StrCell(lbl, e.group_id, sizeof(e.group_id)); break;
+                case 29: StrCell(lbl, e.stage_name_key, sizeof(e.stage_name_key)); break;
+                case 30: StrCell(lbl, e.level_name, sizeof(e.level_name)); break;
+                case 31: StrCell(lbl, e.sound_bank, sizeof(e.sound_bank)); break;
+                case 32: U32Cell(lbl, e.wall_distance_a); break;
+                case 33: U32Cell(lbl, e.wall_distance_b); break;
+                case 34: U32Cell(lbl, e.stage_mode); break;
+                case 35: U32Cell(lbl, e.reserved_35); break;
+                case 36: BoolCell(lbl, e.is_default_variant); break;
+                default: break;
+                }
+            }
 
             ImGui::PopID();
         }

@@ -118,21 +118,12 @@ namespace ColumnWidths
     // -- drama_player_start_list (displayed 9 fields: ids 0,2,3,4,6,7,8,10) --
     constexpr float kDramaPlayerStart[9] = { 95.0f, 80.0f, 95.0f, 95.0f, 80.0f, 80.0f, 95.0f, 80.0f };
 
-    // -- stage_list (displayed 13 fields: ids 0,1,2,3,4,17,18,21,22,28,29,34,36) --
-    constexpr float kStage[13] = {
-        140.0f,  // 0
-         95.0f,  // 1
-         82.0f,  // 2
-         95.0f,  // 3
-         80.0f,  // 4
-         82.0f,  // 17
-         82.0f,  // 18
-         95.0f,  // 21
-         95.0f,  // 22
-        130.0f,  // 28
-        200.0f,  // 29
-         95.0f,  // 34
-         82.0f,  // 36
+    constexpr float kStage[37] = {
+        140.0f, 95.0f, 74.0f, 88.0f, 86.0f, 95.0f,
+        64.0f, 64.0f, 64.0f, 64.0f, 64.0f, 64.0f, 64.0f, 64.0f, 64.0f, 64.0f, 64.0f,
+        78.0f, 78.0f, 64.0f, 64.0f, 88.0f, 88.0f, 74.0f, 82.0f, 74.0f, 170.0f, 74.0f,
+        124.0f, 200.0f, 200.0f, 160.0f,
+        86.0f, 86.0f, 86.0f, 86.0f, 74.0f,
     };
 
     // -- ball_property_list (displayed 9 fields: ids 0,1,2,8,9,10,11,12,13) --
