@@ -247,6 +247,79 @@ static bool ReadCharacterBin(const std::vector<uint8_t>& data, ContentsBinData& 
     return !bin.characterEntries.empty();
 }
 
+// ??????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
+//  Binary reader: stage_list
+// ??????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
+static bool ReadStageBin(const std::vector<uint8_t>& data, ContentsBinData& bin)
+{
+    const uint8_t* b  = data.data();
+    const size_t   sz = data.size();
+    if (sz < 8) return false;
+
+    uint32_t root_pos = R32(b, 0);
+    if (!root_pos) return false;
+
+    uint32_t list_pos = ReadRef(b, sz, root_pos, 1);
+    if (!list_pos) return false;
+
+    uint32_t vec_pos = ReadRef(b, sz, list_pos, 0);
+    if (!vec_pos) return false;
+
+    uint32_t count = VecLength(b, sz, vec_pos);
+    bin.stageEntries.reserve(count);
+
+    for (uint32_t i = 0; i < count; ++i)
+    {
+        uint32_t ep = VecTableElem(b, sz, vec_pos, i);
+        if (!ep) continue;
+
+        StageEntry e;
+        { auto s = ReadStr(b, sz, ep,  0); strncpy_s(e.stage_code,      s.c_str(), sizeof(e.stage_code)      - 1); }
+        e.stage_hash         = ReadU32F (b, sz, ep,  1);
+        e.is_selectable      = ReadBoolF(b, sz, ep,  2);
+        e.camera_offset      = ReadFloatF(b, sz, ep, 3);
+        e.parent_stage_index = ReadU32F (b, sz, ep,  4);
+        e.variant_hash       = ReadU32F (b, sz, ep,  5);
+        e.has_weather        = ReadBoolF(b, sz, ep,  6);
+        e.is_active          = ReadBoolF(b, sz, ep,  7);
+        e.flag_interlocked   = ReadBoolF(b, sz, ep,  8);
+        e.flag_ocean         = ReadBoolF(b, sz, ep,  9);
+        e.flag_10            = ReadBoolF(b, sz, ep, 10);
+        e.flag_infinite      = ReadBoolF(b, sz, ep, 11);
+        e.flag_battle        = ReadBoolF(b, sz, ep, 12);
+        e.flag_13            = ReadBoolF(b, sz, ep, 13);
+        e.flag_balcony       = ReadBoolF(b, sz, ep, 14);
+        e.flag_15            = ReadBoolF(b, sz, ep, 15);
+        e.reserved_16        = ReadBoolF(b, sz, ep, 16);
+        e.is_online_enabled  = ReadBoolF(b, sz, ep, 17);
+        e.is_ranked_enabled  = ReadBoolF(b, sz, ep, 18);
+        e.reserved_19        = ReadBoolF(b, sz, ep, 19);
+        e.reserved_20        = ReadBoolF(b, sz, ep, 20);
+        // ids 21/22 are sub-table refs; chase and read field 0 of each sub-table
+        { uint32_t sub = ReadRef(b, sz, ep, 21); e.arena_width = sub ? ReadU32F(b, sz, sub, 0) : 0; }
+        { uint32_t sub = ReadRef(b, sz, ep, 22); e.arena_depth = sub ? ReadU32F(b, sz, sub, 0) : 0; }
+        e.reserved_23        = ReadU32F (b, sz, ep, 23);
+        e.arena_param        = ReadU32F (b, sz, ep, 24);
+        e.extra_width        = ReadU32F (b, sz, ep, 25);
+        { auto s = ReadStr(b, sz, ep, 26); strncpy_s(e.extra_group,     s.c_str(), sizeof(e.extra_group)     - 1); }
+        e.extra_depth        = ReadU32F (b, sz, ep, 27);
+        { auto s = ReadStr(b, sz, ep, 28); strncpy_s(e.group_id,        s.c_str(), sizeof(e.group_id)        - 1); }
+        { auto s = ReadStr(b, sz, ep, 29); strncpy_s(e.stage_name_key,  s.c_str(), sizeof(e.stage_name_key)  - 1); }
+        { auto s = ReadStr(b, sz, ep, 30); strncpy_s(e.level_name,      s.c_str(), sizeof(e.level_name)      - 1); }
+        { auto s = ReadStr(b, sz, ep, 31); strncpy_s(e.sound_bank,      s.c_str(), sizeof(e.sound_bank)      - 1); }
+        e.wall_distance_a    = ReadU32F (b, sz, ep, 32);
+        e.wall_distance_b    = ReadU32F (b, sz, ep, 33);
+        e.stage_mode         = ReadU32F (b, sz, ep, 34);
+        e.reserved_35        = ReadU32F (b, sz, ep, 35);
+        e.is_default_variant = ReadBoolF(b, sz, ep, 36);
+
+        bin.stageEntries.push_back(e);
+    }
+
+    bin.type = BinType::StageList;
+    return !bin.stageEntries.empty();
+}
+
 // ????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????//  Low-level write helpers
 // ????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
 static void W8(std::vector<uint8_t>& b, uint8_t v) { b.push_back(v); }
@@ -328,6 +401,17 @@ static uint32_t WriteString(std::vector<uint8_t>& b, const char* s)
     for (uint32_t i = 0; i < len; ++i) W8(b, static_cast<uint8_t>(s[i]));
     W8(b, 0);  // null terminator
     return str_pos;
+}
+
+// Emit an empty FlatBuffers sub-table (vtable 04 00 04 00 + soffset).
+// Used for arena_width/arena_depth (ids 21/22) which the game parser chases as sub-table refs.
+static uint32_t WriteEmptySubTable(std::vector<uint8_t>& b)
+{
+    Align(b, 2);
+    uint32_t vtab_pos = static_cast<uint32_t>(b.size());
+    W16(b, 4);  // vtable_size = 4 (header only, no field offsets)
+    W16(b, 4);  // obj_size    = 4 (just the soffset)
+    return BeginTable(b, vtab_pos);
 }
 
 // ????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????//  Binary writer: customize_item_common_list
@@ -481,6 +565,165 @@ static std::vector<uint8_t> BuildCustomizeItemCommonBin(const ContentsBinData& b
     // Patch root offset (absolute position of root table from byte 0)
     PatchU32(b, root_offset_pos, root_table);
 
+    return b;
+}
+
+// ??????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
+//  Binary writer: stage_list
+//
+//  Entry table field layout (obj_size = 104, all 37 fields present):
+//    4-byte fields (offsets 4..83, in field-id order):
+//      Offset   4: stage_code ref     (string, id  0)
+//      Offset   8: stage_hash         (u32,    id  1)
+//      Offset  12: camera_offset      (f32,    id  3)
+//      Offset  16: parent_stage_index (u32,    id  4)
+//      Offset  20: variant_hash       (u32,    id  5)
+//      Offset  24: arena_width ref    (sub-tbl,id 21)  -> empty sub-table
+//      Offset  28: arena_depth ref    (sub-tbl,id 22)  -> empty sub-table
+//      Offset  32: reserved_23        (u32,    id 23)
+//      Offset  36: arena_param        (u32,    id 24)
+//      Offset  40: extra_width        (u32,    id 25)
+//      Offset  44: extra_group ref    (string, id 26)
+//      Offset  48: extra_depth        (u32,    id 27)
+//      Offset  52: group_id ref       (string, id 28)
+//      Offset  56: stage_name_key ref (string, id 29)
+//      Offset  60: level_name ref     (string, id 30)
+//      Offset  64: sound_bank ref     (string, id 31)
+//      Offset  68: wall_distance_a    (u32,    id 32)
+//      Offset  72: wall_distance_b    (u32,    id 33)
+//      Offset  76: stage_mode         (u32,    id 34)
+//      Offset  80: reserved_35        (u32,    id 35)
+//    Bool fields (offsets 84..100, in field-id order):
+//      Offset  84: is_selectable      (bool, id  2)
+//      Offset  85: has_weather        (bool, id  6)
+//      Offset  86: is_active          (bool, id  7)
+//      Offset  87: flag_interlocked   (bool, id  8)
+//      Offset  88: flag_ocean         (bool, id  9)
+//      Offset  89: flag_10            (bool, id 10)
+//      Offset  90: flag_infinite      (bool, id 11)
+//      Offset  91: flag_battle        (bool, id 12)
+//      Offset  92: flag_13            (bool, id 13)
+//      Offset  93: flag_balcony       (bool, id 14)
+//      Offset  94: flag_15            (bool, id 15)
+//      Offset  95: reserved_16        (bool, id 16)
+//      Offset  96: is_online_enabled  (bool, id 17)
+//      Offset  97: is_ranked_enabled  (bool, id 18)
+//      Offset  98: reserved_19        (bool, id 19)
+//      Offset  99: reserved_20        (bool, id 20)
+//      Offset 100: is_default_variant (bool, id 36)
+//    Padding: 3 bytes (offsets 101-103)
+// ??????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
+static std::vector<uint8_t> BuildStageBin(const ContentsBinData& bin, uint8_t version = 1)
+{
+    std::vector<uint8_t> b;
+    b.reserve(32 * 1024);
+
+    uint32_t root_offset_pos = 0;
+    W32(b, 0);
+
+    static const uint16_t k_root_fields[2] = { 8, 4 };
+    uint32_t root_vtab  = WriteVtable(b, 12, k_root_fields, 2);
+    uint32_t root_table = BeginTable(b, root_vtab);
+    uint32_t root_data_ref_pos = static_cast<uint32_t>(b.size());
+    W32(b, 0);
+    W8(b, version);
+    Align(b, 4);
+
+    static const uint16_t k_list_fields[1] = { 4 };
+    uint32_t list_vtab  = WriteVtable(b, 8, k_list_fields, 1);
+    uint32_t list_table = BeginTable(b, list_vtab);
+    uint32_t list_vec_ref_pos = static_cast<uint32_t>(b.size());
+    W32(b, 0);
+
+    PatchRef(b, root_data_ref_pos, list_table);
+
+    Align(b, 4);
+    uint32_t vec_pos = static_cast<uint32_t>(b.size());
+    const uint32_t N = static_cast<uint32_t>(bin.stageEntries.size());
+    W32(b, N);
+
+    std::vector<uint32_t> entry_ref_slots(N);
+    for (uint32_t i = 0; i < N; ++i)
+    {
+        entry_ref_slots[i] = static_cast<uint32_t>(b.size());
+        W32(b, 0);
+    }
+
+    PatchRef(b, list_vec_ref_pos, vec_pos);
+
+    // vtable field offsets indexed by schema id (0..36)
+    static const uint16_t k_entry_fields[37] = {
+          4,   8,  84,  12,  16,  20,  85,  86,  // id  0- 7
+         87,  88,  89,  90,  91,  92,  93,  94,  // id  8-15
+         95,  96,  97,  98,  99,  24,  28,  32,  // id 16-23
+         36,  40,  44,  48,  52,  56,  60,  64,  // id 24-31
+         68,  72,  76,  80, 100,                  // id 32-36
+    };
+
+    for (uint32_t i = 0; i < N; ++i)
+    {
+        const auto& e = bin.stageEntries[i];
+
+        uint32_t entry_vtab  = WriteVtable(b, 104, k_entry_fields, 37);
+        uint32_t entry_table = BeginTable(b, entry_vtab);
+        PatchRef(b, entry_ref_slots[i], entry_table);
+
+        // 4-byte fields in offset order (4..80)
+        uint32_t stage_code_ref     = static_cast<uint32_t>(b.size()); W32(b, 0); // id  0 @4
+        W32(b, e.stage_hash);                                                        // id  1 @8
+        WF32(b, e.camera_offset);                                                    // id  3 @12
+        W32(b, e.parent_stage_index);                                                // id  4 @16
+        W32(b, e.variant_hash);                                                      // id  5 @20
+        uint32_t arena_w_ref        = static_cast<uint32_t>(b.size()); W32(b, 0); // id 21 @24
+        uint32_t arena_d_ref        = static_cast<uint32_t>(b.size()); W32(b, 0); // id 22 @28
+        W32(b, e.reserved_23);                                                       // id 23 @32
+        W32(b, e.arena_param);                                                       // id 24 @36
+        W32(b, e.extra_width);                                                       // id 25 @40
+        uint32_t extra_group_ref    = static_cast<uint32_t>(b.size()); W32(b, 0); // id 26 @44
+        W32(b, e.extra_depth);                                                       // id 27 @48
+        uint32_t group_id_ref       = static_cast<uint32_t>(b.size()); W32(b, 0); // id 28 @52
+        uint32_t stage_name_key_ref = static_cast<uint32_t>(b.size()); W32(b, 0); // id 29 @56
+        uint32_t level_name_ref     = static_cast<uint32_t>(b.size()); W32(b, 0); // id 30 @60
+        uint32_t sound_bank_ref     = static_cast<uint32_t>(b.size()); W32(b, 0); // id 31 @64
+        W32(b, e.wall_distance_a);                                                   // id 32 @68
+        W32(b, e.wall_distance_b);                                                   // id 33 @72
+        W32(b, e.stage_mode);                                                        // id 34 @76
+        W32(b, e.reserved_35);                                                       // id 35 @80
+
+        // Bool fields at offsets 84..100
+        W8(b, e.is_selectable      ? 1 : 0);  // id  2 @84
+        W8(b, e.has_weather        ? 1 : 0);  // id  6 @85
+        W8(b, e.is_active          ? 1 : 0);  // id  7 @86
+        W8(b, e.flag_interlocked   ? 1 : 0);  // id  8 @87
+        W8(b, e.flag_ocean         ? 1 : 0);  // id  9 @88
+        W8(b, e.flag_10            ? 1 : 0);  // id 10 @89
+        W8(b, e.flag_infinite      ? 1 : 0);  // id 11 @90
+        W8(b, e.flag_battle        ? 1 : 0);  // id 12 @91
+        W8(b, e.flag_13            ? 1 : 0);  // id 13 @92
+        W8(b, e.flag_balcony       ? 1 : 0);  // id 14 @93
+        W8(b, e.flag_15            ? 1 : 0);  // id 15 @94
+        W8(b, e.reserved_16        ? 1 : 0);  // id 16 @95
+        W8(b, e.is_online_enabled  ? 1 : 0);  // id 17 @96
+        W8(b, e.is_ranked_enabled  ? 1 : 0);  // id 18 @97
+        W8(b, e.reserved_19        ? 1 : 0);  // id 19 @98
+        W8(b, e.reserved_20        ? 1 : 0);  // id 20 @99
+        W8(b, e.is_default_variant ? 1 : 0);  // id 36 @100
+        W8(b, 0); W8(b, 0); W8(b, 0);         // padding → 104 bytes
+
+        // Strings
+        PatchRef(b, stage_code_ref,     WriteString(b, e.stage_code));
+        PatchRef(b, extra_group_ref,    WriteString(b, e.extra_group));
+        PatchRef(b, group_id_ref,       WriteString(b, e.group_id));
+        PatchRef(b, stage_name_key_ref, WriteString(b, e.stage_name_key));
+        PatchRef(b, level_name_ref,     WriteString(b, e.level_name));
+        PatchRef(b, sound_bank_ref,     WriteString(b, e.sound_bank));
+
+        // Empty sub-tables for arena_width/arena_depth (ids 21/22)
+        PatchRef(b, arena_w_ref, WriteEmptySubTable(b));
+        PatchRef(b, arena_d_ref, WriteEmptySubTable(b));
+    }
+
+    PatchU32(b, root_offset_pos, root_table);
     return b;
 }
 
@@ -881,6 +1124,8 @@ namespace FbsBinaryIO
             return ReadCustomizeItemCommonBin(data, out);
         if (name == "character_list.bin")
             return ReadCharacterBin(data, out);
+        if (name == "stage_list.bin")
+            return ReadStageBin(data, out);
 
         return false;  // unsupported type
     }
@@ -893,6 +1138,8 @@ namespace FbsBinaryIO
             data = BuildCustomizeItemCommonBin(bin);
         else if (bin.type == BinType::CharacterList)
             data = BuildCharacterBin(bin);
+        else if (bin.type == BinType::StageList)
+            data = BuildStageBin(bin);
         else
             return false;
 

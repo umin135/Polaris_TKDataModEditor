@@ -24,6 +24,7 @@ private:
     // Per-type editors (show ALL fields including unknowns)
     void RenderCustomizeItemCommonEditor(ContentsBinData& bin);
     void RenderCharacterEditor(ContentsBinData& bin);
+    void RenderStageEditor(ContentsBinData& bin);
 
     ModData  m_data;
     ModData* m_customMod = nullptr;
