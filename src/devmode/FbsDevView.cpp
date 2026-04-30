@@ -177,6 +177,9 @@ void FbsDevView::RenderEditorArea()
     case BinType::CharacterList:
         RenderCharacterEditor(bin);
         break;
+    case BinType::StageList:
+        RenderStageEditor(bin);
+        break;
     default:
         ImGui::TextDisabled("No editor available for this bin type.");
         break;
@@ -502,6 +505,198 @@ void FbsDevView::RenderCharacterEditor(ContentsBinData& bin)
 
     if (deleteIdx >= 0)
         bin.characterEntries.erase(bin.characterEntries.begin() + deleteIdx);
+
+    ImGui::EndTable();
+}
+
+// -----------------------------------------------------------------------------
+//  stage_list editor (37 fields)
+// -----------------------------------------------------------------------------
+
+void FbsDevView::RenderStageEditor(ContentsBinData& bin)
+{
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.82f, 1.00f, 1.00f));
+    ImGui::Text("stage_list.bin");
+    ImGui::PopStyleColor();
+    ImGui::SameLine();
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.42f, 0.42f, 0.54f, 1.00f));
+    ImGui::Text("(%d entries)", (int)bin.stageEntries.size());
+    ImGui::PopStyleColor();
+
+    const float addBtnW = 100.0f;
+    ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
+    if (ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
+        bin.stageEntries.push_back(StageEntry{});
+
+    ImGui::Separator();
+
+    constexpr ImGuiTableFlags tFlags =
+        ImGuiTableFlags_ScrollX       |
+        ImGuiTableFlags_ScrollY       |
+        ImGuiTableFlags_RowBg         |
+        ImGuiTableFlags_BordersOuter  |
+        ImGuiTableFlags_BordersInnerV |
+        ImGuiTableFlags_Resizable     |
+        ImGuiTableFlags_Reorderable   |
+        ImGuiTableFlags_Hideable      |
+        ImGuiTableFlags_SizingFixedFit;
+
+    // 1 control column + 37 field columns = 38
+    if (!ImGui::BeginTable("##DevStageTable", 38, tFlags, ImGui::GetContentRegionAvail()))
+        return;
+
+    ImGui::TableSetupScrollFreeze(1, 1);
+
+    static const float k_ColWidths[37] = {
+       140.0f,  // id  0  stage_code
+        95.0f,  // id  1  stage_hash
+        80.0f,  // id  2  is_selectable
+        90.0f,  // id  3  camera_offset
+       130.0f,  // id  4  parent_stage_index
+        95.0f,  // id  5  variant_hash
+        80.0f,  // id  6  has_weather
+        72.0f,  // id  7  is_active
+        90.0f,  // id  8  flag_interlocked
+        80.0f,  // id  9  flag_ocean
+        65.0f,  // id 10  flag_10
+        80.0f,  // id 11  flag_infinite
+        80.0f,  // id 12  flag_battle
+        65.0f,  // id 13  flag_13
+        80.0f,  // id 14  flag_balcony
+        65.0f,  // id 15  flag_15
+        80.0f,  // id 16  reserved_16
+        95.0f,  // id 17  is_online_enabled
+        95.0f,  // id 18  is_ranked_enabled
+        80.0f,  // id 19  reserved_19
+        80.0f,  // id 20  reserved_20
+        80.0f,  // id 21  arena_width
+        80.0f,  // id 22  arena_depth
+        80.0f,  // id 23  reserved_23
+        80.0f,  // id 24  arena_param
+        80.0f,  // id 25  extra_width
+       120.0f,  // id 26  extra_group
+        80.0f,  // id 27  extra_depth
+       100.0f,  // id 28  group_id
+       190.0f,  // id 29  stage_name_key
+       160.0f,  // id 30  level_name
+       130.0f,  // id 31  sound_bank
+        95.0f,  // id 32  wall_distance_a
+        95.0f,  // id 33  wall_distance_b
+        80.0f,  // id 34  stage_mode
+        80.0f,  // id 35  reserved_35
+        95.0f,  // id 36  is_default_variant
+    };
+    ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 72.0f);
+    for (int fi = 0; fi < FieldNames::StageEntryCount; ++fi)
+        ImGui::TableSetupColumn(FieldNames::StageEntry[fi],
+                                ImGuiTableColumnFlags_WidthFixed, k_ColWidths[fi]);
+    ImGui::TableHeadersRow();
+
+    int deleteIdx = -1;
+
+    ImGuiListClipper clipper;
+    clipper.Begin(static_cast<int>(bin.stageEntries.size()));
+    while (clipper.Step())
+    {
+        for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i)
+        {
+            auto& e = bin.stageEntries[i];
+            ImGui::TableNextRow();
+            ImGui::PushID(i);
+
+            ImGui::TableSetColumnIndex(0);
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.50f, 0.50f, 0.60f, 1.00f));
+            ImGui::Text("%d", i);
+            ImGui::PopStyleColor();
+            ImGui::SameLine(0, 4.0f);
+            ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
+            if (ImGui::SmallButton("X")) deleteIdx = i;
+            ImGui::PopStyleColor(3);
+            if (m_customMod)
+            {
+                ImGui::SameLine(0, 4.0f);
+                ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.12f, 0.38f, 0.58f, 1.00f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.18f, 0.52f, 0.78f, 1.00f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.15f, 0.44f, 0.65f, 1.00f));
+                if (ImGui::SmallButton(">"))
+                {
+                    ContentsBinData* target = nullptr;
+                    for (auto& b : m_customMod->contents)
+                        if (b.name == bin.name) { target = &b; break; }
+                    if (!target)
+                    {
+                        ContentsBinData nb;
+                        nb.name = bin.name;
+                        nb.type = bin.type;
+                        m_customMod->contents.push_back(std::move(nb));
+                        target = &m_customMod->contents.back();
+                    }
+                    target->stageEntries.push_back(e);
+                }
+                ImGui::PopStyleColor(3);
+            }
+
+            auto StrCell = [](const char* id, char* buf, size_t sz) {
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                ImGui::InputText(id, buf, sz);
+            };
+            auto U32Cell = [](const char* id, uint32_t& v) {
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                ImGui::InputScalar(id, ImGuiDataType_U32, &v);
+            };
+            auto F32Cell = [](const char* id, float& v) {
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                ImGui::InputScalar(id, ImGuiDataType_Float, &v);
+            };
+            auto BoolCell = [](const char* id, bool& v) { ImGui::Checkbox(id, &v); };
+
+            ImGui::TableSetColumnIndex(1);  StrCell("##sc",   e.stage_code,       sizeof(e.stage_code));
+            ImGui::TableSetColumnIndex(2);  U32Cell("##sh",   e.stage_hash);
+            ImGui::TableSetColumnIndex(3);  BoolCell("##sel", e.is_selectable);
+            ImGui::TableSetColumnIndex(4);  F32Cell("##cam",  e.camera_offset);
+            ImGui::TableSetColumnIndex(5);  U32Cell("##psi",  e.parent_stage_index);
+            ImGui::TableSetColumnIndex(6);  U32Cell("##vh",   e.variant_hash);
+            ImGui::TableSetColumnIndex(7);  BoolCell("##wth", e.has_weather);
+            ImGui::TableSetColumnIndex(8);  BoolCell("##act", e.is_active);
+            ImGui::TableSetColumnIndex(9);  BoolCell("##fil", e.flag_interlocked);
+            ImGui::TableSetColumnIndex(10); BoolCell("##foc", e.flag_ocean);
+            ImGui::TableSetColumnIndex(11); BoolCell("##f10", e.flag_10);
+            ImGui::TableSetColumnIndex(12); BoolCell("##fin", e.flag_infinite);
+            ImGui::TableSetColumnIndex(13); BoolCell("##fbt", e.flag_battle);
+            ImGui::TableSetColumnIndex(14); BoolCell("##f13", e.flag_13);
+            ImGui::TableSetColumnIndex(15); BoolCell("##fbl", e.flag_balcony);
+            ImGui::TableSetColumnIndex(16); BoolCell("##f15", e.flag_15);
+            ImGui::TableSetColumnIndex(17); BoolCell("##r16", e.reserved_16);
+            ImGui::TableSetColumnIndex(18); BoolCell("##onl", e.is_online_enabled);
+            ImGui::TableSetColumnIndex(19); BoolCell("##rnk", e.is_ranked_enabled);
+            ImGui::TableSetColumnIndex(20); BoolCell("##r19", e.reserved_19);
+            ImGui::TableSetColumnIndex(21); BoolCell("##r20", e.reserved_20);
+            ImGui::TableSetColumnIndex(22); U32Cell("##aw",   e.arena_width);
+            ImGui::TableSetColumnIndex(23); U32Cell("##ad",   e.arena_depth);
+            ImGui::TableSetColumnIndex(24); U32Cell("##r23",  e.reserved_23);
+            ImGui::TableSetColumnIndex(25); U32Cell("##ap",   e.arena_param);
+            ImGui::TableSetColumnIndex(26); U32Cell("##ew",   e.extra_width);
+            ImGui::TableSetColumnIndex(27); StrCell("##eg",   e.extra_group,      sizeof(e.extra_group));
+            ImGui::TableSetColumnIndex(28); U32Cell("##ed",   e.extra_depth);
+            ImGui::TableSetColumnIndex(29); StrCell("##gid",  e.group_id,         sizeof(e.group_id));
+            ImGui::TableSetColumnIndex(30); StrCell("##snk",  e.stage_name_key,   sizeof(e.stage_name_key));
+            ImGui::TableSetColumnIndex(31); StrCell("##ln",   e.level_name,       sizeof(e.level_name));
+            ImGui::TableSetColumnIndex(32); StrCell("##sb",   e.sound_bank,       sizeof(e.sound_bank));
+            ImGui::TableSetColumnIndex(33); U32Cell("##wda",  e.wall_distance_a);
+            ImGui::TableSetColumnIndex(34); U32Cell("##wdb",  e.wall_distance_b);
+            ImGui::TableSetColumnIndex(35); U32Cell("##smo",  e.stage_mode);
+            ImGui::TableSetColumnIndex(36); U32Cell("##r35",  e.reserved_35);
+            ImGui::TableSetColumnIndex(37); BoolCell("##dv",  e.is_default_variant);
+
+            ImGui::PopID();
+        }
+    }
+    clipper.End();
+
+    if (deleteIdx >= 0)
+        bin.stageEntries.erase(bin.stageEntries.begin() + deleteIdx);
 
     ImGui::EndTable();
 }
