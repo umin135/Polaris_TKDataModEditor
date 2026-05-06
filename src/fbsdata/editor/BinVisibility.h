@@ -54,7 +54,7 @@ namespace BinVisibility {
         { "jukebox_list.bin",                          false  },
         { "rank_list.bin",                             false  },
         { "series_list.bin",                           false  },
-        { "stage_list.bin",                            true   },
+        { "stage_list.bin",                            false   },
         { "tam_mission_list.bin",                      false  },
         { "customize_panel_list.bin",                  false   },
 
