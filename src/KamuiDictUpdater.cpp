@@ -4,8 +4,8 @@
 //
 // Remote host : raw.githubusercontent.com (HTTPS)
 // Remote paths:
-//   /umin135/Polaris_TKDataModLoader/main/public-res/kamui-hashes/version.json
-//   /umin135/Polaris_TKDataModLoader/main/public-res/kamui-hashes/data.json
+//   /umin135/Polaris_TKDataModEditor/main/data/kamui-hashes/version.json
+//   /umin135/Polaris_TKDataModEditor/main/data/kamui-hashes/data.json
 #include "KamuiDictUpdater.h"
 #define NOMINMAX
 #include <windows.h>
@@ -21,8 +21,8 @@
 // ---------------------------------------------------------------------------
 
 static const wchar_t* kHost    = L"raw.githubusercontent.com";
-static const wchar_t* kVerPath = L"/umin135/Polaris_TKDataModLoader/main/public-res/kamui-hashes/version.json";
-static const wchar_t* kDatPath = L"/umin135/Polaris_TKDataModLoader/main/public-res/kamui-hashes/data.json";
+static const wchar_t* kVerPath = L"/umin135/Polaris_TKDataModEditor/main/data/kamui-hashes/version.json";
+static const wchar_t* kDatPath = L"/umin135/Polaris_TKDataModEditor/main/data/kamui-hashes/data.json";
 static const wchar_t* kAgent   = L"PolarisTKDataEditor/1.0";
 
 // Fetches a URL over HTTPS and returns the body as a string.
