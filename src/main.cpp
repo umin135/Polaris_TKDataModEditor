@@ -244,8 +244,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
     g_mainPid  = GetCurrentProcessId();
     g_hookThread = CreateThread(nullptr, 0, HookThreadProc, nullptr, 0, &g_hookThreadId);
 
-    ::ShowWindow(hwnd, SW_SHOWNORMAL);
-    ::UpdateWindow(hwnd);
+    // Window is shown by the App constructor as a 650×230 borderless splash
 
     // Setup Dear ImGui
     IMGUI_CHECKVERSION();
@@ -302,8 +301,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
     ImGui_ImplWin32_Init(hwnd);
     ImGui_ImplDX11_Init(g_pd3dDevice, g_pd3dDeviceContext);
 
-    // Create application instance -- pass DX11 device + context for rendering
-    App app(g_pd3dDevice, g_pd3dDeviceContext);
+    // Create application instance -- shows splash window, starts background init
+    App app(g_pd3dDevice, g_pd3dDeviceContext, hwnd);
 
     // When viewports are enabled, platform windows must have no rounding
     // and a fully opaque background (DWM handles transparency separately)

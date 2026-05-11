@@ -7,6 +7,8 @@
 #include <string>
 #include <vector>
 #include <future>
+#include <thread>
+#include <atomic>
 
 #ifdef _DEBUG
 #include "devmode/FbsDevView.h"
@@ -23,7 +25,7 @@ struct ID3D11ShaderResourceView;
 class App
 {
 public:
-    App(ID3D11Device* device, ID3D11DeviceContext* ctx);
+    App(ID3D11Device* device, ID3D11DeviceContext* ctx, void* hwnd);
     ~App();
 
     // Called every frame to render all UI
@@ -34,6 +36,8 @@ public:
     void OpenFile(const std::string& path);
 
 private:
+    enum class AppState { Splash, Running };
+
     // Which view is shown in the right content area
     enum class ContentView {
         Home, FbsData, Moveset,
@@ -45,6 +49,12 @@ private:
 
     // Apply custom ImGui color/style settings
     void ApplyStyle();
+
+    // Splash screen (shown while RunInitThread() is in progress)
+    void RenderSplash();
+
+    // Background initialization thread body
+    void RunInitThread();
 
     // Main layout: sidebar + content
     void RenderMainLayout();
@@ -65,6 +75,13 @@ private:
 
     // Loading overlay (dim background + centered spinner popup)
     void RenderLoadingOverlay(const char* msg);
+
+    // Splash state
+    AppState               m_appState   = AppState::Splash;
+    std::atomic<const char*> m_initStatus { "Starting..." };
+    std::atomic<bool>      m_initDone   { false };
+    std::thread            m_initThread;
+    double                 m_splashEndTime = -1.0; // set when init completes
 
     ContentView  m_currentView = ContentView::Home;
     FbsDataView  m_fbsDataView;
@@ -95,4 +112,10 @@ private:
     bool m_settingsInitialized = false;
     int  m_settingsCat       = 1;     // 0 = fbsdata, 1 = moveset
     char m_settingsMovesetRoot[1024]  = {};
+
+    // Auto-update
+    std::string m_exePath;
+
+    // Win32 main window handle (for splash resize/restore)
+    void* m_hwnd = nullptr;
 };

@@ -22,6 +22,7 @@
 
 #include "resource.h"
 #include "AppStrings.h"
+#include "AppUpdater.h"
 
 // -------------------------------------------------------------
 //  PNG texture loader from embedded Win32 resource (RCDATA)
@@ -178,52 +179,76 @@ static std::string BrowseForFolder()
     return result;
 }
 
-App::App(ID3D11Device* device, ID3D11DeviceContext* ctx)
-    : m_d3dDev(device), m_d3dCtx(ctx)
+App::App(ID3D11Device* device, ID3D11DeviceContext* ctx, void* hwnd)
+    : m_d3dDev(device), m_d3dCtx(ctx), m_hwnd(hwnd)
 {
+    char exeBuf[MAX_PATH] = {};
+    GetModuleFileNameA(nullptr, exeBuf, MAX_PATH);
+    m_exePath = exeBuf;
+
+    // Load logo texture now (D3D main-thread op) so splash can display it
+    {
+        int w = 0, h = 0;
+        m_logoTex  = LoadTexturePNGFromResource(device, IDR_HOME_LOGO_PNG, &w, &h);
+        m_logoSize = ImVec2((float)w, (float)h);
+    }
+
     ApplyStyle();
+
+    // Reshape the OS window to a borderless 650×230 splash, centered on screen
+    {
+        const int splashW = 650, splashH = 230;
+        const int screenW = GetSystemMetrics(SM_CXSCREEN);
+        const int screenH = GetSystemMetrics(SM_CYSCREEN);
+        SetWindowLongW((HWND)m_hwnd, GWL_STYLE, WS_POPUP | WS_VISIBLE);
+        SetWindowPos((HWND)m_hwnd, HWND_TOP,
+            (screenW - splashW) / 2, (screenH - splashH) / 2,
+            splashW, splashH,
+            SWP_FRAMECHANGED | SWP_NOZORDER | SWP_SHOWWINDOW);
+    }
+
+    m_initThread = std::thread([this]() { RunInitThread(); });
+}
+
+void App::RunInitThread()
+{
+    m_initStatus.store("Loading config...");
     Config::Get().Load();
     GameStatic::Get().Load();
 
-    // Initialize extractor with configured root directory
     m_extractorView.SetDestFolder(Config::Get().data.movesetRootDir);
-
-    // Auto-refresh moveset list after successful extraction
     m_extractorView.SetOnExtractSuccess([this]() {
         m_movesetView.ForceRefresh();
     });
 
-    // Load InterfaceData labels (requirements, properties, commands)
-    // Priority: disk files (customizable) → embedded RCDATA fallback
+    std::string exeDir = m_exePath;
+    size_t sep = exeDir.rfind('\\');
+    if (sep != std::string::npos) exeDir = exeDir.substr(0, sep);
+
+    const std::string candidates[] = {
+        exeDir + "\\data\\interfacedata",
+        exeDir + "\\..\\data\\interfacedata",
+        exeDir + "\\..\\..\\data\\interfacedata",
+        exeDir + "\\..\\..\\..\\data\\interfacedata",
+    };
+
+    m_initStatus.store("Loading FBS dictionary...");
     {
-        char exePath[MAX_PATH] = {};
-        GetModuleFileNameA(nullptr, exePath, MAX_PATH);
-        std::string exeDir = exePath;
-        size_t sep = exeDir.rfind('\\');
-        if (sep != std::string::npos) exeDir = exeDir.substr(0, sep);
-
-        const std::string candidates[] = {
-            exeDir + "\\data\\interfacedata",
-            exeDir + "\\..\\data\\interfacedata",
-            exeDir + "\\..\\..\\data\\interfacedata",
-            exeDir + "\\..\\..\\..\\data\\interfacedata",
-        };
-        // FbsData dictionary (character_id, customize_item_type).
-        // Loaded before LabelDB so it can supply character data as primary source.
+        std::string fbsDataPath;
+        for (const auto& c : candidates)
         {
-            std::string fbsDataPath;
-            for (const auto& c : candidates)
-            {
-                std::string p = c + "\\..\\fbsdatas\\data.json";
-                FILE* f = nullptr; fopen_s(&f, p.c_str(), "rb");
-                if (f) { fclose(f); fbsDataPath = p; break; }
-            }
-            if (!fbsDataPath.empty())
-                FbsDataDict::Get().Load(fbsDataPath);
-            else
-                FbsDataDict::Get().LoadFromResources();
+            std::string p = c + "\\..\\fbsdatas\\data.json";
+            FILE* f = nullptr; fopen_s(&f, p.c_str(), "rb");
+            if (f) { fclose(f); fbsDataPath = p; break; }
         }
+        if (!fbsDataPath.empty())
+            FbsDataDict::Get().Load(fbsDataPath);
+        else
+            FbsDataDict::Get().LoadFromResources();
+    }
 
+    m_initStatus.store("Loading label database...");
+    {
         bool loadedFromDisk = false;
         for (const auto& c : candidates)
         {
@@ -238,67 +263,60 @@ App::App(ID3D11Device* device, ID3D11DeviceContext* ctx)
             }
         }
         if (!loadedFromDisk)
-        {
-            // Disk files not found -- fall back to embedded RCDATA resources
             LabelDB::Get().LoadFromResources();
+    }
+
+    m_initStatus.store("Checking for dictionary updates...");
+    {
+        const std::string resCandidates[] = {
+            exeDir + "\\res",
+            exeDir + "\\..\\res",
+            exeDir + "\\..\\..\\res",
+            exeDir + "\\..\\..\\..\\res",
+        };
+        std::string resDir;
+        for (const auto& r : resCandidates)
+        {
+            DWORD attr = GetFileAttributesA(r.c_str());
+            if (attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY))
+            { resDir = r; break; }
         }
 
-        // All three remote dictionaries live under res/ next to the exe.
-        // Find that directory once, then run each updater independently.
+        if (!resDir.empty())
         {
-            const std::string resCandidates[] = {
-                exeDir + "\\res",
-                exeDir + "\\..\\res",
-                exeDir + "\\..\\..\\res",
-                exeDir + "\\..\\..\\..\\res",
-            };
-            std::string resDir;
-            for (const auto& r : resCandidates)
+            KamuiDictCheckAndUpdate(resDir);
             {
-                DWORD attr = GetFileAttributesA(r.c_str());
-                if (attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY))
-                { resDir = r; break; }
+                std::string p = resDir + "\\kamui-hashes\\data.json";
+                FILE* f = nullptr; fopen_s(&f, p.c_str(), "rb");
+                if (f) { fclose(f); LabelDB::Get().AddNames(p); }
             }
 
-            if (!resDir.empty())
+            MovesetDataDictCheckAndUpdate(resDir);
             {
-                // kamui-hashes: move/anim/voiceclip name hashes
-                KamuiDictCheckAndUpdate(resDir);
-                {
-                    std::string p = resDir + "\\kamui-hashes\\data.json";
-                    FILE* f = nullptr; fopen_s(&f, p.c_str(), "rb");
-                    if (f) { fclose(f); LabelDB::Get().AddNames(p); }
-                }
+                std::string p = resDir + "\\MovesetDatas\\data.json";
+                FILE* f = nullptr; fopen_s(&f, p.c_str(), "rb");
+                if (f) { fclose(f); MovesetDataDict::Get().Load(p); }
+            }
 
-                // MovesetDatas: req/property/command descriptions
-                MovesetDataDictCheckAndUpdate(resDir);
-                {
-                    std::string p = resDir + "\\MovesetDatas\\data.json";
-                    FILE* f = nullptr; fopen_s(&f, p.c_str(), "rb");
-                    if (f) { fclose(f); MovesetDataDict::Get().Load(p); }
-                }
-
-                // fbsdatas: character_id / customize_item_type dicts
-                // Only reload from res if the update actually succeeded;
-                // otherwise keep the data loaded from data/fbsdatas/data.json above.
-                if (FbsDataDictCheckAndUpdate(resDir))
-                {
-                    std::string p = resDir + "\\fbsdatas\\data.json";
-                    FILE* f = nullptr; fopen_s(&f, p.c_str(), "rb");
-                    if (f) { fclose(f); FbsDataDict::Get().Load(p); }
-                }
+            if (FbsDataDictCheckAndUpdate(resDir))
+            {
+                std::string p = resDir + "\\fbsdatas\\data.json";
+                FILE* f = nullptr; fopen_s(&f, p.c_str(), "rb");
+                if (f) { fclose(f); FbsDataDict::Get().Load(p); }
             }
         }
     }
 
-    // Load home screen logo from embedded resource (IDR_HOME_LOGO_PNG)
-    int w = 0, h = 0;
-    m_logoTex  = LoadTexturePNGFromResource(device, IDR_HOME_LOGO_PNG, &w, &h);
-    m_logoSize = ImVec2((float)w, (float)h);
+    m_initStatus.store("Starting...");
+    AppUpdateCheckAndDownload(m_exePath);
+
+    m_initDone.store(true, std::memory_order_release);
 }
 
 App::~App()
 {
+    if (m_initThread.joinable())
+        m_initThread.join();
     if (m_logoTex) { m_logoTex->Release(); m_logoTex = nullptr; }
 }
 
@@ -364,8 +382,133 @@ void App::ApplyStyle()
 //  Frame entry point
 // -------------------------------------------------------------
 
+void App::RenderSplash()
+{
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(vp->WorkPos);
+    ImGui::SetNextWindowSize(vp->WorkSize);
+    ImGui::SetNextWindowViewport(vp->ID);
+
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding,   0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,    ImVec2(0.0f, 0.0f));
+    ImGui::Begin("##Splash", nullptr,
+        ImGuiWindowFlags_NoTitleBar           |
+        ImGuiWindowFlags_NoCollapse           |
+        ImGuiWindowFlags_NoResize             |
+        ImGuiWindowFlags_NoMove               |
+        ImGuiWindowFlags_NoScrollbar          |
+        ImGuiWindowFlags_NoBringToFrontOnFocus|
+        ImGuiWindowFlags_NoNavFocus           |
+        ImGuiWindowFlags_NoDocking            |
+        ImGuiWindowFlags_NoSavedSettings);
+    ImGui::PopStyleVar(3);
+
+    const float W     = vp->WorkSize.x;   // 650
+    const float H     = vp->WorkSize.y;   // 230
+    const float logH  = 46.0f;
+    const float imgH  = H - logH;         // 184
+
+    // ── Image area ──────────────────────────────────────────────
+    if (m_logoTex && m_logoSize.x > 0.0f && m_logoSize.y > 0.0f)
+    {
+        // Scale to fit while preserving aspect ratio
+        float scaleX = W      / m_logoSize.x;
+        float scaleY = imgH   / m_logoSize.y;
+        float scale  = (scaleX < scaleY) ? scaleX : scaleY;
+        ImVec2 drawSize = { m_logoSize.x * scale, m_logoSize.y * scale };
+
+        ImGui::SetCursorPos({
+            (W    - drawSize.x) * 0.5f,
+            (imgH - drawSize.y) * 0.5f
+        });
+        ImGui::Image((ImTextureID)(intptr_t)m_logoTex, drawSize);
+    }
+    else
+    {
+        // Text fallback when texture is unavailable
+        ImGui::SetWindowFontScale(2.0f);
+        const char* t = AppStr::SidebarLogoText;
+        ImGui::SetCursorPos({
+            (W - ImGui::CalcTextSize(t).x) * 0.5f,
+            imgH * 0.30f
+        });
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.82f, 1.00f, 1.00f));
+        ImGui::TextUnformatted(t);
+        ImGui::PopStyleColor();
+        ImGui::SetWindowFontScale(1.0f);
+    }
+
+    // ── Log bar (dark strip at the bottom) ──────────────────────
+    ImVec2 winPos = ImGui::GetWindowPos();
+    ImGui::GetWindowDrawList()->AddRectFilled(
+        { winPos.x,     winPos.y + imgH },
+        { winPos.x + W, winPos.y + H    },
+        IM_COL32(14, 14, 18, 255));
+
+    const float textY = imgH + (logH - ImGui::GetTextLineHeight()) * 0.5f;
+
+    // Status text — left side
+    ImGui::SetCursorPos({ 14.0f, textY });
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.55f, 0.68f, 1.00f));
+    ImGui::TextUnformatted(m_initStatus.load());
+    ImGui::PopStyleColor();
+
+    // Version — right side
+    const float verW = ImGui::CalcTextSize(AppStr::Version).x;
+    ImGui::SetCursorPos({ W - verW - 14.0f, textY });
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.32f, 0.32f, 0.42f, 1.00f));
+    ImGui::TextUnformatted(AppStr::Version);
+    ImGui::PopStyleColor();
+
+    ImGui::End();
+}
+
 void App::Render()
 {
+    // Splash phase: show loading screen until background init completes
+    if (m_appState == AppState::Splash)
+    {
+        if (m_initDone.load(std::memory_order_acquire))
+        {
+            // First detection: start 2-second hold
+            if (m_splashEndTime < 0.0)
+            {
+                m_splashEndTime = ImGui::GetTime() + 2.0;
+                m_initStatus.store("Ready.");
+            }
+
+            if (ImGui::GetTime() < m_splashEndTime)
+            {
+                RenderSplash();
+                return;
+            }
+
+            if (m_initThread.joinable())
+                m_initThread.join();
+
+            // Restore to full-size app window (WS_OVERLAPPEDWINDOW, 1280×720, centered)
+            {
+                const int appW = 1280, appH = 720;
+                const int screenW = GetSystemMetrics(SM_CXSCREEN);
+                const int screenH = GetSystemMetrics(SM_CYSCREEN);
+                SetWindowLongW((HWND)m_hwnd, GWL_STYLE, WS_OVERLAPPEDWINDOW);
+                SetWindowPos((HWND)m_hwnd, nullptr,
+                    (screenW - appW) / 2, (screenH - appH) / 2,
+                    appW, appH,
+                    SWP_FRAMECHANGED | SWP_NOZORDER | SWP_SHOWWINDOW);
+            }
+
+            m_appState = AppState::Running;
+            // fall through to render the first Running frame immediately
+        }
+        else
+        {
+            RenderSplash();
+            return;
+        }
+    }
+
     // Prevent any DockNode host windows (internally created by ImGui's docking
     // system) from being brought to front on focus -- otherwise clicking the
     // docked content area would cover the floating moveset editor windows.
@@ -607,11 +750,13 @@ void App::RenderSidebar(float sidebarWidth)
 
     // -- Settings button -- fixed at the bottom of the sidebar --
     {
+        const bool  hasUpdate    = AppUpdateIsReady();
+        const float updateH      = hasUpdate ? (buttonH + 4.0f) : 0.0f;
         const float settingsH    = buttonH + 4.0f;
         const float versionH     = 22.0f;
         const float sepH         = ImGui::GetStyle().ItemSpacing.y + 1.0f + 6.0f;
         const float remaining    = ImGui::GetContentRegionAvail().y;
-        const float reservedBot  = settingsH + sepH + versionH;
+        const float reservedBot  = settingsH + sepH + versionH + updateH;
 
         ImGui::SetCursorPosY(ImGui::GetCursorPosY() + remaining - reservedBot);
         ImGui::Separator();
@@ -632,6 +777,24 @@ void App::RenderSidebar(float sidebarWidth)
         }
         if (m_showSettings)
             ImGui::PopStyleColor(3);
+
+        // -- Update Ready button (green, shown once download completes) --
+        if (hasUpdate)
+        {
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 4.0f);
+            ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.12f, 0.55f, 0.22f, 1.00f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.18f, 0.72f, 0.32f, 1.00f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.15f, 0.64f, 0.28f, 1.00f));
+            ImGui::SetCursorPosX(paddingX);
+            if (ImGui::Button("Update Ready!", ImVec2(buttonW, buttonH)))
+            {
+                AppUpdateApply(m_exePath);
+                PostQuitMessage(0);
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+                ImGui::SetTooltip("Click to restart and install the update.");
+            ImGui::PopStyleColor(3);
+        }
     }
 
     // -- Version label --

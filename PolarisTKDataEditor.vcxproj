@@ -174,6 +174,7 @@ xcopy /Y /Q "$(ProjectDir)data\fbsdatas\data.json"        "$(OutDir)res\fbsdatas
     <ClCompile Include="src\FbsDataDict.cpp" />
     <ClCompile Include="src\FbsDataDictUpdater.cpp" />
     <ClCompile Include="src\KamuiDictUpdater.cpp" />
+    <ClCompile Include="src\AppUpdater.cpp" />
     <ClCompile Include="src\MovesetDataDictUpdater.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\App.cpp" />
