@@ -95,36 +95,57 @@ namespace FieldNames
     };
     constexpr int CharacterCount = 15;
 
-    // -- customize_item_exclusive_list.bin -- rule entry ------------------------
-    //    Entry type : CustomizeExclusiveRuleEntry   (4 fields, id 0..3)
-    //    Used by: rule_entries (id_0), group_rule_entries (id_2), set_rule_entries (id_4)
-    constexpr const char* ExclusiveRule[4] = {
-        "item_id",      // id: 0 | uint32
-        "hash",         // id: 1 | uint32
-        "link_type",    // id: 2 | uint32
-        "ref_item_id",  // id: 3 | uint32
-    };
+    // -- customize_item_exclusive_list.bin -----------------------------------------
+    //    5 sub-lists, each with its own field-name array.
+    //    Rule-type entries have 4 fields (id 0..3); Pair-type have 3 (id 0..2).
     constexpr int ExclusiveRuleCount = 4;
-
-    // -- customize_item_exclusive_list.bin -- pair entry ------------------------
-    //    Entry type : CustomizeExclusivePairEntry   (3 fields, id 0..2)
-    //    Used by: pair_entries (id_1), group_pair_entries (id_3)
-    constexpr const char* ExclusivePair[3] = {
-        "item_id_a",  // id: 0 | uint32
-        "item_id_b",  // id: 1 | uint32
-        "flag",       // id: 2 | uint32
-    };
     constexpr int ExclusivePairCount = 3;
 
-    // -- customize_item_exclusive_list.bin -- sub-vector names -----------------
-    //    These label the 5 array tabs shown in the exclusive list editor.
-    //    (Parent table field ids: id_0..id_4)
+    // id: 0 | rule_entries
+    constexpr const char* ExclusiveRule[4] = {
+        "Item ID",                 // id: 0 | uint32
+        "ItemPosition ID",         // id: 1 | uint32
+        "Link Type",               // id: 2 | uint32
+        "Ref Item ID",             // id: 3 | uint32
+    };
+
+    // id: 1 | pair_entries
+    constexpr const char* ExclusivePair[3] = {
+        "A - Item ID",  // id: 0 | uint32
+        "B - Item ID",      // id: 1 | uint32
+        "Flag",           // id: 2 | uint32
+    };
+
+    // id: 2 | group_rule_entries
+    constexpr const char* ExclusiveGroupRule[4] = {
+        "Local Item ID",            // id: 0 | uint32
+        "ItemPosition ID",          // id: 1 | uint32
+        "Link Type",                // id: 2 | uint32
+        "Ref Item ID",              // id: 3 | uint32
+    };
+
+    // id: 3 | group_pair_entries
+    constexpr const char* ExclusiveGroupPair[3] = {
+        "A - Local Item ID",        // id: 0 | uint32
+        "B - Local Item ID",       // id: 1 | uint32
+        "Flag",                     // id: 2 | uint32
+    };
+
+    // id: 4 | set_rule_entries
+    constexpr const char* ExclusiveSetRule[4] = {
+        "Local Item ID",    // id: 0 | uint32
+        "ItemPosition ID",  // id: 1 | uint32
+        "Link Type",        // id: 2 | uint32
+        "Ref Item ID",      // id: 3 | uint32
+    };
+
+    // Tab labels (5 tabs in the exclusive list editor)
     constexpr const char* ExclusiveArrays[5] = {
-        "rule_entries",        // id: 0 | [ExclusiveRule]
-        "pair_entries",        // id: 1 | [ExclusivePair]
-        "group_rule_entries",  // id: 2 | [ExclusiveRule]
-        "group_pair_entries",  // id: 3 | [ExclusivePair]
-        "set_rule_entries",    // id: 4 | [ExclusiveRule]
+        "rule_entries",        // id: 0
+        "pair_entries",        // id: 1
+        "group_rule_entries",  // id: 2
+        "group_pair_entries",  // id: 3
+        "set_rule_entries",    // id: 4
     };
 
     // -- area_list.bin ---------------------------------------------------------

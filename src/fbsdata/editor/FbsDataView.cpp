@@ -1065,8 +1065,131 @@ void FbsDataView::RenderCustomizeItemExclusiveListEditor(ContentsBinData& bin)
         ImGuiTableFlags_Hideable         |
         ImGuiTableFlags_SizingFixedFit;
 
-    // Helper: render a RuleEntry table (item_id, hash, link_type, ref_item_id)
-    auto RenderRuleTable = [&](const char* tableId, std::vector<CustomizeExclusiveRuleEntry>& entries) {
+    // -- Item list cache: common + unique entries from the current tkmod --
+    static std::vector<std::pair<uint32_t, std::string>> s_itemList;
+    // -- Local item list cache: deduplicated item_no values from common list --
+    static std::vector<std::pair<uint32_t, std::string>> s_localItemList;
+    static size_t s_cacheKey = SIZE_MAX;
+    {
+        size_t curKey = 0;
+        for (size_t ci = 0; ci < m_data.contents.size(); ++ci) {
+            const ContentsBinData& c = m_data.contents[ci];
+            if (c.type == BinType::CustomizeItemCommonList)
+                curKey += c.commonEntries.size();
+            else if (c.type == BinType::CustomizeItemUniqueList)
+                curKey += c.customizeItemUniqueEntries.size();
+        }
+        if (curKey != s_cacheKey) {
+            s_cacheKey = curKey;
+            s_itemList.clear();
+            s_localItemList.clear();
+            for (size_t ci = 0; ci < m_data.contents.size(); ++ci) {
+                const ContentsBinData& c = m_data.contents[ci];
+                if (c.type == BinType::CustomizeItemCommonList) {
+                    for (size_t ei = 0; ei < c.commonEntries.size(); ++ei) {
+                        const CustomizeItemCommonEntry& e = c.commonEntries[ei];
+                        // item_id list (AssetName display)
+                        char label[320];
+                        if (e.item_code[0])
+                            snprintf(label, sizeof(label), "%s (%u)", e.item_code, e.item_id);
+                        else
+                            snprintf(label, sizeof(label), "%u", e.item_id);
+                        s_itemList.push_back(std::make_pair(e.item_id, std::string(label)));
+                        // local item_no list (raw number, deduplicated)
+                        uint32_t no = (uint32_t)e.item_no;
+                        bool dup = false;
+                        for (size_t k = 0; k < s_localItemList.size(); ++k)
+                            if (s_localItemList[k].first == no) { dup = true; break; }
+                        if (!dup) {
+                            char noLabel[32];
+                            snprintf(noLabel, sizeof(noLabel), "%d", e.item_no);
+                            s_localItemList.push_back(std::make_pair(no, std::string(noLabel)));
+                        }
+                    }
+                } else if (c.type == BinType::CustomizeItemUniqueList) {
+                    for (size_t ei = 0; ei < c.customizeItemUniqueEntries.size(); ++ei) {
+                        const CustomizeItemUniqueEntry& e = c.customizeItemUniqueEntries[ei];
+                        char label[320];
+                        if (e.asset_name[0])
+                            snprintf(label, sizeof(label), "%s (%u)", e.asset_name, e.char_item_id);
+                        else
+                            snprintf(label, sizeof(label), "%u", e.char_item_id);
+                        s_itemList.push_back(std::make_pair(e.char_item_id, std::string(label)));
+                    }
+                }
+            }
+            std::sort(s_itemList.begin(), s_itemList.end(),
+                [](const std::pair<uint32_t,std::string>& a,
+                   const std::pair<uint32_t,std::string>& b){ return a.first < b.first; });
+            std::sort(s_localItemList.begin(), s_localItemList.end(),
+                [](const std::pair<uint32_t,std::string>& a,
+                   const std::pair<uint32_t,std::string>& b){ return a.first < b.first; });
+        }
+    }
+
+    // -- Manual input state for "Enter directly..." --
+    static uint32_t* s_manualTarget    = nullptr;
+    static char      s_manualBuf[32]   = {};
+    static bool      s_openManualPopup = false;
+
+    // -- Item ID combo cell (references common/unique list) --
+    auto ItemIdCell = [&](const char* id, uint32_t& val) {
+        const char* dispName = nullptr;
+        for (size_t k = 0; k < s_itemList.size(); ++k)
+            if (s_itemList[k].first == val) { dispName = s_itemList[k].second.c_str(); break; }
+
+        char preview[320];
+        if (dispName) snprintf(preview, sizeof(preview), "%s", dispName);
+        else          snprintf(preview, sizeof(preview), "%u", val);
+
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if (ImGui::BeginCombo(id, preview, ImGuiComboFlags_HeightLargest)) {
+            for (size_t k = 0; k < s_itemList.size(); ++k) {
+                bool sel = (val == s_itemList[k].first);
+                if (ImGui::Selectable(s_itemList[k].second.c_str(), sel))
+                    val = s_itemList[k].first;
+                if (sel) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::Separator();
+            if (ImGui::Selectable("Enter directly...")) {
+                snprintf(s_manualBuf, sizeof(s_manualBuf), "%u", val);
+                s_manualTarget    = &val;
+                s_openManualPopup = true;
+            }
+            ImGui::EndCombo();
+        }
+    };
+
+    // Local Item ID combo cell (common list item_no, raw number display)
+    auto LocalItemIdCell = [&](const char* id, uint32_t& val) {
+        const char* dispName = nullptr;
+        for (size_t k = 0; k < s_localItemList.size(); ++k)
+            if (s_localItemList[k].first == val) { dispName = s_localItemList[k].second.c_str(); break; }
+
+        char preview[32];
+        snprintf(preview, sizeof(preview), "%u", val);
+        (void)dispName; // display is the raw number regardless
+
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if (ImGui::BeginCombo(id, preview, ImGuiComboFlags_HeightLargest)) {
+            for (size_t k = 0; k < s_localItemList.size(); ++k) {
+                bool sel = (val == s_localItemList[k].first);
+                if (ImGui::Selectable(s_localItemList[k].second.c_str(), sel))
+                    val = s_localItemList[k].first;
+                if (sel) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::Separator();
+            if (ImGui::Selectable("Enter directly...")) {
+                snprintf(s_manualBuf, sizeof(s_manualBuf), "%u", val);
+                s_manualTarget    = &val;
+                s_openManualPopup = true;
+            }
+            ImGui::EndCombo();
+        }
+    };
+
+    // Helper: render a RuleEntry table
+    auto RenderRuleTable = [&](const char* tableId, std::vector<CustomizeExclusiveRuleEntry>& entries, const char* const* fieldNames, bool useItemIdDropdown, bool useLocalDropdown) {
         const float addBtnW = 100.0f;
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.42f, 0.42f, 0.54f, 1.00f));
         ImGui::Text("(%d entries)", (int)entries.size());
@@ -1083,7 +1206,7 @@ void FbsDataView::RenderCustomizeItemExclusiveListEditor(ContentsBinData& bin)
         ImGui::TableSetupScrollFreeze(1, 1);
         ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
         for (int fi = 0; fi < FieldNames::ExclusiveRuleCount; ++fi)
-            ImGui::TableSetupColumn(FieldNames::ExclusiveRule[fi],
+            ImGui::TableSetupColumn(fieldNames[fi],
                                     ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kExclusiveRule[fi]);
         ImGui::TableHeadersRow();
 
@@ -1109,10 +1232,16 @@ void FbsDataView::RenderCustomizeItemExclusiveListEditor(ContentsBinData& bin)
                 ImGui::SetNextItemWidth(-FLT_MIN);
                 ImGui::InputScalar(id, ImGuiDataType_U32, &v);
             };
-            ImGui::TableSetColumnIndex(1); U32Cell("##iid",  e.item_id);
-            ImGui::TableSetColumnIndex(2); U32Cell("##hash", e.hash);
+            ImGui::TableSetColumnIndex(1);
+            if (useItemIdDropdown)    ItemIdCell("##iid",      e.item_id);
+            else if (useLocalDropdown) LocalItemIdCell("##iid", e.item_id);
+            else                       U32Cell("##iid",         e.item_id);
+            ImGui::TableSetColumnIndex(2); HashComboCell("##hash", e.hash, FbsDataDict::Get().GetTypeHashCodeMap(), GetTypeHashItems());
             ImGui::TableSetColumnIndex(3); U32Cell("##lt",   e.link_type);
-            ImGui::TableSetColumnIndex(4); U32Cell("##rid",  e.ref_item_id);
+            ImGui::TableSetColumnIndex(4);
+            if (useItemIdDropdown)    ItemIdCell("##rid",      e.ref_item_id);
+            else if (useLocalDropdown) LocalItemIdCell("##rid", e.ref_item_id);
+            else                       U32Cell("##rid",         e.ref_item_id);
 
             ImGui::PopID();
         }
@@ -1122,8 +1251,8 @@ void FbsDataView::RenderCustomizeItemExclusiveListEditor(ContentsBinData& bin)
         ImGui::EndTable();
     };
 
-    // Helper: render a PairEntry table (item_id_a, item_id_b, flag)
-    auto RenderPairTable = [&](const char* tableId, std::vector<CustomizeExclusivePairEntry>& entries) {
+    // Helper: render a PairEntry table
+    auto RenderPairTable = [&](const char* tableId, std::vector<CustomizeExclusivePairEntry>& entries, const char* const* fieldNames, bool useItemIdDropdown, bool useLocalDropdown) {
         const float addBtnW = 100.0f;
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.42f, 0.42f, 0.54f, 1.00f));
         ImGui::Text("(%d entries)", (int)entries.size());
@@ -1140,7 +1269,7 @@ void FbsDataView::RenderCustomizeItemExclusiveListEditor(ContentsBinData& bin)
         ImGui::TableSetupScrollFreeze(1, 1);
         ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRowCtrl);
         for (int fi = 0; fi < FieldNames::ExclusivePairCount; ++fi)
-            ImGui::TableSetupColumn(FieldNames::ExclusivePair[fi],
+            ImGui::TableSetupColumn(fieldNames[fi],
                                     ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kExclusivePair[fi]);
         ImGui::TableHeadersRow();
 
@@ -1166,8 +1295,14 @@ void FbsDataView::RenderCustomizeItemExclusiveListEditor(ContentsBinData& bin)
                 ImGui::SetNextItemWidth(-FLT_MIN);
                 ImGui::InputScalar(id, ImGuiDataType_U32, &v);
             };
-            ImGui::TableSetColumnIndex(1); U32Cell("##ia",   e.item_id_a);
-            ImGui::TableSetColumnIndex(2); U32Cell("##ib",   e.item_id_b);
+            ImGui::TableSetColumnIndex(1);
+            if (useItemIdDropdown)    ItemIdCell("##ia",       e.item_id_a);
+            else if (useLocalDropdown) LocalItemIdCell("##ia",  e.item_id_a);
+            else                       U32Cell("##ia",          e.item_id_a);
+            ImGui::TableSetColumnIndex(2);
+            if (useItemIdDropdown)    ItemIdCell("##ib",       e.item_id_b);
+            else if (useLocalDropdown) LocalItemIdCell("##ib",  e.item_id_b);
+            else                       U32Cell("##ib",          e.item_id_b);
             ImGui::TableSetColumnIndex(3); U32Cell("##flag", e.flag);
 
             ImGui::PopID();
@@ -1182,30 +1317,55 @@ void FbsDataView::RenderCustomizeItemExclusiveListEditor(ContentsBinData& bin)
     {
         if (ImGui::BeginTabItem(FieldNames::ExclusiveArrays[0]))
         {
-            RenderRuleTable("##RuleTable", bin.exclusiveRuleEntries);
+            RenderRuleTable("##RuleTable",    bin.exclusiveRuleEntries,      FieldNames::ExclusiveRule,      true,  false);
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem(FieldNames::ExclusiveArrays[1]))
         {
-            RenderPairTable("##PairTable", bin.exclusivePairEntries);
+            RenderPairTable("##PairTable",    bin.exclusivePairEntries,      FieldNames::ExclusivePair,      true,  false);
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem(FieldNames::ExclusiveArrays[2]))
         {
-            RenderRuleTable("##GrpRuleTable", bin.exclusiveGroupRuleEntries);
+            RenderRuleTable("##GrpRuleTable", bin.exclusiveGroupRuleEntries, FieldNames::ExclusiveGroupRule, false, true);
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem(FieldNames::ExclusiveArrays[3]))
         {
-            RenderPairTable("##GrpPairTable", bin.exclusiveGroupPairEntries);
+            RenderPairTable("##GrpPairTable", bin.exclusiveGroupPairEntries, FieldNames::ExclusiveGroupPair, false, true);
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem(FieldNames::ExclusiveArrays[4]))
         {
-            RenderRuleTable("##SetRuleTable", bin.exclusiveSetRuleEntries);
+            RenderRuleTable("##SetRuleTable", bin.exclusiveSetRuleEntries,   FieldNames::ExclusiveSetRule,   false, true);
             ImGui::EndTabItem();
         }
         ImGui::EndTabBar();
+    }
+
+    // "Enter directly..." manual input popup
+    // OpenPopup must be called at the same window level as BeginPopup,
+    // not from inside BeginCombo's context.
+    if (s_openManualPopup) {
+        ImGui::OpenPopup("##excl_manual_id");
+        s_openManualPopup = false;
+    }
+    if (ImGui::BeginPopup("##excl_manual_id")) {
+        ImGui::SetNextItemWidth(140.f);
+        ImGui::InputText("##mid", s_manualBuf, sizeof(s_manualBuf),
+                         ImGuiInputTextFlags_CharsDecimal);
+        ImGui::SameLine();
+        if (ImGui::SmallButton("OK") && s_manualTarget) {
+            *s_manualTarget = (uint32_t)strtoul(s_manualBuf, nullptr, 10);
+            s_manualTarget = nullptr;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Cancel")) {
+            s_manualTarget = nullptr;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
     }
 }
 
