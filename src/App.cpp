@@ -307,8 +307,8 @@ void App::RunInitThread()
         }
     }
 
-    m_initStatus.store("Starting...");
-    AppUpdateCheckAndDownload(m_exePath);
+    m_initStatus.store("Checking for updates...");
+    AppUpdateCheck(m_exePath);
 
     m_initDone.store(true, std::memory_order_release);
 }
@@ -441,18 +441,45 @@ void App::RenderSplash()
 
     // ── Log bar (dark strip at the bottom) ──────────────────────
     ImVec2 winPos = ImGui::GetWindowPos();
-    ImGui::GetWindowDrawList()->AddRectFilled(
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(
         { winPos.x,     winPos.y + imgH },
         { winPos.x + W, winPos.y + H    },
         IM_COL32(14, 14, 18, 255));
 
     const float textY = imgH + (logH - ImGui::GetTextLineHeight()) * 0.5f;
 
-    // Status text — left side
-    ImGui::SetCursorPos({ 14.0f, textY });
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.55f, 0.68f, 1.00f));
-    ImGui::TextUnformatted(m_initStatus.load());
-    ImGui::PopStyleColor();
+    AppUpdateStatus updStatus = AppUpdateGetStatus();
+    if (updStatus == AppUpdateStatus::Downloading)
+    {
+        // Green progress fill behind the log bar
+        float prog = AppUpdateGetDownloadProgress();
+        dl->AddRectFilled(
+            { winPos.x,              winPos.y + imgH },
+            { winPos.x + W * prog,   winPos.y + H    },
+            IM_COL32(20, 90, 40, 200));
+
+        char progBuf[64];
+        snprintf(progBuf, sizeof(progBuf), "Downloading update... %.0f%%", prog * 100.0f);
+        ImGui::SetCursorPos({ 14.0f, textY });
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.60f, 0.90f, 0.65f, 1.00f));
+        ImGui::TextUnformatted(progBuf);
+        ImGui::PopStyleColor();
+    }
+    else if (updStatus == AppUpdateStatus::DownloadFailed)
+    {
+        ImGui::SetCursorPos({ 14.0f, textY });
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.90f, 0.40f, 0.40f, 1.00f));
+        ImGui::TextUnformatted("Download failed. Continuing without update.");
+        ImGui::PopStyleColor();
+    }
+    else
+    {
+        ImGui::SetCursorPos({ 14.0f, textY });
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.55f, 0.68f, 1.00f));
+        ImGui::TextUnformatted(m_initStatus.load());
+        ImGui::PopStyleColor();
+    }
 
     // Version — right side
     const float verW = ImGui::CalcTextSize(AppStr::Version).x;
@@ -462,6 +489,64 @@ void App::RenderSplash()
     ImGui::PopStyleColor();
 
     ImGui::End();
+
+    // ── Update confirmation dialog (drawn on top when update is available) ──
+    if (updStatus == AppUpdateStatus::Available)
+    {
+        const ImGuiViewport* dvp = ImGui::GetMainViewport();
+        const ImVec2 dlgSize = { 360.0f, 148.0f };
+        ImGui::SetNextWindowPos(
+            { dvp->WorkPos.x + (dvp->WorkSize.x - dlgSize.x) * 0.5f,
+              dvp->WorkPos.y + (dvp->WorkSize.y - dlgSize.y) * 0.5f },
+            ImGuiCond_Always);
+        ImGui::SetNextWindowSize(dlgSize, ImGuiCond_Always);
+
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding,   6.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,    ImVec2(16.0f, 14.0f));
+        ImGui::Begin("##UpdateDlg", nullptr,
+            ImGuiWindowFlags_NoTitleBar    | ImGuiWindowFlags_NoCollapse |
+            ImGuiWindowFlags_NoResize      | ImGuiWindowFlags_NoMove     |
+            ImGuiWindowFlags_NoScrollbar   | ImGuiWindowFlags_NoDocking  |
+            ImGuiWindowFlags_NoSavedSettings);
+        ImGui::PopStyleVar(3);
+
+        const AppUpdateInfo& info = AppUpdateGetInfo();
+
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.82f, 1.00f, 1.00f));
+        ImGui::TextUnformatted("Update Available");
+        ImGui::PopStyleColor();
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        char msgBuf[128];
+        if (!info.versionStr.empty())
+            snprintf(msgBuf, sizeof(msgBuf), "Version %s is available.", info.versionStr.c_str());
+        else
+            snprintf(msgBuf, sizeof(msgBuf), "A new version is available.");
+        ImGui::TextUnformatted(msgBuf);
+        ImGui::TextUnformatted("Would you like to update and restart?");
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        const float btnW = (dlgSize.x - 16.0f * 2.0f - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+
+        ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.12f, 0.55f, 0.22f, 1.00f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.18f, 0.72f, 0.32f, 1.00f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.15f, 0.64f, 0.28f, 1.00f));
+        if (ImGui::Button("Update and Restart", ImVec2(btnW, 0)))
+            AppUpdateBeginDownload();
+        ImGui::PopStyleColor(3);
+
+        ImGui::SameLine();
+
+        if (ImGui::Button("No", ImVec2(btnW, 0)))
+            AppUpdateDecline();
+
+        ImGui::End();
+    }
 }
 
 void App::Render()
@@ -469,13 +554,34 @@ void App::Render()
     // Splash phase: show loading screen until background init completes
     if (m_appState == AppState::Splash)
     {
+        AppUpdateStatus updStatus = AppUpdateGetStatus();
+
+        // Download finished — apply and quit immediately
+        if (updStatus == AppUpdateStatus::Ready)
+        {
+            if (m_initThread.joinable()) m_initThread.join();
+            AppUpdateApply();
+            PostQuitMessage(0);
+            return;
+        }
+
         if (m_initDone.load(std::memory_order_acquire))
         {
-            // First detection: start 2-second hold
+            // Keep showing splash while user is deciding or download is in progress
+            if (updStatus == AppUpdateStatus::Available ||
+                updStatus == AppUpdateStatus::Downloading)
+            {
+                RenderSplash();
+                return;
+            }
+
+            // No update / up to date / declined / failed — start 2-second hold
             if (m_splashEndTime < 0.0)
             {
-                m_splashEndTime = ImGui::GetTime() + 2.0;
                 m_initStatus.store("Ready.");
+                // Transition immediately when user explicitly declined
+                double hold = (updStatus == AppUpdateStatus::Declined) ? 0.0 : 2.0;
+                m_splashEndTime = ImGui::GetTime() + hold;
             }
 
             if (ImGui::GetTime() < m_splashEndTime)
@@ -750,13 +856,11 @@ void App::RenderSidebar(float sidebarWidth)
 
     // -- Settings button -- fixed at the bottom of the sidebar --
     {
-        const bool  hasUpdate    = AppUpdateIsReady();
-        const float updateH      = hasUpdate ? (buttonH + 4.0f) : 0.0f;
         const float settingsH    = buttonH + 4.0f;
         const float versionH     = 22.0f;
         const float sepH         = ImGui::GetStyle().ItemSpacing.y + 1.0f + 6.0f;
         const float remaining    = ImGui::GetContentRegionAvail().y;
-        const float reservedBot  = settingsH + sepH + versionH + updateH;
+        const float reservedBot  = settingsH + sepH + versionH;
 
         ImGui::SetCursorPosY(ImGui::GetCursorPosY() + remaining - reservedBot);
         ImGui::Separator();
@@ -777,24 +881,6 @@ void App::RenderSidebar(float sidebarWidth)
         }
         if (m_showSettings)
             ImGui::PopStyleColor(3);
-
-        // -- Update Ready button (green, shown once download completes) --
-        if (hasUpdate)
-        {
-            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 4.0f);
-            ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.12f, 0.55f, 0.22f, 1.00f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.18f, 0.72f, 0.32f, 1.00f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.15f, 0.64f, 0.28f, 1.00f));
-            ImGui::SetCursorPosX(paddingX);
-            if (ImGui::Button("Update Ready!", ImVec2(buttonW, buttonH)))
-            {
-                AppUpdateApply(m_exePath);
-                PostQuitMessage(0);
-            }
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
-                ImGui::SetTooltip("Click to restart and install the update.");
-            ImGui::PopStyleColor(3);
-        }
     }
 
     // -- Version label --

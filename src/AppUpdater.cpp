@@ -1,9 +1,9 @@
 // AppUpdater.cpp
-// Checks data/app-version/version.json on raw.githubusercontent.com.
-// If remote version > APPSTR_VERSION_INT, downloads the exe from download_url
-// (follows GitHub Releases redirect) and saves it as <exePath>.new.
-// AppUpdateApply() writes a batch script that waits for this process to exit,
-// replaces the exe, then re-launches it.
+// File-by-file update from the repo's _Release/ directory.
+//   Check: fetches version.json synchronously (5s timeout) in init thread.
+//   Download: GitHub Git Trees API → enumerate _Release/ blobs →
+//             download each file to %TEMP%\PolarisUpdate\ preserving relative paths.
+//   Apply: BAT + PS1 wait for this PID, Copy-Item to exeDir, relaunch.
 #include "AppUpdater.h"
 #include "AppStrings.h"
 #define NOMINMAX
@@ -16,18 +16,27 @@
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 
-static const wchar_t* kAgent   = L"PolarisTKDataEditor/1.0";
-static const wchar_t* kVerHost = L"raw.githubusercontent.com";
-static const wchar_t* kVerPath = L"/umin135/Polaris_TKDataModEditor/main/data/app-version/version.json";
+static const wchar_t* kAgent    = L"PolarisTKDataEditor/1.0";
+static const wchar_t* kVerHost  = L"raw.githubusercontent.com";
+static const wchar_t* kVerPath  = L"/umin135/Polaris_TKDataModEditor/main/data/app-version/version.json";
+static const wchar_t* kApiHost  = L"api.github.com";
+static const wchar_t* kApiTree  = L"/repos/umin135/Polaris_TKDataModEditor/git/trees/main?recursive=1";
+static const char*    kRawBase  = "https://raw.githubusercontent.com/umin135/Polaris_TKDataModEditor/main/";
+static const char*    kRelPrefix = "_Release/";
 
-static std::atomic<bool> s_ready{false};
+static std::atomic<AppUpdateStatus> s_status  { AppUpdateStatus::Idle };
+static AppUpdateInfo                 s_info    {};
+static std::atomic<float>           s_progress{ 0.0f };
+static std::string                  s_exePath;
+static std::string                  s_tempDir;
 
 // ---------------------------------------------------------------------------
 //  HTTP helpers
 // ---------------------------------------------------------------------------
 
-static std::string HttpsGetStr(const wchar_t* host, const wchar_t* path, int timeoutMs = 8000)
+static std::string HttpsGetStr(const wchar_t* host, const wchar_t* path, int timeoutMs = 5000)
 {
     std::string result;
     HINTERNET hSess = WinHttpOpen(kAgent, WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
@@ -57,31 +66,30 @@ static std::string HttpsGetStr(const wchar_t* host, const wchar_t* path, int tim
     return result;
 }
 
-// Download binary from an arbitrary HTTPS URL, following cross-host redirects
-// (required for GitHub Releases assets which redirect to CDN).
-static std::vector<uint8_t> HttpsGetBinary(const std::wstring& url, int timeoutMs = 60000)
+// Downloads an arbitrary HTTPS URL to a file path, following redirects.
+static bool HttpsDownloadToFile(const std::wstring& url, const std::string& destPath, int timeoutMs = 30000)
 {
-    std::vector<uint8_t> result;
     URL_COMPONENTS uc = {};
     uc.dwStructSize = sizeof(uc);
     wchar_t hostBuf[512] = {}, pathBuf[4096] = {};
     uc.lpszHostName = hostBuf; uc.dwHostNameLength = 512;
     uc.lpszUrlPath  = pathBuf; uc.dwUrlPathLength  = 4096;
-    if (!WinHttpCrackUrl(url.c_str(), 0, 0, &uc)) return result;
+    if (!WinHttpCrackUrl(url.c_str(), 0, 0, &uc)) return false;
 
     HINTERNET hSess = WinHttpOpen(kAgent, WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
         WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
-    if (!hSess) return result;
+    if (!hSess) return false;
     HINTERNET hConn = WinHttpConnect(hSess, hostBuf, INTERNET_DEFAULT_HTTPS_PORT, 0);
-    if (!hConn) { WinHttpCloseHandle(hSess); return result; }
+    if (!hConn) { WinHttpCloseHandle(hSess); return false; }
     HINTERNET hReq  = WinHttpOpenRequest(hConn, L"GET", pathBuf, nullptr,
         WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
-    if (!hReq) { WinHttpCloseHandle(hConn); WinHttpCloseHandle(hSess); return result; }
+    if (!hReq) { WinHttpCloseHandle(hConn); WinHttpCloseHandle(hSess); return false; }
 
     DWORD policy = WINHTTP_OPTION_REDIRECT_POLICY_ALWAYS;
     WinHttpSetOption(hReq, WINHTTP_OPTION_REDIRECT_POLICY, &policy, sizeof(policy));
     WinHttpSetTimeouts(hReq, timeoutMs, timeoutMs, timeoutMs, timeoutMs);
 
+    bool success = false;
     if (WinHttpSendRequest(hReq, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
                            WINHTTP_NO_REQUEST_DATA, 0, 0, 0) &&
         WinHttpReceiveResponse(hReq, nullptr))
@@ -90,17 +98,25 @@ static std::vector<uint8_t> HttpsGetBinary(const std::wstring& url, int timeoutM
         WinHttpQueryHeaders(hReq, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
             WINHTTP_HEADER_NAME_BY_INDEX, &code, &codeLen, WINHTTP_NO_HEADER_INDEX);
         if (code == 200) {
-            DWORD read = 0; uint8_t buf[65536];
-            while (WinHttpReadData(hReq, buf, sizeof(buf), &read) && read > 0)
-                result.insert(result.end(), buf, buf + read);
+            FILE* f = nullptr;
+            fopen_s(&f, destPath.c_str(), "wb");
+            if (f) {
+                DWORD read = 0; uint8_t buf[65536];
+                success = true;
+                while (WinHttpReadData(hReq, buf, sizeof(buf), &read) && read > 0) {
+                    if (fwrite(buf, 1, read, f) != read) { success = false; break; }
+                }
+                fclose(f);
+                if (!success) remove(destPath.c_str());
+            }
         }
     }
     WinHttpCloseHandle(hReq); WinHttpCloseHandle(hConn); WinHttpCloseHandle(hSess);
-    return result;
+    return success;
 }
 
 // ---------------------------------------------------------------------------
-//  JSON mini-parsers
+//  JSON parsers
 // ---------------------------------------------------------------------------
 
 static int ParseVersion(const std::string& json)
@@ -114,18 +130,69 @@ static int ParseVersion(const std::string& json)
     return (pos < json.size()) ? std::atoi(json.c_str() + pos) : -1;
 }
 
-static std::string ParseDownloadUrl(const std::string& json)
+static std::string ParseStringField(const std::string& json, const char* field)
 {
-    size_t pos = json.find("\"download_url\"");
+    size_t pos = json.find(field);
     if (pos == std::string::npos) return {};
     pos = json.find(':', pos);
     if (pos == std::string::npos) return {};
     while (pos < json.size() && json[pos] != '"') ++pos;
     if (pos >= json.size()) return {};
-    ++pos; // skip opening quote
+    ++pos;
     size_t end = json.find('"', pos);
     if (end == std::string::npos) return {};
     return json.substr(pos, end - pos);
+}
+
+// Extract { "path": "...", "type": "blob" } entries from git/trees JSON
+// where path starts with "_Release/".
+static std::vector<std::string> ParseReleasePaths(const std::string& json)
+{
+    std::vector<std::string> result;
+    const std::string relPrefix = kRelPrefix;
+
+    size_t treePos = json.find("\"tree\":");
+    if (treePos == std::string::npos) return result;
+    size_t pos = json.find('[', treePos);
+    if (pos == std::string::npos) return result;
+
+    while (true)
+    {
+        size_t obj0 = json.find('{', pos);
+        if (obj0 == std::string::npos) break;
+        size_t obj1 = json.find('}', obj0);
+        if (obj1 == std::string::npos) break;
+
+        std::string obj = json.substr(obj0, obj1 - obj0 + 1);
+
+        std::string objPath, objType;
+
+        size_t pPos = obj.find("\"path\":\"");
+        if (pPos != std::string::npos) {
+            pPos += 8;
+            size_t pEnd = obj.find('"', pPos);
+            if (pEnd != std::string::npos)
+                objPath = obj.substr(pPos, pEnd - pPos);
+        }
+
+        size_t tPos = obj.find("\"type\":\"");
+        if (tPos != std::string::npos) {
+            tPos += 8;
+            size_t tEnd = obj.find('"', tPos);
+            if (tEnd != std::string::npos)
+                objType = obj.substr(tPos, tEnd - tPos);
+        }
+
+        if (objType == "blob" &&
+            objPath.size() > relPrefix.size() &&
+            objPath.compare(0, relPrefix.size(), relPrefix) == 0)
+        {
+            result.push_back(objPath);
+        }
+
+        pos = obj1 + 1;
+    }
+    return result;
 }
 
 static std::wstring Utf8ToWide(const std::string& s)
@@ -139,62 +206,151 @@ static std::wstring Utf8ToWide(const std::string& s)
 }
 
 // ---------------------------------------------------------------------------
-//  Background thread
+//  Filesystem helpers
 // ---------------------------------------------------------------------------
 
-static void UpdateThread(std::string exePath)
+// Create all directory components of a path (no trailing separator).
+static void CreateDirRecursive(const std::string& path)
 {
-    std::string verJson = HttpsGetStr(kVerHost, kVerPath);
-    if (verJson.empty()) return;
+    for (size_t i = 1; i < path.size(); ++i) {
+        if (path[i] == '\\' || path[i] == '/') {
+            std::string sub = path.substr(0, i);
+            CreateDirectoryA(sub.c_str(), nullptr);
+        }
+    }
+    CreateDirectoryA(path.c_str(), nullptr);
+}
 
-    int remoteVer = ParseVersion(verJson);
-    if (remoteVer <= 0 || remoteVer <= APPSTR_VERSION_INT) return;
+// Replace all '/' with '\\' in place.
+static void ForwardToBackslash(std::string& s)
+{
+    for (char& c : s)
+        if (c == '/') c = '\\';
+}
 
-    std::string downloadUrl = ParseDownloadUrl(verJson);
-    if (downloadUrl.empty()) return;
+// ---------------------------------------------------------------------------
+//  Background download thread
+// ---------------------------------------------------------------------------
 
-    std::wstring wUrl = Utf8ToWide(downloadUrl);
-    if (wUrl.empty()) return;
+static void DownloadThread()
+{
+    // 1. Enumerate _Release/ files via Git Trees API
+    std::string treeJson = HttpsGetStr(kApiHost, kApiTree, 15000);
+    if (treeJson.empty()) {
+        s_status.store(AppUpdateStatus::DownloadFailed, std::memory_order_release);
+        return;
+    }
 
-    std::vector<uint8_t> data = HttpsGetBinary(wUrl);
-    if (data.size() < 2 || data[0] != 'M' || data[1] != 'Z') return;
+    std::vector<std::string> paths = ParseReleasePaths(treeJson);
+    if (paths.empty()) {
+        s_status.store(AppUpdateStatus::DownloadFailed, std::memory_order_release);
+        return;
+    }
 
-    std::string newPath = exePath + ".new";
-    FILE* f = nullptr;
-    fopen_s(&f, newPath.c_str(), "wb");
-    if (!f) return;
-    bool ok = (fwrite(data.data(), 1, data.size(), f) == data.size());
-    fclose(f);
-    if (!ok) { remove(newPath.c_str()); return; }
+    // 2. Download each file to s_tempDir, maintaining relative path
+    const size_t prefixLen = strlen(kRelPrefix);
 
-    s_ready.store(true, std::memory_order_release);
+    for (int i = 0; i < (int)paths.size(); ++i)
+    {
+        // relPath: strip "_Release/" prefix, convert to backslashes
+        std::string relPath = paths[i].substr(prefixLen);
+        ForwardToBackslash(relPath);
+
+        std::string destPath = s_tempDir + relPath;
+
+        // Ensure parent directory exists
+        size_t lastSep = destPath.rfind('\\');
+        if (lastSep != std::string::npos)
+            CreateDirRecursive(destPath.substr(0, lastSep));
+
+        // Download from raw.githubusercontent.com
+        std::wstring url = Utf8ToWide(std::string(kRawBase) + paths[i]);
+        if (!HttpsDownloadToFile(url, destPath)) {
+            s_status.store(AppUpdateStatus::DownloadFailed, std::memory_order_release);
+            return;
+        }
+
+        s_progress.store((float)(i + 1) / (float)paths.size(), std::memory_order_relaxed);
+    }
+
+    s_status.store(AppUpdateStatus::Ready, std::memory_order_release);
 }
 
 // ---------------------------------------------------------------------------
 //  Public API
 // ---------------------------------------------------------------------------
 
-void AppUpdateCheckAndDownload(const std::string& exePath)
+void AppUpdateCheck(const std::string& exePath)
 {
-    std::thread(UpdateThread, exePath).detach();
+    s_exePath = exePath;
+
+    std::string verJson = HttpsGetStr(kVerHost, kVerPath);
+    if (verJson.empty()) return;
+
+    int remoteVer = ParseVersion(verJson);
+    if (remoteVer <= 0 || remoteVer <= APPSTR_VERSION_INT) {
+        s_status.store(AppUpdateStatus::UpToDate, std::memory_order_release);
+        return;
+    }
+
+    s_info.version    = remoteVer;
+    s_info.versionStr = ParseStringField(verJson, "\"version_str\"");
+
+    s_status.store(AppUpdateStatus::Available, std::memory_order_release);
 }
 
-bool AppUpdateIsReady()
+AppUpdateStatus AppUpdateGetStatus()
 {
-    return s_ready.load(std::memory_order_acquire);
+    return s_status.load(std::memory_order_acquire);
 }
 
-void AppUpdateApply(const std::string& exePath)
+const AppUpdateInfo& AppUpdateGetInfo()
 {
-    std::string exeDir = exePath;
+    return s_info;
+}
+
+float AppUpdateGetDownloadProgress()
+{
+    return s_progress.load(std::memory_order_relaxed);
+}
+
+void AppUpdateBeginDownload()
+{
+    char tempBuf[MAX_PATH] = {};
+    GetTempPathA(MAX_PATH, tempBuf);
+    s_tempDir = std::string(tempBuf) + "PolarisUpdate\\";
+    s_progress.store(0.0f, std::memory_order_relaxed);
+    s_status.store(AppUpdateStatus::Downloading, std::memory_order_release);
+    std::thread(DownloadThread).detach();
+}
+
+void AppUpdateApply()
+{
+    std::string exeDir = s_exePath;
     size_t sep = exeDir.rfind('\\');
     if (sep != std::string::npos) exeDir = exeDir.substr(0, sep);
 
-    std::string newPath = exePath + ".new";
-    std::string batPath = exeDir + "\\update_apply.bat";
     DWORD pid = GetCurrentProcessId();
 
-    // Batch: wait for this PID to exit, replace exe, relaunch.
+    std::string batPath = exeDir + "\\update_apply.bat";
+    std::string ps1Path = exeDir + "\\update_apply.ps1";
+
+    // PS1: copy downloaded files to exe dir, then clean up temp
+    char ps1[2048];
+    snprintf(ps1, sizeof(ps1),
+        "$src  = '%s'\r\n"
+        "$dest = '%s'\r\n"
+        "Copy-Item -Path \"$src*\" -Destination $dest -Recurse -Force\r\n"
+        "Remove-Item $src -Recurse -Force -ErrorAction SilentlyContinue\r\n",
+        s_tempDir.c_str(), exeDir.c_str());
+
+    {
+        FILE* f = nullptr;
+        fopen_s(&f, ps1Path.c_str(), "w");
+        if (f) { fputs(ps1, f); fclose(f); }
+    }
+
+    // BAT: wait for this PID, run PS1, relaunch exe
     char bat[2048];
     snprintf(bat, sizeof(bat),
         "@echo off\r\n"
@@ -204,18 +360,27 @@ void AppUpdateApply(const std::string& exePath)
         "    timeout /t 1 /nobreak >nul\r\n"
         "    goto wait\r\n"
         ")\r\n"
-        "move /y \"%s\" \"%s\"\r\n"
+        "powershell -NoProfile -ExecutionPolicy Bypass -File \"%s\"\r\n"
         "if errorlevel 1 goto end\r\n"
         "start \"\" \"%s\"\r\n"
         ":end\r\n"
+        "del \"%s\" 2>nul\r\n"
         "del \"%%~f0\"\r\n",
         (unsigned long)pid, (unsigned long)pid,
-        newPath.c_str(), exePath.c_str(),
-        exePath.c_str());
+        ps1Path.c_str(),
+        s_exePath.c_str(),
+        ps1Path.c_str());
 
-    FILE* f = nullptr;
-    fopen_s(&f, batPath.c_str(), "w");
-    if (f) { fputs(bat, f); fclose(f); }
+    {
+        FILE* f = nullptr;
+        fopen_s(&f, batPath.c_str(), "w");
+        if (f) { fputs(bat, f); fclose(f); }
+    }
 
     ShellExecuteA(nullptr, "open", batPath.c_str(), nullptr, exeDir.c_str(), SW_HIDE);
+}
+
+void AppUpdateDecline()
+{
+    s_status.store(AppUpdateStatus::Declined, std::memory_order_release);
 }

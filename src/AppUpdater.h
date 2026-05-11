@@ -1,10 +1,32 @@
 #pragma once
 #include <string>
 
-// Background app-update check against GitHub.
-// Call AppUpdateCheckAndDownload() once at startup (spawns detached thread).
-// Poll AppUpdateIsReady() each frame; when true, call AppUpdateApply() + PostQuitMessage(0).
+// ZIP-based app update flow:
+//   1. AppUpdateCheck()       — synchronous, call from background init thread
+//   2. AppUpdateGetStatus()   — poll from main thread each frame
+//   3. AppUpdateBeginDownload() — called when user confirms
+//   4. AppUpdateApply()       — called when Ready; caller must PostQuitMessage(0)
+//   5. AppUpdateDecline()     — called when user says No
 
-void AppUpdateCheckAndDownload(const std::string& exePath);
-bool AppUpdateIsReady();
-void AppUpdateApply(const std::string& exePath);
+enum class AppUpdateStatus {
+    Idle,           // not yet checked
+    UpToDate,       // checked, no newer version
+    Available,      // newer version found, awaiting user decision
+    Downloading,    // user confirmed, ZIP download in progress
+    Ready,          // ZIP downloaded and verified, ready to apply
+    Declined,       // user chose not to update
+    DownloadFailed, // download error
+};
+
+struct AppUpdateInfo {
+    int         version    = 0;
+    std::string versionStr;
+};
+
+void AppUpdateCheck(const std::string& exePath);  // synchronous — run in init thread
+AppUpdateStatus      AppUpdateGetStatus();
+const AppUpdateInfo& AppUpdateGetInfo();
+float                AppUpdateGetDownloadProgress();  // 0..1
+void AppUpdateBeginDownload();
+void AppUpdateApply();     // writes batch+ps1, launches batch
+void AppUpdateDecline();
