@@ -221,7 +221,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
 
     // Create the main window (wide rectangle: 1280x720)
     HWND hwnd = ::CreateWindowW(
-        wc.lpszClassName, L"TEKKEN8 TKData Mod Editor - " APPSTR_VERSION_W,
+        wc.lpszClassName, L"TEKKEN8 TKData Mod Editor",
         WS_OVERLAPPEDWINDOW,
         100, 100, 1280, 720,
         nullptr, nullptr, wc.hInstance, nullptr

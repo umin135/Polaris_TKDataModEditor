@@ -320,7 +320,7 @@ void AppUpdateCheck(const std::string& exePath)
 
     int remoteVer = ParseVersion(verJson);
     int localVer  = (s_localVersion > 0) ? s_localVersion : APPSTR_VERSION_INT;
-    if (remoteVer <= 0 || remoteVer <= localVer) {
+    if (remoteVer <= 0 || remoteVer == localVer) {
         s_status.store(AppUpdateStatus::UpToDate, std::memory_order_release);
         return;
     }

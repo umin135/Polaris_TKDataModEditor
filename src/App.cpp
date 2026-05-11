@@ -544,7 +544,7 @@ void App::RenderSplash()
         ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.12f, 0.55f, 0.22f, 1.00f));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.18f, 0.72f, 0.32f, 1.00f));
         ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.15f, 0.64f, 0.28f, 1.00f));
-        if (ImGui::Button("Update and Restart", ImVec2(btnW, 0)))
+        if (ImGui::Button("Update", ImVec2(btnW, 0)))
             AppUpdateBeginDownload();
         ImGui::PopStyleColor(3);
 
