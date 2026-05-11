@@ -269,4 +269,9 @@ xcopy /Y /Q "$(ProjectDir)data\fbsdatas\data.json"        "$(OutDir)res\fbsdatas
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
+  <ItemDefinitionGroup>
+    <PostBuildEvent>
+      <Command>xcopy /Y /I "$(ProjectDir)res\version.json" "$(OutDir)res\"</Command>
+    </PostBuildEvent>
+  </ItemDefinitionGroup>
 </Project>
