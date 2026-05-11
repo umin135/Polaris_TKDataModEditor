@@ -46,7 +46,7 @@ namespace BinVisibility {
         { "character_list.bin",                        false  },
         { "character_select_list.bin",                 false  },
         { "customize_item_common_list.bin",            true  },
-        { "customize_item_exclusive_list.bin",         false  },
+        { "customize_item_exclusive_list.bin",         true  },
         { "customize_item_prohibit_drama_list.bin",    false  },
         { "customize_item_unique_list.bin",            true  },
         { "drama_player_start_list.bin",               false  },
