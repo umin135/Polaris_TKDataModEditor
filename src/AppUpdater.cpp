@@ -31,6 +31,8 @@ static AppUpdateInfo                 s_info    {};
 static std::atomic<float>           s_progress{ 0.0f };
 static std::string                  s_exePath;
 static std::string                  s_tempDir;
+static std::string                  s_localVersionStr;
+static int                          s_localVersion = 0;
 
 // ---------------------------------------------------------------------------
 //  HTTP helpers
@@ -280,6 +282,35 @@ static void DownloadThread()
 //  Public API
 // ---------------------------------------------------------------------------
 
+void AppVersionLoadLocal(const std::string& exeDir)
+{
+    const std::string candidates[] = {
+        exeDir + "\\data\\app-version\\version.json",
+        exeDir + "\\..\\data\\app-version\\version.json",
+        exeDir + "\\..\\..\\data\\app-version\\version.json",
+        exeDir + "\\..\\..\\..\\data\\app-version\\version.json",
+    };
+    for (const auto& path : candidates) {
+        FILE* f = nullptr;
+        fopen_s(&f, path.c_str(), "rb");
+        if (!f) continue;
+        std::string json;
+        char buf[512]; size_t n;
+        while ((n = fread(buf, 1, sizeof(buf), f)) > 0) json.append(buf, n);
+        fclose(f);
+        int v = ParseVersion(json);
+        if (v > 0) s_localVersion = v;
+        std::string vs = ParseStringField(json, "\"version_str\"");
+        if (!vs.empty()) s_localVersionStr = vs;
+        break;
+    }
+}
+
+const char* AppVersionGetStr()
+{
+    return s_localVersionStr.empty() ? APPSTR_VERSION : s_localVersionStr.c_str();
+}
+
 void AppUpdateCheck(const std::string& exePath)
 {
     s_exePath = exePath;
@@ -288,7 +319,8 @@ void AppUpdateCheck(const std::string& exePath)
     if (verJson.empty()) return;
 
     int remoteVer = ParseVersion(verJson);
-    if (remoteVer <= 0 || remoteVer <= APPSTR_VERSION_INT) {
+    int localVer  = (s_localVersion > 0) ? s_localVersion : APPSTR_VERSION_INT;
+    if (remoteVer <= 0 || remoteVer <= localVer) {
         s_status.store(AppUpdateStatus::UpToDate, std::memory_order_release);
         return;
     }

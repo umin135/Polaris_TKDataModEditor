@@ -186,6 +186,14 @@ App::App(ID3D11Device* device, ID3D11DeviceContext* ctx, void* hwnd)
     GetModuleFileNameA(nullptr, exeBuf, MAX_PATH);
     m_exePath = exeBuf;
 
+    // Read local version.json synchronously so version_str is ready for frame 1
+    {
+        std::string exeDir = m_exePath;
+        size_t sep = exeDir.rfind('\\');
+        if (sep != std::string::npos) exeDir = exeDir.substr(0, sep);
+        AppVersionLoadLocal(exeDir);
+    }
+
     // Load logo texture now (D3D main-thread op) so splash can display it
     {
         int w = 0, h = 0;
@@ -482,10 +490,10 @@ void App::RenderSplash()
     }
 
     // Version — right side
-    const float verW = ImGui::CalcTextSize(AppStr::Version).x;
+    const float verW = ImGui::CalcTextSize(AppVersionGetStr()).x;
     ImGui::SetCursorPos({ W - verW - 14.0f, textY });
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.32f, 0.32f, 0.42f, 1.00f));
-    ImGui::TextUnformatted(AppStr::Version);
+    ImGui::TextUnformatted(AppVersionGetStr());
     ImGui::PopStyleColor();
 
     ImGui::End();
@@ -885,9 +893,9 @@ void App::RenderSidebar(float sidebarWidth)
 
     // -- Version label --
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.28f, 0.28f, 0.38f, 1.00f));
-    const float verW = ImGui::CalcTextSize(AppStr::Version).x;
+    const float verW = ImGui::CalcTextSize(AppVersionGetStr()).x;
     ImGui::SetCursorPosX((sidebarWidth - verW) * 0.5f);
-    ImGui::Text("%s", AppStr::Version);
+    ImGui::Text("%s", AppVersionGetStr());
     ImGui::PopStyleColor();
 }
 

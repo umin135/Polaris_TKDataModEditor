@@ -23,6 +23,11 @@ struct AppUpdateInfo {
     std::string versionStr;
 };
 
+// Read local version.json and cache version int + version_str.
+// Call from App constructor (before init thread) so the string is ready for frame 1.
+void AppVersionLoadLocal(const std::string& exeDir);
+const char* AppVersionGetStr();  // returns cached version_str (falls back to APPSTR_VERSION)
+
 void AppUpdateCheck(const std::string& exePath);  // synchronous — run in init thread
 AppUpdateStatus      AppUpdateGetStatus();
 const AppUpdateInfo& AppUpdateGetInfo();
