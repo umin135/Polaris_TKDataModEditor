@@ -927,20 +927,22 @@ void App::RenderHomeView()
     {
         // Fallback text title when logo texture is unavailable
         ImGui::SetWindowFontScale(2.0f);
-        const float titleW = ImGui::CalcTextSize(AppStr::AppTitleFull).x;
+        const float titleW = ImGui::CalcTextSize(AppStr::AppTitle).x;
         ImGui::SetCursorPosX((contentW - titleW) * 0.5f);
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.82f, 1.00f, 1.00f));
-        ImGui::Text("%s", AppStr::AppTitleFull);
+        ImGui::Text("%s", AppStr::AppTitle);
         ImGui::PopStyleColor();
         ImGui::SetWindowFontScale(1.0f);
     }
 
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 6.0f);
 
-    const float subW = ImGui::CalcTextSize(AppStr::AppTitleFull).x;
+    char titleWithVer[128];
+    snprintf(titleWithVer, sizeof(titleWithVer), "%s - %s", AppStr::AppTitle, AppVersionGetStr());
+    const float subW = ImGui::CalcTextSize(titleWithVer).x;
     ImGui::SetCursorPosX((contentW - subW) * 0.5f);
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.60f, 0.60f, 0.72f, 1.00f));
-    ImGui::Text("%s", AppStr::AppTitleFull);
+    ImGui::Text("%s", titleWithVer);
     ImGui::PopStyleColor();
 
     // -- Separator --
