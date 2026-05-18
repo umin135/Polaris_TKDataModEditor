@@ -3,7 +3,7 @@
 //   Check: fetches version.json synchronously (5s timeout) in init thread.
 //   Download: GitHub Git Trees API → enumerate _Release/ blobs →
 //             download each file to %TEMP%\PolarisUpdate\ preserving relative paths.
-//   Apply: BAT + PS1 wait for this PID, Copy-Item to exeDir, relaunch.
+//   Apply: BAT + PS1 wait for this PID, robocopy temp→exeDir, relaunch.
 #include "AppUpdater.h"
 #include "AppStrings.h"
 #define NOMINMAX
@@ -285,10 +285,10 @@ static void DownloadThread()
 void AppVersionLoadLocal(const std::string& exeDir)
 {
     const std::string candidates[] = {
-        exeDir + "\\data\\app-version\\version.json",
-        exeDir + "\\..\\data\\app-version\\version.json",
-        exeDir + "\\..\\..\\data\\app-version\\version.json",
-        exeDir + "\\..\\..\\..\\data\\app-version\\version.json",
+        exeDir + "\\res\\version.json",
+        exeDir + "\\..\\res\\version.json",
+        exeDir + "\\..\\..\\res\\version.json",
+        exeDir + "\\..\\..\\..\\res\\version.json",
     };
     for (const auto& path : candidates) {
         FILE* f = nullptr;
@@ -367,14 +367,18 @@ void AppUpdateApply()
     std::string batPath = exeDir + "\\update_apply.bat";
     std::string ps1Path = exeDir + "\\update_apply.ps1";
 
-    // PS1: copy downloaded files to exe dir, then clean up temp
+    // Strip trailing backslash for robocopy compatibility
+    std::string srcDir = s_tempDir;
+    if (!srcDir.empty() && srcDir.back() == '\\') srcDir.pop_back();
+
+    // PS1: robocopy temp dir → exe dir (reliable recursive copy), then clean up
     char ps1[2048];
     snprintf(ps1, sizeof(ps1),
         "$src  = '%s'\r\n"
         "$dest = '%s'\r\n"
-        "Copy-Item -Path \"$src*\" -Destination $dest -Recurse -Force\r\n"
+        "robocopy $src $dest /E /IS /IT /NFL /NDL /NJH /NJS /NC /NS\r\n"
         "Remove-Item $src -Recurse -Force -ErrorAction SilentlyContinue\r\n",
-        s_tempDir.c_str(), exeDir.c_str());
+        srcDir.c_str(), exeDir.c_str());
 
     {
         FILE* f = nullptr;
@@ -382,7 +386,7 @@ void AppUpdateApply()
         if (f) { fputs(ps1, f); fclose(f); }
     }
 
-    // BAT: wait for this PID, run PS1, relaunch exe
+    // BAT: wait for this PID, run PS1, always relaunch
     char bat[2048];
     snprintf(bat, sizeof(bat),
         "@echo off\r\n"
@@ -393,9 +397,7 @@ void AppUpdateApply()
         "    goto wait\r\n"
         ")\r\n"
         "powershell -NoProfile -ExecutionPolicy Bypass -File \"%s\"\r\n"
-        "if errorlevel 1 goto end\r\n"
         "start \"\" \"%s\"\r\n"
-        ":end\r\n"
         "del \"%s\" 2>nul\r\n"
         "del \"%%~f0\"\r\n",
         (unsigned long)pid, (unsigned long)pid,
