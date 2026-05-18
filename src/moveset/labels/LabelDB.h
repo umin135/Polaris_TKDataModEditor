@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <string>
 #include <unordered_map>
+#include "GameStatic.h"
 
 // -------------------------------------------------------------
 //  LabelDB
@@ -55,6 +56,8 @@ public:
     // Load from embedded RCDATA resources (fallback when disk files are absent).
     // Requires resource.h defines IDR_DATA_* constants.
     void LoadFromResources();
+
+    static const char* ParseCommand(uint64_t command);
 
 private:
     LabelDB() = default;

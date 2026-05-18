@@ -23,6 +23,30 @@
 extern ImFont* g_fontBold;
 
 // -------------------------------------------------------------
+// Helpers
+// -------------------------------------------------------------
+std::string getMoveName(MotbinData &data, int move_id)
+{
+    std::string moveName = "move_" + std::to_string(move_id);
+    if (move_id < 0x8000)
+    {
+        if ((size_t)move_id < data.moves.size())
+            moveName = data.moves[move_id].displayName;
+    }
+    else
+    {
+        uint32_t aliasIdx = move_id - 0x8000u;
+        if (aliasIdx < data.originalAliases.size())
+        {
+            uint16_t res = data.originalAliases[aliasIdx];
+            if ((size_t)res < data.moves.size())
+                moveName = data.moves[res].displayName;
+        }
+    }
+    return moveName;
+}
+
+// -------------------------------------------------------------
 //  List-action enum + generic +button popup helper
 // -------------------------------------------------------------
 
@@ -2834,9 +2858,10 @@ void MovesetEditorWindow::RenderCancelInnerDetail(
     };
 
     // --- Block 1: command / extradata / requirements / move ---
-    // Height: 4 × (TextLineH + FrameH + spacing×2) − spacing + padding×2
+    // Height (now includes parsed command display): 5 × (TextLineH + FrameH + spacing×2) − spacing + padding×2
+    // (Parsed command adds another text row.)
     float fH1     = ImGui::GetTextLineHeight() + ImGui::GetFrameHeight() + sty.ItemSpacing.y * 2.0f;
-    float block1H = fH1 * 4.0f - sty.ItemSpacing.y + sty.WindowPadding.y * 2.0f;
+    float block1H = fH1 * 5.0f - sty.ItemSpacing.y + sty.WindowPadding.y * 2.0f;
 
     ImGui::PushStyleColor(ImGuiCol_ChildBg, kBlockBg);
     if (ImGui::BeginChild("##cdt_b1", ImVec2(-1.0f, block1H), ImGuiChildFlags_Borders))
@@ -2852,6 +2877,9 @@ void MovesetEditorWindow::RenderCancelInnerDetail(
             c.command = (uint64_t)strtoull(p, nullptr, 16);
             m_dirty = true;
         }
+
+        // Display parsed command string using LabelDB
+        ImGui::Text("Command: %s", LabelDB::ParseCommand(c.command));
 
         // extradata (uint32_t, navigate to cancel-extra)
         // TK8: extradata pointer is always valid (game crashes on null); minimum valid index = 0
@@ -2897,11 +2925,12 @@ void MovesetEditorWindow::RenderCancelInnerDetail(
         // move (uint16_t, navigate — same logic as before)
         const bool isTerm = ((c.command == 0x8000 || c.command == GameStatic::Get().data.groupCancelEnd)
                              && c.move_id == 0x8000);
+        bool isGroupCancel  = c.command == GameStatic::Get().data.groupCancelStart;
         bool moveValid  = false;
         int  resolvedIdx = -1;
         const char* moveLbl = CancelLabel::Move;
 
-        if (c.command == GameStatic::Get().data.groupCancelStart) {
+        if (isGroupCancel) {
             moveLbl   = CancelLabel::GroupCancelIdx;
             moveValid = (FindGroupOuter(gcGroups, (uint32_t)c.move_id) >= 0);
         } else if (!isTerm && c.move_id >= 0x8000) {
@@ -2916,7 +2945,7 @@ void MovesetEditorWindow::RenderCancelInnerDetail(
 
         ImGui::PushStyleColor(ImGuiCol_Text, moveValid ? kGreen : kPink);
         ImGui::TextUnformatted(moveLbl);
-        ShowFieldTooltip(c.command == GameStatic::Get().data.groupCancelStart ? FieldTT::Cancel::GroupCancelIdx : FieldTT::Cancel::Move);
+        ShowFieldTooltip(isGroupCancel ? FieldTT::Cancel::GroupCancelIdx : FieldTT::Cancel::Move);
         ImGui::PopStyleColor();
         ImGui::SetNextItemWidth(-(kBtnW + sty.ItemSpacing.x));
         int moveTmp = (int)(uint16_t)c.move_id;
@@ -2926,7 +2955,7 @@ void MovesetEditorWindow::RenderCancelInnerDetail(
         }
         ImGui::SameLine();
         if (GoButton("##mv_go", moveValid)) {
-            if (c.command == GameStatic::Get().data.groupCancelStart) {
+            if (isGroupCancel) {
                 int gi = FindGroupOuter(gcGroups, (uint32_t)c.move_id);
                 if (gi >= 0) {
                     m_cancelsWin.groupCancelSel.outer       = gi;
@@ -2940,7 +2969,14 @@ void MovesetEditorWindow::RenderCancelInnerDetail(
                 m_selectedIdx = (int)c.move_id; m_moveListScrollPending = true;
             }
         }
+
+        // Display Move name underneath the "move" field
+        if (!isGroupCancel) {
+            ImGui::Text("Move: %s", getMoveName(m_data, c.move_id).c_str());
+        }
     }
+
+
     ImGui::EndChild();
     ImGui::PopStyleColor();
 
@@ -3189,18 +3225,7 @@ static void RenderCancelSection(
                 else if (c.command == GameStatic::Get().data.groupCancelEnd)
                     snprintf(lbl, sizeof(lbl), "#%u  [GRP_END]##ci%u", k, idx);
                 else {
-                    std::string moveName = "move_" + std::to_string(c.move_id);
-                    if (c.move_id < 0x8000) {
-                        if ((size_t)c.move_id < data.moves.size())
-                            moveName = data.moves[c.move_id].displayName;
-                    } else {
-                        uint32_t aliasIdx = c.move_id - 0x8000u;
-                        if (aliasIdx < data.originalAliases.size()) {
-                            uint16_t res = data.originalAliases[aliasIdx];
-                            if ((size_t)res < data.moves.size())
-                                moveName = data.moves[res].displayName;
-                        }
-                    }
+                    std::string moveName = getMoveName(data, c.move_id);
                     snprintf(lbl, sizeof(lbl), "#%u  ->%s (%u)##ci%u", k, moveName.c_str(), c.move_id, idx);
                 }
                 if (isTerm) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f,0.5f,0.5f,1.0f));
