@@ -285,10 +285,10 @@ static void DownloadThread()
 void AppVersionLoadLocal(const std::string& exeDir)
 {
     const std::string candidates[] = {
-        exeDir + "\\res\\version.json",
-        exeDir + "\\..\\res\\version.json",
-        exeDir + "\\..\\..\\res\\version.json",
-        exeDir + "\\..\\..\\..\\res\\version.json",
+        exeDir + "\\data\\app-version\\version.json",
+        exeDir + "\\..\\data\\app-version\\version.json",
+        exeDir + "\\..\\..\\data\\app-version\\version.json",
+        exeDir + "\\..\\..\\..\\data\\app-version\\version.json",
     };
     for (const auto& path : candidates) {
         FILE* f = nullptr;
