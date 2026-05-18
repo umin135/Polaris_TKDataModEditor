@@ -689,9 +689,37 @@ void MovesetEditorWindow::RenderMoveList()
 
     if (ImGui::BeginPopup("##AddMovePopup")) {
         if (ImGui::MenuItem("Create Empty Move")) {
+            // Need to create an empty cancel first
+            ParsedCancel emptyCancel{};
+            emptyCancel.command = 0x8000;
+            emptyCancel.move_id = 0x8001;
+            emptyCancel.req_list_idx = 0;
+            emptyCancel.extradata_idx = 0;
+            emptyCancel.group_cancel_list_idx = 0xFFFFFFFF;
+            emptyCancel.starting_frame = 0;
+            emptyCancel.frame_window_start = 0;
+            emptyCancel.frame_window_end = 0;
+            emptyCancel.cancel_option = 336;
+            m_data.cancelBlock.push_back(emptyCancel);
+
             ParsedMove empty{};
-            // Append a minimal cancel list (EOL-only) and point the move at it
-            empty.cancel_idx        = (uint32_t)m_data.cancelBlock.size();
+            empty.transition = 0x8001;
+            // Apply safety measures if m_data.originalAliases[1] doesn't exist
+            if (m_data.originalAliases.size() > 1 &&
+                m_data.originalAliases[1] >= 0 &&
+                static_cast<size_t>(m_data.originalAliases[1]) < m_data.moves.size())
+            {
+                ParsedMove move = m_data.moves[m_data.originalAliases[1]];
+                empty.anim_key = move.anim_key;
+            }
+            else
+            {
+                empty.anim_key = 0;
+                empty.ordinal_id2 = 0;
+            }
+    
+            // Assign cancel_idx to the index of the cancel we just created
+            empty.cancel_idx        = (uint32_t)m_data.cancelBlock.size() - 1;
             empty.cancel2_idx       = 0xFFFFFFFF;
             empty.hit_condition_idx = 0;           // 0 is safe; 0xFFFFFFFF crashes
             empty.voiceclip_idx     = 0xFFFFFFFF;
@@ -699,8 +727,6 @@ void MovesetEditorWindow::RenderMoveList()
             empty.start_prop_idx    = 0xFFFFFFFF;
             empty.end_prop_idx      = 0xFFFFFFFF;
             empty.isNew = true;
-            { ParsedCancel eol{}; eol.command = 0x8000; eol.move_id = 0x8000;
-              m_data.cancelBlock.push_back(eol); }
             { char base[32]; snprintf(base, sizeof(base), "NewMove_%04d", (int)m_data.moves.size());
               empty.displayName = MakeUniqueName(m_data.moves, base); }
             ApplyKamuiHashes(empty, empty.displayName, m_data.charaCode);
