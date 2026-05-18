@@ -886,7 +886,7 @@ void MovesetEditorWindow::RenderMoveList()
 
 // -- Shared property table helpers ----------------------------
 
-static bool BeginPropTable(const char* id = "##pt", bool halfStretch = false)
+static bool BeginPropTable(const char* id = "##pt", bool halfStretch = false, float labelColWidth = 220.0f)
 {
     constexpr ImGuiTableFlags kFlags =
         ImGuiTableFlags_BordersInnerH |
@@ -900,7 +900,7 @@ static bool BeginPropTable(const char* id = "##pt", bool halfStretch = false)
     }
     else
     {
-        ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 220.0f);
+        ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, labelColWidth);
         ImGui::TableSetupColumn("Value",    ImGuiTableColumnFlags_WidthStretch);
     }
     return true;
@@ -3804,15 +3804,30 @@ void MovesetEditorWindow::RenderSubWin_ReactionLists()
 
         ImGui::BeginChild("##rl_mv", ImVec2(thirdW, 0.0f), true);
         ImGui::TextDisabled("reaction moves"); ImGui::Separator();
-        if (BeginPropTable("##rlm")) {
+        if (BeginPropTable("##rlm", false, 120.0f)) {
             auto RlMoveEdit = [&](const char* inputId, const char* lbl, uint16_t& v) {
                 bool gen = (v >= 0x8000);
                 int res = -1;
-                if (gen) { uint32_t ai = v-0x8000u; if(ai<m_data.originalAliases.size()){uint16_t rv=m_data.originalAliases[ai]; if((size_t)rv<m_data.moves.size()) res=(int)rv;} }
+                if (gen) { 
+                    uint32_t ai = v-0x8000u;
+                    if (ai<m_data.originalAliases.size()) {
+                        uint16_t rv=m_data.originalAliases[ai]; 
+                        if ((size_t)rv<m_data.moves.size()) res=(int)rv;
+                    }
+                }
                 bool valid = gen ? (res>=0) : (v < (uint16_t)m_data.moves.size());
                 auto r = RowMoveEditLink(inputId, lbl, v, valid, res, gen);
                 if (r.changed) m_dirty = true;
                 if (r.navigate) { m_selectedIdx = gen ? res : (int)v; m_moveListScrollPending = true; }
+
+                std::string moveName = getMoveName(m_data, (int)(uint32_t)v);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+                ImGui::PushTextWrapPos(ImGui::GetCursorPos().x + ImGui::GetContentRegionAvail().x);
+                ImGui::Text("Move: %s", moveName.c_str());
+                ImGui::PopTextWrapPos();
+                ImGui::PopStyleColor();          
             };
             RlMoveEdit("##rl_standing",         ReactionLabel::Standing,        rlm.standing);
             RlMoveEdit("##rl_ch",               ReactionLabel::Ch,              rlm.ch);
