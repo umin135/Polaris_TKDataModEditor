@@ -21,6 +21,11 @@
 #include <sstream>
 
 extern ImFont* g_fontBold;
+const int REQ_OPP_GROUNDED = 127; // Opponent is grounded (standing/crouching)
+const int REQ_HEAT_AVAIL = 442; // Heat Available
+const int REQ_AIRBORNE = 723; // Airborne Juggle
+const int REQ_EXTENSION = 724; // Extension available (Juggle, Tornado)
+const int REQ_IN_HEAT = 1028; // Player in heat
 
 // -------------------------------------------------------------
 // Helpers
@@ -44,6 +49,22 @@ std::string getMoveName(MotbinData &data, int move_id)
         }
     }
     return moveName;
+}
+
+bool hasReq(MotbinData &data, int index, uint32_t reqId)
+{
+    if (index < 0) return false;
+    if (index >= data.requirementBlock.size()) return false;
+    int req = data.requirementBlock[index].req;
+    if (req == reqId) return true;
+    index++;
+    for (int i = index; i < data.requirementBlock.size(); i++)
+    {
+        req = data.requirementBlock[i].req;
+        if (req == GameStatic::Get().data.reqListEnd) break;
+        if (req == reqId) return true;
+    }
+    return false;
 }
 
 // -------------------------------------------------------------
@@ -3571,8 +3592,22 @@ void MovesetEditorWindow::RenderSubWin_HitConditions()
                 const ParsedHitCondition& h = blk[idx];
                 bool isTerm = isHcEnd(h);
                 char lbl[48];
-                if (isTerm) snprintf(lbl, sizeof(lbl), "#%u  [END]##hci%u",   k, idx);
-                else        snprintf(lbl, sizeof(lbl), "#%u  dmg=%u##hci%u",  k, h.damage, idx);
+                if (isTerm) snprintf(lbl, sizeof(lbl), "#%u  [END] Default / Grounded##hci%u",   k, idx);
+                else {
+                    int req = m_data.requirementBlock[h.req_list_idx].req;
+                    bool hasExtFlag = hasReq(m_data, h.req_list_idx, REQ_EXTENSION);
+                    bool hasAirFlag = hasReq(m_data, h.req_list_idx, REQ_AIRBORNE);
+                    bool isInHeat = hasReq(m_data, h.req_list_idx, REQ_IN_HEAT);
+                    bool isHeatAvailable = hasReq(m_data, h.req_list_idx, REQ_HEAT_AVAIL);
+                    std::string hcLabel = "";
+                    if (isHeatAvailable) hcLabel = "Heat Engager";
+                    else if (hasExtFlag) hcLabel = "Tornado";
+                    else if (isInHeat) hcLabel = hasAirFlag ? "Airborne (Heat)" : "Grounded (Heat)";
+                    else if (hasAirFlag) hcLabel = "Airborne";
+                    else hcLabel = "req=" + std::to_string(req);
+
+                    snprintf(lbl, sizeof(lbl), "#%u  %s##hci%u", k, hcLabel.c_str(), idx);
+                }
                 if (isTerm) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f,0.5f,0.5f,1.0f));
                 bool sel = (m_hitCondWinSel.inner == (int)k);
                 if (ImGui::Selectable(lbl, sel)) m_hitCondWinSel.inner = (int)k;
