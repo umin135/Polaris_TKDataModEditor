@@ -690,14 +690,17 @@ void MovesetEditorWindow::RenderMoveList()
     if (ImGui::BeginPopup("##AddMovePopup")) {
         if (ImGui::MenuItem("Create Empty Move")) {
             ParsedMove empty{};
-            empty.cancel_idx        = 0xFFFFFFFF;
+            // Append a minimal cancel list (EOL-only) and point the move at it
+            empty.cancel_idx        = (uint32_t)m_data.cancelBlock.size();
             empty.cancel2_idx       = 0xFFFFFFFF;
-            empty.hit_condition_idx = 0xFFFFFFFF;
+            empty.hit_condition_idx = 0;           // 0 is safe; 0xFFFFFFFF crashes
             empty.voiceclip_idx     = 0xFFFFFFFF;
             empty.extra_prop_idx    = 0xFFFFFFFF;
             empty.start_prop_idx    = 0xFFFFFFFF;
             empty.end_prop_idx      = 0xFFFFFFFF;
             empty.isNew = true;
+            { ParsedCancel eol{}; eol.command = 0x8000; eol.move_id = 0x8000;
+              m_data.cancelBlock.push_back(eol); }
             { char base[32]; snprintf(base, sizeof(base), "NewMove_%04d", (int)m_data.moves.size());
               empty.displayName = MakeUniqueName(m_data.moves, base); }
             ApplyKamuiHashes(empty, empty.displayName, m_data.charaCode);
