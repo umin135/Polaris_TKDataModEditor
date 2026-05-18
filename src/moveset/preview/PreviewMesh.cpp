@@ -494,6 +494,8 @@ static BoneAnimProfile GetBoneAnimProfile(const std::string& name)
         { "R_UpperLeg",  {   5.99981f,  0.f,       0.f } },
         { "L_Foot",      {   5.99909f,  0.f,       0.f } },
         { "R_Foot",      {  -5.99909f,  0.f,       0.f } },
+        { "L_Thumb0",    {  70.2309f, -63.6013f, -41.7736f } },
+        { "R_Thumb0",    { -70.2309f,  63.6012f, -41.7736f } },
     };
 
     BoneAnimProfile p = kDefaultProfile;
