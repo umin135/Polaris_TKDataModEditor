@@ -1,0 +1,3 @@
+{
+  "45": {"Log": "-Added update changelog display to the update dialog.\n-Fixed Empty Move creation to use safe default values, preventing crashes.\n-Reaction List now shows the name of each reaction move.\n-Cancel entries in the main panel now display the destination move name.\n-Cancel panel now displays the parsed command.\n-Fixed Hand Animation Preview"}
+}

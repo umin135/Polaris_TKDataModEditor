@@ -390,6 +390,16 @@ void App::ApplyStyle()
 //  Frame entry point
 // -------------------------------------------------------------
 
+static void RenderChangelogText(const char* text)
+{
+    const char* p = text;
+    while (*p) {
+        const char* nl = strchr(p, '\n');
+        if (nl) { ImGui::TextUnformatted(p, nl); p = nl + 1; }
+        else     { ImGui::TextUnformatted(p); break; }
+    }
+}
+
 void App::RenderSplash()
 {
     const ImGuiViewport* vp = ImGui::GetMainViewport();
@@ -501,8 +511,11 @@ void App::RenderSplash()
     // ── Update confirmation dialog (drawn on top when update is available) ──
     if (updStatus == AppUpdateStatus::Available)
     {
+        const AppUpdateInfo& info = AppUpdateGetInfo();
+        const float dlgH = info.changelog.empty() ? 148.0f : 320.0f;
+
         const ImGuiViewport* dvp = ImGui::GetMainViewport();
-        const ImVec2 dlgSize = { 360.0f, 148.0f };
+        const ImVec2 dlgSize = { 360.0f, dlgH };
         ImGui::SetNextWindowPos(
             { dvp->WorkPos.x + (dvp->WorkSize.x - dlgSize.x) * 0.5f,
               dvp->WorkPos.y + (dvp->WorkSize.y - dlgSize.y) * 0.5f },
@@ -519,8 +532,6 @@ void App::RenderSplash()
             ImGuiWindowFlags_NoSavedSettings);
         ImGui::PopStyleVar(3);
 
-        const AppUpdateInfo& info = AppUpdateGetInfo();
-
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.82f, 1.00f, 1.00f));
         ImGui::TextUnformatted("Update Available");
         ImGui::PopStyleColor();
@@ -534,6 +545,30 @@ void App::RenderSplash()
             snprintf(msgBuf, sizeof(msgBuf), "A new version is available.");
         ImGui::TextUnformatted(msgBuf);
         ImGui::TextUnformatted("Would you like to update and restart?");
+
+        if (!info.changelog.empty())
+        {
+            ImGui::Spacing();
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.55f, 0.68f, 1.00f));
+            ImGui::TextUnformatted("What's new:");
+            ImGui::PopStyleColor();
+            ImGui::Spacing();
+
+            const float btnRowH = ImGui::GetStyle().ItemSpacing.y * 2.0f
+                                + 1.0f + ImGui::GetFrameHeight()
+                                + ImGui::GetStyle().WindowPadding.y;
+            const float childH  = ImGui::GetContentRegionAvail().y - btnRowH;
+
+            ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.08f, 0.08f, 0.11f, 1.00f));
+            if (ImGui::BeginChild("##ChangelogScroll", ImVec2(0.f, childH), ImGuiChildFlags_Borders))
+            {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.78f, 0.78f, 0.85f, 1.00f));
+                RenderChangelogText(info.changelog.c_str());
+                ImGui::PopStyleColor();
+            }
+            ImGui::EndChild();
+            ImGui::PopStyleColor();
+        }
 
         ImGui::Spacing();
         ImGui::Separator();

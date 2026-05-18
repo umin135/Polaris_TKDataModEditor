@@ -21,6 +21,7 @@ enum class AppUpdateStatus {
 struct AppUpdateInfo {
     int         version    = 0;
     std::string versionStr;
+    std::string changelog;
 };
 
 // Read local version.json and cache version int + version_str.

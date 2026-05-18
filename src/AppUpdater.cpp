@@ -19,8 +19,9 @@
 #include <cstring>
 
 static const wchar_t* kAgent    = L"PolarisTKDataEditor/1.0";
-static const wchar_t* kVerHost  = L"raw.githubusercontent.com";
-static const wchar_t* kVerPath  = L"/umin135/Polaris_TKDataModEditor/main/data/app-version/version.json";
+static const wchar_t* kVerHost       = L"raw.githubusercontent.com";
+static const wchar_t* kVerPath       = L"/umin135/Polaris_TKDataModEditor/main/data/app-version/version.json";
+static const wchar_t* kChangeLogPath = L"/umin135/Polaris_TKDataModEditor/main/data/app-version/changeLog.json";
 static const wchar_t* kApiHost  = L"api.github.com";
 static const wchar_t* kApiTree  = L"/repos/umin135/Polaris_TKDataModEditor/git/trees/main?recursive=1";
 static const char*    kRawBase  = "https://raw.githubusercontent.com/umin135/Polaris_TKDataModEditor/main/";
@@ -144,6 +145,38 @@ static std::string ParseStringField(const std::string& json, const char* field)
     size_t end = json.find('"', pos);
     if (end == std::string::npos) return {};
     return json.substr(pos, end - pos);
+}
+
+static void UnescapeNewlines(std::string& s)
+{
+    std::string out;
+    out.reserve(s.size());
+    for (size_t i = 0; i < s.size(); ++i) {
+        if (s[i] == '\\' && i + 1 < s.size() && s[i + 1] == 'n') {
+            out += '\n'; ++i;
+        } else {
+            out += s[i];
+        }
+    }
+    s = std::move(out);
+}
+
+// Find the "Log" entry for a specific version in changeLog.json.
+// Format: { "41": {"Log": "..."}, "42": {"Log": "..."}, ... }
+static std::string ParseChangelogForVersion(const std::string& json, int version)
+{
+    char key[20];
+    snprintf(key, sizeof(key), "\"%d\":", version);
+    size_t pos = json.find(key);
+    if (pos == std::string::npos) return {};
+    size_t obj0 = json.find('{', pos + strlen(key));
+    if (obj0 == std::string::npos) return {};
+    size_t obj1 = json.find('}', obj0);
+    if (obj1 == std::string::npos) return {};
+    std::string obj = json.substr(obj0, obj1 - obj0 + 1);
+    std::string log = ParseStringField(obj, "\"Log\"");
+    UnescapeNewlines(log);
+    return log;
 }
 
 // Extract { "path": "...", "type": "blob" } entries from git/trees JSON
@@ -327,6 +360,10 @@ void AppUpdateCheck(const std::string& exePath)
 
     s_info.version    = remoteVer;
     s_info.versionStr = ParseStringField(verJson, "\"version_str\"");
+
+    std::string clJson = HttpsGetStr(kVerHost, kChangeLogPath, 5000);
+    if (!clJson.empty())
+        s_info.changelog = ParseChangelogForVersion(clJson, remoteVer);
 
     s_status.store(AppUpdateStatus::Available, std::memory_order_release);
 }
