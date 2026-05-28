@@ -79,8 +79,8 @@ void Config::Load()
         // Strip trailing whitespace
         while (!val.empty() && (val.back() == ' ' || val.back() == '\t')) val.pop_back();
 
-        if (section == "Moveset" && key == "RootDir")
-            data.movesetRootDir = val;
+        if (section == "Moveset" && key == "GameRootDir")
+            data.gameRootDir = val;
     }
 
     fclose(f);
@@ -103,7 +103,7 @@ void Config::Save() const
     if (!f) return;
 
     fprintf(f, "[Moveset]\n");
-    fprintf(f, "RootDir=%s\n", data.movesetRootDir.c_str());
+    fprintf(f, "GameRootDir=%s\n", data.gameRootDir.c_str());
 
     fclose(f);
 }

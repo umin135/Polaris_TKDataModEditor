@@ -23,8 +23,8 @@ struct PlayerSlotInfo {
 //  Reads moveset data from the running game and saves .motbin.
 //
 //  Pointer chain (TK8):
-//    moduleBase + 0x9B7A950  -> P1 player ptr
-//    playerAddr + 0x38C8     -> motbin ptr
+//    moduleBase + <AOB-scanned> (fallback 0x9B87FD0) -> P1 player ptr
+//    playerAddr + 0x38D8     -> motbin ptr
 //    playerAddr + 0x168      -> character_id (uint32)
 //
 //  Extraction saves state-3 (populated, absolute pointers) raw dump.
@@ -75,4 +75,5 @@ private:
     GameProcessInfo m_proc;
     PlayerSlotInfo  m_slots[2];
     std::string     m_statusMsg;
+    uintptr_t       m_p1BaseOffset = 0; // resolved by AOB scan at Connect(); 0 = use fallback constant
 };
