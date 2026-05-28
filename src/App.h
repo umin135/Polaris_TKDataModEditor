@@ -111,7 +111,7 @@ private:
     bool m_showSettings      = false;
     bool m_settingsInitialized = false;
     int  m_settingsCat       = 1;     // 0 = fbsdata, 1 = moveset
-    char m_settingsMovesetRoot[1024]  = {};
+    char m_settingsGameRoot[1024] = {};
 
     // Auto-update
     std::string m_exePath;

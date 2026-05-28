@@ -515,7 +515,7 @@ void MotbinDiffView::Render()
 
     ImGui::Spacing();
 
-    const std::string& rootDir = Config::Get().data.movesetRootDir;
+    const std::string& rootDir = Config::Get().data.MovesetDir();
     if (rootDir.empty())
         ImGui::TextDisabled("Output: (set Moveset Root in Settings first)");
     else
@@ -551,7 +551,7 @@ void MotbinDiffView::Render()
 
 void MotbinDiffView::RunReport()
 {
-    m_status   = BuildDiffReport(m_pathA, m_pathB, Config::Get().data.movesetRootDir);
+    m_status   = BuildDiffReport(m_pathA, m_pathB, Config::Get().data.MovesetDir());
     m_statusOk = (m_status.find("Error") == std::string::npos);
 }
 

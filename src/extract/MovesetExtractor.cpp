@@ -46,11 +46,20 @@ static void WriteIni(const std::string& folder, uint32_t charaId, const std::str
 //      step 2: currAddr = *(currAddr)            + 0
 //    -> playerAddr = *(  *(moduleBase+0x9B7A950) + 0x30 + playerId*8  )
 // -------------------------------------------------------------
-static constexpr uintptr_t kP1AddrModuleOffset = 0x9B7A950; // moduleBase + this -> first dereference
+static constexpr uintptr_t kP1AddrModuleOffset = 0x9B87FD0; // fallback; dynamically resolved via AOB at Connect()
 static constexpr uintptr_t kP1SlotBase         = 0x30;       // add to first deref -> slot ptr array
 // slot ptr: P1 = +0x00, P2 = +0x08 (playerId * 8)
-static constexpr uintptr_t kMotbinOffset        = 0x38C8;    // playerAddr + this -> motbin ptr (8B)
+static constexpr uintptr_t kMotbinOffset        = 0x38D8;    // playerAddr + this -> motbin ptr (8B)
 static constexpr uintptr_t kCharaIdOffset       = 0x168;     // playerAddr + this -> uint32 chara id
+
+// AOB pattern for P1 base pointer (RIP-relative MOV; same as GameLiveEdit kPatternP1).
+// Match+3 holds the 32-bit RIP-relative displacement.
+static constexpr const char* kPatternP1 =
+    "4C 89 35 ?? ?? ?? ?? "
+    "41 88 5E 28 "
+    "66 41 89 9E 88 00 00 00 "
+    "E8 ?? ?? ?? ?? "
+    "41 88 86 8A 00 00 00";
 
 // -------------------------------------------------------------
 //  motbin header layout (t8_offsetTable, offsets 0x168-0x2B0)
@@ -184,6 +193,19 @@ bool MovesetExtractor::Connect()
         m_statusMsg = "Game not running (Polaris-Win64-Shipping.exe not found).";
         return false;
     }
+
+    // Resolve P1 base offset via AOB scan; fall back to compile-time constant on failure.
+    m_p1BaseOffset = 0;
+    uintptr_t base  = m_proc.moduleBase;
+    uintptr_t match = AobScan(m_proc, kPatternP1, base + 0x5A00000, base + 0x6F00000);
+    if (match)
+    {
+        int32_t disp32 = 0;
+        if (ReadGameValue(m_proc, match + 3, disp32))
+            m_p1BaseOffset = static_cast<uintptr_t>(
+                static_cast<intptr_t>(match + 7) + disp32) - base;
+    }
+
     m_statusMsg = "Connected to game.";
     return true;
 }
@@ -210,9 +232,10 @@ bool MovesetExtractor::ReadSlot(int slotIndex, PlayerSlotInfo& slot)
     slot = {};
     slot.slotIndex = slotIndex;
 
-    // Step 1: read first-level pointer at moduleBase + 0x9B7A950
+    // Step 1: read first-level pointer using AOB-scanned offset (or hardcoded fallback)
+    uintptr_t p1Offset = m_p1BaseOffset ? m_p1BaseOffset : kP1AddrModuleOffset;
     uintptr_t firstPtr = 0;
-    if (!ReadGamePointer(m_proc, m_proc.moduleBase + kP1AddrModuleOffset, firstPtr) || firstPtr == 0)
+    if (!ReadGamePointer(m_proc, m_proc.moduleBase + p1Offset, firstPtr) || firstPtr == 0)
         return false;
 
     // Step 2: slot pointer = firstPtr + 0x30 + slotIndex*8  ->  dereference -> playerAddr

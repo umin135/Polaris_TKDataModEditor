@@ -120,28 +120,126 @@ static ID3D11ShaderResourceView* LoadTexturePNGFromResource(
 //  Folder picker dialog (IFileDialog, FOS_PICKFOLDERS)
 // -------------------------------------------------------------
 
-// Resolve the tkdata.bin path from a moveset root directory.
-// Moveset root:  ...\Binary\Mods\Movesets
-// tkdata.bin:    ...\Binary\pak\tkdata.bin
-// Relative:      ..\..\pak\tkdata.bin
-static std::string ResolveTkdataBinPath(const char* movesetRoot)
+// Game root -> tkdata.bin path
+static std::string ResolveTkdataBinPath(const char* gameRoot)
 {
-    if (!movesetRoot || movesetRoot[0] == '\0') return {};
-
-    std::string combined = std::string(movesetRoot) + "\\..\\..\\pak\\tkdata.bin";
-
-    char resolved[MAX_PATH] = {};
-    if (!GetFullPathNameA(combined.c_str(), MAX_PATH, resolved, nullptr))
-        return combined; // fall back to unresolved on failure
-
-    return resolved;
+    if (!gameRoot || gameRoot[0] == '\0') return {};
+    return std::string(gameRoot) + "\\Polaris\\Content\\Binary\\pak\\tkdata.bin";
 }
 
-static bool TkdataBinExists(const char* movesetRoot)
+static bool TkdataBinExists(const char* gameRoot)
 {
-    std::string path = ResolveTkdataBinPath(movesetRoot);
+    std::string path = ResolveTkdataBinPath(gameRoot);
     if (path.empty()) return false;
     return GetFileAttributesA(path.c_str()) != INVALID_FILE_ATTRIBUTES;
+}
+
+// Read Steam installation directory from registry.
+static std::string GetSteamDir()
+{
+    struct { HKEY root; const char* key; REGSAM extra; } kTry[] = {
+        { HKEY_CURRENT_USER,  "SOFTWARE\\Valve\\Steam",              0             },
+        { HKEY_LOCAL_MACHINE, "SOFTWARE\\WOW6432Node\\Valve\\Steam", 0             },
+        { HKEY_LOCAL_MACHINE, "SOFTWARE\\Valve\\Steam",              KEY_WOW64_32KEY },
+    };
+    for (const auto& t : kTry)
+    {
+        HKEY h = nullptr;
+        if (RegOpenKeyExA(t.root, t.key, 0, KEY_READ | t.extra, &h) != ERROR_SUCCESS)
+            continue;
+        char buf[MAX_PATH] = {};
+        DWORD sz = sizeof(buf), type = REG_SZ;
+        LONG r = RegQueryValueExA(h, "SteamPath", nullptr, &type, (LPBYTE)buf, &sz);
+        RegCloseKey(h);
+        if (r == ERROR_SUCCESS && buf[0])
+        {
+            for (char* p = buf; *p; ++p) if (*p == '/') *p = '\\';
+            return buf;
+        }
+    }
+    return {};
+}
+
+// Detect TEKKEN 8 game root via Steam registry + libraryfolders.vdf scan.
+static std::string DetectSteamGameRoot()
+{
+    // Method 1: direct Uninstall key (fast path, not always present)
+    struct { HKEY root; const char* key; REGSAM extra; } kUninstall[] = {
+        { HKEY_LOCAL_MACHINE,
+          "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Steam App 1778820", 0 },
+        { HKEY_LOCAL_MACHINE,
+          "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Steam App 1778820",
+          KEY_WOW64_32KEY },
+        { HKEY_LOCAL_MACHINE,
+          "SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Steam App 1778820",
+          0 },
+    };
+    for (const auto& e : kUninstall)
+    {
+        HKEY h = nullptr;
+        if (RegOpenKeyExA(e.root, e.key, 0, KEY_READ | e.extra, &h) != ERROR_SUCCESS)
+            continue;
+        char buf[MAX_PATH] = {};
+        DWORD sz = sizeof(buf), type = REG_SZ;
+        LONG r = RegQueryValueExA(h, "InstallLocation", nullptr, &type, (LPBYTE)buf, &sz);
+        RegCloseKey(h);
+        if (r == ERROR_SUCCESS && buf[0]) return buf;
+    }
+
+    // Method 2: Steam directory + libraryfolders.vdf scan
+    std::string steamDir = GetSteamDir();
+    if (steamDir.empty()) return {};
+
+    static const char kGameSub[] = "\\steamapps\\common\\TEKKEN 8";
+
+    // Check default library (same location as Steam itself)
+    {
+        std::string candidate = steamDir + kGameSub;
+        if (TkdataBinExists(candidate.c_str())) return candidate;
+    }
+
+    // Parse additional libraries from libraryfolders.vdf
+    std::string vdfPath = steamDir + "\\steamapps\\libraryfolders.vdf";
+    FILE* f = nullptr;
+    fopen_s(&f, vdfPath.c_str(), "r");
+    if (!f) return {};
+
+    char line[1024];
+    while (fgets(line, sizeof(line), f))
+    {
+        // Extract any quoted value on the line that looks like an absolute path (X:\...)
+        const char* p = line;
+        while (*p)
+        {
+            const char* q1 = strchr(p, '"');
+            if (!q1) break;
+            const char* q2 = strchr(q1 + 1, '"');
+            if (!q2) break;
+            p = q2 + 1;
+
+            // Absolute path: first char = letter, second = ':'
+            if ((size_t)(q2 - q1 - 1) < 3 || q1[2] != ':') continue;
+
+            // Unescape \\ -> \ and normalize /
+            std::string libPath;
+            libPath.reserve((size_t)(q2 - q1));
+            for (const char* c = q1 + 1; c < q2; ++c)
+            {
+                char ch = (*c == '/') ? '\\' : *c;
+                if (ch == '\\' && *(c + 1) == '\\') { libPath += '\\'; ++c; }
+                else libPath += ch;
+            }
+
+            std::string candidate = libPath + kGameSub;
+            if (TkdataBinExists(candidate.c_str()))
+            {
+                fclose(f);
+                return candidate;
+            }
+        }
+    }
+    fclose(f);
+    return {};
 }
 
 static std::string BrowseForFolder()
@@ -224,7 +322,18 @@ void App::RunInitThread()
     Config::Get().Load();
     GameStatic::Get().Load();
 
-    m_extractorView.SetDestFolder(Config::Get().data.movesetRootDir);
+    // Auto-detect game root if not set or if tkdata.bin is no longer found there
+    AppConfig& cfg = Config::Get().data;
+    if (!TkdataBinExists(cfg.gameRootDir.c_str()))
+    {
+        std::string detected = DetectSteamGameRoot();
+        if (!detected.empty() && TkdataBinExists(detected.c_str()))
+        {
+            cfg.gameRootDir = detected;
+            Config::Get().Save();
+        }
+    }
+    m_extractorView.SetDestFolder(cfg.MovesetDir());
     m_extractorView.SetOnExtractSuccess([this]() {
         m_movesetView.ForceRefresh();
     });
@@ -1165,11 +1274,11 @@ void App::RenderMovesetView()
 
 void App::ApplyAndSaveSettings()
 {
-    AppConfig& cfg      = Config::Get().data;
-    cfg.movesetRootDir  = m_settingsMovesetRoot;
+    AppConfig& cfg   = Config::Get().data;
+    cfg.gameRootDir  = m_settingsGameRoot;
     Config::Get().Save();
     m_movesetView.ForceRefresh();
-    m_extractorView.SetDestFolder(cfg.movesetRootDir);
+    m_extractorView.SetDestFolder(cfg.MovesetDir());
 }
 
 // -------------------------------------------------------------
@@ -1238,8 +1347,8 @@ void App::RenderSettingsWindow()
     {
         m_settingsInitialized = true;
         const AppConfig& cfg = Config::Get().data;
-        strncpy_s(m_settingsMovesetRoot, sizeof(m_settingsMovesetRoot),
-                  cfg.movesetRootDir.c_str(), _TRUNCATE);
+        strncpy_s(m_settingsGameRoot, sizeof(m_settingsGameRoot),
+                  cfg.gameRootDir.c_str(), _TRUNCATE);
         m_settingsCat = 1;  // default to moveset category
     }
 
@@ -1289,33 +1398,33 @@ void App::RenderSettingsWindow()
         else if (m_settingsCat == 1)
         {
             // Moveset settings
-            ImGui::TextUnformatted("Moveset Root Directory");
+            ImGui::TextUnformatted("Game Root Directory");
             ImGui::Spacing();
             ImGui::TextDisabled(
-                "The folder that contains your moveset subfolders.\n"
-                "Each subfolder with a moveset.* file is treated as one moveset.");
+                "TEKKEN 8 game installation root folder.\n"
+                "Subpath Polaris\\Content\\Binary\\Mods\\Movesets is resolved automatically.");
             ImGui::Spacing();
 
             ImGui::SetNextItemWidth(-76.0f);
-            ImGui::InputText("##movesetRoot", m_settingsMovesetRoot, sizeof(m_settingsMovesetRoot));
+            ImGui::InputText("##gameRoot", m_settingsGameRoot, sizeof(m_settingsGameRoot));
             ImGui::SameLine();
             if (ImGui::Button("Browse", ImVec2(68.0f, 0.0f)))
             {
                 std::string folder = BrowseForFolder();
                 if (!folder.empty())
-                    strncpy_s(m_settingsMovesetRoot, sizeof(m_settingsMovesetRoot),
+                    strncpy_s(m_settingsGameRoot, sizeof(m_settingsGameRoot),
                               folder.c_str(), _TRUNCATE);
             }
 
             // tkdata.bin detection status
             ImGui::Spacing();
-            if (m_settingsMovesetRoot[0] == '\0')
+            if (m_settingsGameRoot[0] == '\0')
             {
-                ImGui::TextDisabled("tkdata.bin: (no root directory set)");
+                ImGui::TextDisabled("tkdata.bin: (no game root set)");
             }
-            else if (TkdataBinExists(m_settingsMovesetRoot))
+            else if (TkdataBinExists(m_settingsGameRoot))
             {
-                std::string tkPath = ResolveTkdataBinPath(m_settingsMovesetRoot);
+                std::string tkPath = ResolveTkdataBinPath(m_settingsGameRoot);
                 ImGui::TextColored(ImVec4(0.35f, 1.0f, 0.50f, 1.0f),
                                    "tkdata.bin: Found");
                 if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
@@ -1323,7 +1432,7 @@ void App::RenderSettingsWindow()
             }
             else
             {
-                std::string tkPath = ResolveTkdataBinPath(m_settingsMovesetRoot);
+                std::string tkPath = ResolveTkdataBinPath(m_settingsGameRoot);
                 ImGui::TextColored(ImVec4(1.0f, 0.40f, 0.40f, 1.0f),
                                    "tkdata.bin: Not found");
                 if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))

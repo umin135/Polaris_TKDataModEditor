@@ -165,7 +165,7 @@ void MovesetView::RefreshIfNeeded(const std::string& rootDir)
 
 void MovesetView::Render()
 {
-    const std::string& rootDir = Config::Get().data.movesetRootDir;
+    const std::string rootDir = Config::Get().data.MovesetDir();
     RefreshIfNeeded(rootDir);
 
     if (rootDir.empty())
