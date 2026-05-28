@@ -2,7 +2,7 @@
 // Selective file extraction from tkdata.bin (Tekken 8 VFS archive).
 // Mirrors the Python reference in _references/tkdata/tkdata.py.
 #include "TkdataExtractor.h"
-#include "TkdataNames.h"
+#include "../moveset/labels/LabelDB.h"
 #include <cstring>
 #include <windows.h>
 #include <bcrypt.h>
@@ -371,10 +371,10 @@ std::vector<uint8_t> TkdataExtractor::ExtractFile(const std::string& vfsPath) co
     if (!m_file)
         return {};
 
-    // Resolve hash from embedded name table
-    uint64_t hash = TkdataNameLookup(vfsPath.c_str());
+    // Resolve hash from kamui-hashes runtime dictionary
+    uint64_t hash = static_cast<uint64_t>(LabelDB::Get().GetHashByName(vfsPath));
     if (hash == 0)
-        return {}; // VFS path not in our table -> game updated or unknown file
+        return {}; // VFS path not in dictionary -> unknown file
 
     auto it = m_entries.find(hash);
     if (it == m_entries.end())

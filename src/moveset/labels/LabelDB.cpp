@@ -159,17 +159,27 @@ static void ParseNameJson(const std::string& jsonPath,
 void LabelDB::LoadNames(const std::string& jsonPath)
 {
     ParseNameJson(jsonPath, m_names, /*clearFirst=*/true);
+    m_hashByName.clear();
+    for (const auto& kv : m_names) m_hashByName[kv.second] = kv.first;
 }
 
 void LabelDB::AddNames(const std::string& jsonPath)
 {
     ParseNameJson(jsonPath, m_names, /*clearFirst=*/false);
+    m_hashByName.clear();
+    for (const auto& kv : m_names) m_hashByName[kv.second] = kv.first;
 }
 
 const char* LabelDB::GetMoveName(uint32_t key) const
 {
     auto it = m_names.find(key);
     return it != m_names.end() ? it->second.c_str() : nullptr;
+}
+
+uint32_t LabelDB::GetHashByName(const std::string& name) const
+{
+    auto it = m_hashByName.find(name);
+    return it != m_hashByName.end() ? it->second : 0;
 }
 
 // -------------------------------------------------------------

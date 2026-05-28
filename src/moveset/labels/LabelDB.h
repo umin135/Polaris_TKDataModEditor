@@ -46,6 +46,10 @@ public:
     void AddNames(const std::string& jsonPath);
     const char* GetMoveName(uint32_t key) const;
 
+    // Reverse name lookup: vfsPath string -> hash (uint32).
+    // Populated from m_names during LoadNames / AddNames.
+    uint32_t GetHashByName(const std::string& name) const;
+
     // Anim name: anim_key uint32 -> animation name string (or placeholder)
     // Loaded from anim_keys.json.
     void LoadAnimNames(const std::string& jsonPath);
@@ -75,5 +79,6 @@ private:
     std::unordered_map<uint64_t, std::string> m_cmd;
     std::unordered_map<uint32_t, std::string> m_names;
     std::unordered_map<uint32_t, std::string> m_animNames;
+    std::unordered_map<std::string, uint32_t> m_hashByName;
     bool m_loaded = false;
 };
