@@ -50,6 +50,7 @@ private:
     void RenderRankListEditor(ContentsBinData& bin);
     void RenderAssistInputListEditor(ContentsBinData& bin);
     void RenderCustomizePanelListEditor(ContentsBinData& bin);
+    void RenderCustomizeItemExceptionEditor(ContentsBinData& bin);
 
     ModData m_data;
 

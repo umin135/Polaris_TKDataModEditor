@@ -2484,6 +2484,48 @@ static bool ParseCustomizePanelListJson(const std::string& json, ContentsBinData
     return true;
 }
 
+// -----------------------------------------------------------------------------
+//  customize_item_exception  (exception/ folder)
+// -----------------------------------------------------------------------------
+
+static std::string BuildCustomizeItemExceptionJson(const ContentsBinData& bin)
+{
+    std::string j = "{\n  \"version\": 1,\n  \"entries\": [\n";
+    for (size_t i = 0; i < bin.exceptionEntries.size(); ++i)
+    {
+        if (i > 0) j += ",\n";
+        const auto& e = bin.exceptionEntries[i];
+        j += "    { \"item_id\": " + std::to_string(e.item_id)
+           + ", \"exception_type\": " + std::to_string(e.exception_type) + " }";
+    }
+    j += "\n  ]\n}\n";
+    return j;
+}
+
+static bool ParseCustomizeItemExceptionJson(const std::string& json, ContentsBinData& bin)
+{
+    const char* p   = json.c_str();
+    const char* ef  = strstr(p, "\"entries\""); if (!ef) return false;
+    const char* arr = strchr(ef, '[');          if (!arr) return false;
+    ++arr;
+    while (true)
+    {
+        arr = SkipWS(arr);
+        if (*arr == ']' || *arr == '\0') break;
+        if (*arr == '{')
+        {
+            const char* objEnd = SkipObject(arr); if (!objEnd) break;
+            CustomizeItemExceptionEntry e{};
+            { auto* fp = FindField(arr, objEnd, "item_id");        ParseUInt32(fp, objEnd, e.item_id);        }
+            { auto* fp = FindField(arr, objEnd, "exception_type"); ParseInt32 (fp, objEnd, e.exception_type); }
+            bin.exceptionEntries.push_back(e);
+            arr = objEnd;
+        }
+        while (*arr == ',' || *arr == ' ' || *arr == '\n' || *arr == '\r' || *arr == '\t') ++arr;
+    }
+    return true;
+}
+
 // ???????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????//  Win32 file dialogs + wide/narrow conversion
 // ???????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
 static std::string WideToUtf8(const wchar_t* w)
@@ -2730,6 +2772,17 @@ namespace TkmodIO
             entries.push_back(std::move(e));
         }
 
+        // exception/<name>.json for each exception bin
+        for (const auto& bin : data.contents)
+        {
+            if (bin.type != BinType::CustomizeItemException) continue;
+            const std::string json = BuildCustomizeItemExceptionJson(bin);
+            ZipEntry e;
+            e.name = "exception/" + bin.name + ".json";
+            e.data.assign(json.begin(), json.end());
+            entries.push_back(std::move(e));
+        }
+
         return WriteZip(path, entries);
     }
 
@@ -2753,6 +2806,27 @@ namespace TkmodIO
             {
                 const std::string jsonStr(zf.data.begin(), zf.data.end());
                 CollectGtbNamesFromJson(jsonStr, loaded.customGtbNames);
+                continue;
+            }
+
+            // exception/<name>.json
+            if (zf.name.rfind("exception/", 0) == 0 && zf.name.size() >= 6 &&
+                _stricmp(zf.name.c_str() + zf.name.size() - 5, ".json") == 0)
+            {
+                const std::string exJsonName = zf.name.substr(10); // len("exception/") == 10
+                if (exJsonName.size() < 6) continue;
+                const std::string exName = exJsonName.substr(0, exJsonName.size() - 5);
+                const std::string jsonStr(zf.data.begin(), zf.data.end());
+
+                if (exName == "customize_item_exception")
+                {
+                    ContentsBinData bin;
+                    bin.type = BinType::CustomizeItemException;
+                    bin.name = exName;
+                    ParseCustomizeItemExceptionJson(jsonStr, bin);
+                    loaded.selectedIndex = static_cast<int>(loaded.contents.size());
+                    loaded.contents.push_back(std::move(bin));
+                }
                 continue;
             }
 

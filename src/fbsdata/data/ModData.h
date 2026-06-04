@@ -34,6 +34,9 @@ enum class BinType
     RankList,
     AssistInputList,
     CustomizePanelList,
+
+    // -- Exception types (stored in exception/ folder, not fbsdata_mod/) ------
+    CustomizeItemException,
 };
 
 // -- customize_item_common_list entry -----------------------------------------
@@ -583,6 +586,13 @@ struct CustomizePanelEntry
     uint32_t hash_10     = 0;   // id: 10
 };
 
+// -- customize_item_exception entry -------------------------------------------
+struct CustomizeItemExceptionEntry
+{
+    uint32_t item_id        = 0;
+    int32_t  exception_type = 0;
+};
+
 // -- assist_input_list entry ---------------------------------------------------
 struct AssistInputEntry
 {
@@ -714,6 +724,9 @@ struct ContentsBinData
 
     // customize_panel_list
     std::vector<CustomizePanelEntry>         customizePanelEntries;
+
+    // customize_item_exception  (exception/ folder)
+    std::vector<CustomizeItemExceptionEntry> exceptionEntries;
 };
 
 // -- Mod metadata (written to mod_info.json) ----------------------------------

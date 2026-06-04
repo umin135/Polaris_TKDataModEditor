@@ -396,6 +396,9 @@ void FbsDataView::RenderEditorArea()
     case BinType::CustomizePanelList:
         RenderCustomizePanelListEditor(bin);
         break;
+    case BinType::CustomizeItemException:
+        RenderCustomizeItemExceptionEditor(bin);
+        break;
     default:
         ImGui::TextDisabled("No editor available for this bin type.");
         break;
@@ -1574,6 +1577,29 @@ void FbsDataView::RenderAddPopup()
             }
         }
 
+        ImGui::EndMenu();
+    }
+
+    if (ImGui::BeginMenu("exception"))
+    {
+        struct ExceptionBinInfo { const char* name; BinType type; };
+        static const ExceptionBinInfo k_ExceptionBins[] = {
+            { "customize_item_exception", BinType::CustomizeItemException },
+        };
+        for (const auto& info : k_ExceptionBins)
+        {
+            if (m_data.HasBinByName(info.name)) continue;
+            if (ImGui::MenuItem(info.name))
+            {
+                ContentsBinData bin;
+                bin.type = info.type;
+                bin.name = info.name;
+                bin.exceptionEntries.push_back(CustomizeItemExceptionEntry{});
+                m_data.selectedIndex = static_cast<int>(m_data.contents.size());
+                m_data.contents.push_back(std::move(bin));
+                ImGui::CloseCurrentPopup();
+            }
+        }
         ImGui::EndMenu();
     }
 
@@ -4470,6 +4496,192 @@ void FbsDataView::RenderCustomizePanelListEditor(ContentsBinData& bin)
 
     if (deleteIdx >= 0)
         bin.customizePanelEntries.erase(bin.customizePanelEntries.begin() + deleteIdx);
+
+    ImGui::EndTable();
+}
+
+// -----------------------------------------------------------------------------
+//  customize_item_exception editor
+// -----------------------------------------------------------------------------
+
+struct ExcTypeInfo { int32_t value; const char* name; int32_t reqCharId; int32_t reqPosId; };
+static const ExcTypeInfo k_ExcTypes[] = {
+    {  0, "NoException",              -1, -1 },
+    {  1, "Kuni Mask",                41,  4 },
+    {  2, "french_bread",             -1,  8 },
+    {  3, "honey_spoon",              -1,  8 },
+    {  4, "nailbat",                  -1,  8 },
+    {  5, "shotgun",                  -1,  8 },
+    {  6, "naginata",                 -1,  8 },
+    {  7, "prowrestling_pipechair",   -1,  8 },
+    {  8, "ukulele",                  -1,  8 },
+    {  9, "fireknife",                -1,  8 },
+    { 10, "morning_star",             -1,  8 },
+    { 11, "endbiker_gun",             -1,  8 },
+    { 12, "ordinary_scythe",          -1,  8 },
+    { 13, "shakujo",                  -1,  8 },
+    { 14, "traffic_wand",             -1,  8 },
+    { 15, "1000t_hammer",             -1,  8 },
+    { 16, "golf_club",                -1,  8 },
+};
+
+void FbsDataView::RenderCustomizeItemExceptionEditor(ContentsBinData& bin)
+{
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.82f, 1.00f, 1.00f));
+    ImGui::Text("customize_item_exception");
+    ImGui::PopStyleColor();
+    ImGui::SameLine();
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.42f, 0.42f, 0.54f, 1.00f));
+    ImGui::Text("(%d entries)", (int)bin.exceptionEntries.size());
+    ImGui::PopStyleColor();
+
+    const float addBtnW = 100.0f;
+    ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
+    if (ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
+        bin.exceptionEntries.push_back(CustomizeItemExceptionEntry{});
+
+    ImGui::Separator();
+
+    // Build item_id list (asset name label) from all common + unique bins in this mod
+    struct IdLabel { uint32_t id; std::string label; };
+    std::vector<IdLabel> available;
+    for (const auto& other : m_data.contents)
+    {
+        for (const auto& e : other.commonEntries)
+        {
+            char buf[320];
+            if (e.item_code[0])
+                snprintf(buf, sizeof(buf), "%s (%u)", e.item_code, e.item_id);
+            else
+                snprintf(buf, sizeof(buf), "%u", e.item_id);
+            available.push_back({ e.item_id, buf });
+        }
+        for (const auto& e : other.customizeItemUniqueEntries)
+        {
+            char buf[320];
+            if (e.asset_name[0])
+                snprintf(buf, sizeof(buf), "%s (%u)", e.asset_name, e.char_item_id);
+            else
+                snprintf(buf, sizeof(buf), "%u", e.char_item_id);
+            available.push_back({ e.char_item_id, buf });
+        }
+    }
+
+    // Collect item_ids already referenced by other exception entries (for dup filtering)
+    std::vector<uint32_t> usedIds;
+    usedIds.reserve(bin.exceptionEntries.size());
+    for (const auto& ex : bin.exceptionEntries)
+        if (ex.item_id != 0)
+            usedIds.push_back(ex.item_id);
+
+    constexpr ImGuiTableFlags tFlags =
+        ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersInnerH |
+        ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
+        ImGuiTableFlags_SizingStretchProp;
+
+    if (!ImGui::BeginTable("##exc_tbl", 3, tFlags)) return;
+
+    ImGui::TableSetupScrollFreeze(0, 1);
+    ImGui::TableSetupColumn("Item ID",        ImGuiTableColumnFlags_WidthStretch, 3.0f);
+    ImGui::TableSetupColumn("Exception Type", ImGuiTableColumnFlags_WidthFixed,  120.0f);
+    ImGui::TableSetupColumn("##del",          ImGuiTableColumnFlags_WidthFixed,   28.0f);
+    ImGui::TableHeadersRow();
+
+    int removeIdx = -1;
+    for (int i = 0; i < (int)bin.exceptionEntries.size(); ++i)
+    {
+        auto& e = bin.exceptionEntries[i];
+        ImGui::TableNextRow();
+        ImGui::PushID(i);
+
+        // -- Item ID dropdown -------------------------------------------------
+        ImGui::TableSetColumnIndex(0);
+        ImGui::SetNextItemWidth(-1.0f);
+
+        // Find current label
+        const char* previewLabel = "-- select --";
+        for (const auto& il : available)
+            if (il.id == e.item_id) { previewLabel = il.label.c_str(); break; }
+
+        if (ImGui::BeginCombo("##iid", previewLabel))
+        {
+            for (const auto& il : available)
+            {
+                // Skip ids already used by other rows
+                bool usedByOther = false;
+                if (il.id != e.item_id)
+                {
+                    for (uint32_t uid : usedIds)
+                        if (uid == il.id) { usedByOther = true; break; }
+                }
+                if (usedByOther) continue;
+
+                const bool sel = (il.id == e.item_id);
+                if (ImGui::Selectable(il.label.c_str(), sel))
+                {
+                    e.item_id = il.id;
+                    // Reset exception_type if it is no longer valid for the new item_id
+                    uint32_t newBB = (e.item_id / 100000u) % 100u;
+                    uint32_t newCC = (e.item_id /   1000u) % 100u;
+                    bool stillOk = false;
+                    for (const auto& t : k_ExcTypes)
+                        if (t.value == e.exception_type) {
+                            if ((t.reqCharId == -1 || (int32_t)newBB == t.reqCharId) &&
+                                (t.reqPosId  == -1 || (int32_t)newCC == t.reqPosId))
+                                stillOk = true;
+                            break;
+                        }
+                    if (!stillOk) e.exception_type = 0;
+                }
+                if (sel) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+
+        // -- Exception type dropdown ------------------------------------------
+        {
+            const uint32_t BB = (e.item_id / 100000u) % 100u;
+            const uint32_t CC = (e.item_id /   1000u) % 100u;
+
+            auto isAvailable = [&](const ExcTypeInfo& t) -> bool {
+                if (e.item_id == 0) return t.value == 0;
+                if (t.reqCharId != -1 && (int32_t)BB != t.reqCharId) return false;
+                if (t.reqPosId  != -1 && (int32_t)CC != t.reqPosId)  return false;
+                return true;
+            };
+
+            const char* typeName = "Unknown";
+            for (const auto& t : k_ExcTypes)
+                if (t.value == e.exception_type) { typeName = t.name; break; }
+
+            ImGui::TableSetColumnIndex(1);
+            ImGui::SetNextItemWidth(-1.0f);
+            if (e.item_id == 0) ImGui::BeginDisabled();
+            if (ImGui::BeginCombo("##etype", typeName))
+            {
+                for (const auto& t : k_ExcTypes)
+                {
+                    if (!isAvailable(t)) continue;
+                    const bool sel = (t.value == e.exception_type);
+                    if (ImGui::Selectable(t.name, sel))
+                        e.exception_type = t.value;
+                    if (sel) ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+            if (e.item_id == 0) ImGui::EndDisabled();
+        }
+
+        // -- Delete button ----------------------------------------------------
+        ImGui::TableSetColumnIndex(2);
+        if (ImGui::SmallButton("x"))
+            removeIdx = i;
+
+        ImGui::PopID();
+    }
+
+    if (removeIdx >= 0)
+        bin.exceptionEntries.erase(bin.exceptionEntries.begin() + removeIdx);
 
     ImGui::EndTable();
 }
