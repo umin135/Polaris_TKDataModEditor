@@ -1459,7 +1459,7 @@ static std::vector<uint8_t> RebuildMotbinBytes(MotbinData& data)
 
             // Pointer fields (stored as indexes in index-format)
             WriteIdx64(e, kMove_CancelAddr,    m.cancel_idx);
-            WriteIdx64(e, kMove_Cancel2Addr,   m.cancel2_idx);
+            WriteIdx64(e, kMove_Cancel2Addr,   m.cancel2_idx == 0xFFFFFFFF ? 0 : m.cancel2_idx);
             WriteIdx64(e, kMove_HitCondAddr,   m.hit_condition_idx);
             WriteIdx64(e, kMove_VoicelipAddr,  m.voiceclip_idx);
             WriteIdx64(e, kMove_ExtraPropAddr, m.extra_prop_idx);
