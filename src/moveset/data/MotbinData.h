@@ -160,7 +160,7 @@ struct ParsedInputSequence {
 //  tk_projectile
 // -------------------------------------------------------------
 struct ParsedProjectile {
-    uint32_t u1[35];                     // +0x00  (35 × uint32, ends at +0x8B; 4-byte pad before ptr)
+    uint32_t u1[36];                     // +0x00  (35 × uint32, ends at +0x8B; 4-byte pad before ptr)
     uint64_t hit_condition_addr;         // +0x90
     uint64_t cancel_addr;                // +0x98
     uint32_t u2[16];                     // +0xA0

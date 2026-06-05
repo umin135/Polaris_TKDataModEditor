@@ -743,7 +743,7 @@ MotbinData LoadMotbin(const std::string& folderPath)
                 size_t o = (size_t)base + (size_t)k * 0xE0;
                 if (o + 0xE0 > cap) break;
                 ParsedProjectile p;
-                for (int n = 0; n < 35; ++n)
+                for (int n = 0; n < 36; ++n)
                     p.u1[n] = ReadAt<uint32_t>(buf, cap, o + n * 4);
                 p.hit_condition_addr = ReadAt<uint64_t>(buf, cap, o + 0x90);
                 p.cancel_addr        = ReadAt<uint64_t>(buf, cap, o + 0x98);
@@ -1216,7 +1216,7 @@ static std::vector<uint8_t> RebuildMotbinBytes(MotbinData& data)
     EmitBlock(0x1A0, 0x1A8, 0xE0, data.projectileBlock.size(),
         [&](uint8_t* e, size_t i) {
             const auto& p = data.projectileBlock[i];
-            for (int n = 0; n < 35; ++n) memcpy(e + n*4, &p.u1[n], 4);
+            for (int n = 0; n < 36; ++n) memcpy(e + n*4, &p.u1[n], 4);
             WriteIdx64(e, 0x90, p.hit_condition_idx);
             WriteIdx64(e, 0x98, p.cancel_idx);
             for (int n = 0; n < 16; ++n) memcpy(e + 0xA0 + n*4, &p.u2[n], 4);

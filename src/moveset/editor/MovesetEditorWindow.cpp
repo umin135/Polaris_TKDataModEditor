@@ -5137,7 +5137,7 @@ void MovesetEditorWindow::RenderSubWin_Throws()
 // -------------------------------------------------------------
 //  Projectiles subwindow
 //  Left panel  : projectile list
-//  Right panel : detail (hit_condition link, cancel link, u1[35], u2[16])
+//  Right panel : detail (hit_condition link, cancel link, u1[36], u2[16])
 // -------------------------------------------------------------
 
 void MovesetEditorWindow::RenderSubWin_Projectiles()
@@ -5234,8 +5234,8 @@ void MovesetEditorWindow::RenderSubWin_Projectiles()
                     m_cancelsWin.pendingFocus = true;
                 }
             }
-            // u1[0]-u1[34]
-            for (int n = 0; n < 35; ++n)
+            // u1[0]-u1[35]
+            for (int n = 0; n < 36; ++n)
             {
                 char id[20], lbl[24];
                 snprintf(id,  sizeof(id),  "##pj_u1_%d", n);
