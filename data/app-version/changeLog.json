@@ -3,5 +3,5 @@
   "50": {"Log": "Kunimitsu Update Support\n-A feature has been added that detects the installed Steam version TEKKEN 8 and automatically sets the path.\n-Improved tkdata filenames to be referenced in the kamui-hash dictionary.\n- Improvements have been made to allow setting the Moveset path to the TEKKEN8 path.\n(If no path is set, it automatically searches for the Steam version's path.)\n"},
   "51": {"Log": "Customization large-scale fallback update\n- Loader now shows the other party the state where only category items containing Modded Items have been replaced with default items.\n- Thanks to this, desync no longer occurs due to Kunimitsu's mask.\n- An exception list has been added to the Editor. You can pass exceptions to the Loader through this.\n- Please check the Discord Server for more details.\n"},
   "52": {"Log": "Moveset Update\n- Fixed about cancel pointers"},
-  "60": {"Log": "# Fbsdata\n- TKmod saving method improvement\n- Added tkmod Overview feature\n- Added tsv export/import for other list\n# Moveset Update\n- Added "Open Moveset Directory" Button"}
+  "60": {"Log": "# Fbsdata\n- TKmod saving method improvement\n- Added tkmod Overview feature\n- Added tsv export/import for other list\n# Moveset Update\n- Added Open Moveset Directory Button"}
 }
