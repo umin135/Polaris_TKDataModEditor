@@ -1,7 +1,10 @@
 ﻿#pragma once
 #include "fbsdata/data/ModData.h"
+#include "fbsdata/editor/TkmodManagerView.h"
 #include <string>
 #include <cstdint>
+#include <functional>
+#include <vector>
 
 // FbsData editor view -- loads/saves .tkmod files and renders per-bin editors.
 // Layout: [Toolbar (Save/Load)] | [Editor area] | [Contents List]
@@ -15,6 +18,23 @@ public:
     // Returns true on success.
     bool LoadFromPath(const std::string& path);
 
+    // Dispatches to the per-type editor for 'bin'. Used by TkmodManagerView for read-only preview.
+    void RenderBinReadOnly(ContentsBinData& bin);
+
+    // Source descriptor for the merged overview table.
+    struct BinViewSource
+    {
+        const char*      filename;  // e.g. "Anna.tkmod"
+        const char*      path;      // full path for Open callback
+        ContentsBinData* bin;
+        const ModData*   modData;   // parent mod (for cross-bin label lookups)
+    };
+
+    // Renders all entries from all sources in a single merged table with a "tkmod" column.
+    void RenderBinMergedOverview(
+        const std::vector<BinViewSource>& sources,
+        const std::function<void(const std::string&)>& openCb);
+
 private:
     void RenderToolbar();
     void RenderEditorArea();
@@ -23,6 +43,7 @@ private:
     void RenderInfoEditPopup();
     void RenderSaveConfirmPopup();
     void DoSave();
+    void DoSaveAs();
 
     // Per-type editors
     void RenderCustomizeItemCommonEditor(ContentsBinData& bin);
@@ -62,6 +83,10 @@ private:
     bool    m_showSaveResult    = false;
     bool    m_lastSaveOk        = false;
     float   m_statusTimer       = 0.0f;
-    bool    m_infoEditPending   = false;  // open info edit popup next frame
-    bool    m_saveConfirmPending = false; // open save-without-info confirm popup next frame
+    bool        m_infoEditPending    = false;  // open info edit popup next frame
+    bool        m_saveConfirmPending = false;  // open save-without-info confirm popup next frame
+    bool        m_pendingDoSaveAs   = false;   // if true, DoSaveAs() on confirm; else DoSave()
+    bool        m_renderReadOnly    = false;   // suppresses Add/Import/Delete buttons in editors
+    std::string m_currentFilePath;             // empty = not yet saved to disk
+    TkmodManagerView m_managerView;
 };

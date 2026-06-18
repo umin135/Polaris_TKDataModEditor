@@ -2,6 +2,9 @@
 #include "ExtractorView.h"
 #include "imgui/imgui.h"
 #include <cstdio>
+#include <windows.h>
+#include <shellapi.h>
+#pragma comment(lib, "Shell32.lib")
 
 ExtractorView::ExtractorView(const std::string& movesetRootDir)
     : m_destFolder(movesetRootDir)
@@ -101,6 +104,21 @@ void ExtractorView::RenderButtons()
         ImGui::EndDisabled();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip("Set Moveset Root Dir in Settings first.");
+    }
+
+    // Open Directory button -- right-aligned on the same row
+    {
+        const float btnW = 120.0f;
+        ImGui::SameLine(ImGui::GetContentRegionMax().x - btnW);
+        if (!canExtract) ImGui::BeginDisabled();
+        if (ImGui::Button("Open Directory", ImVec2(btnW, 0.0f)))
+        {
+            int wLen = MultiByteToWideChar(CP_UTF8, 0, m_destFolder.c_str(), -1, nullptr, 0);
+            std::wstring wPath(wLen > 0 ? wLen - 1 : 0, L'\0');
+            MultiByteToWideChar(CP_UTF8, 0, m_destFolder.c_str(), -1, &wPath[0], wLen);
+            ShellExecuteW(nullptr, L"explore", wPath.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        }
+        if (!canExtract) ImGui::EndDisabled();
     }
 }
 

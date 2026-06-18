@@ -2663,11 +2663,115 @@ namespace TkmodIO
 }
 
 // ==========================================================
+//  Build zip entries and write (shared by SaveDialog / SaveToPath)
+// ==========================================================
+
+static bool SaveToPathImpl(const ModData& data, const std::string& path)
+{
+    std::vector<ZipEntry> entries;
+
+    // mod_info.json
+    {
+        ZipEntry e;
+        e.name = "mod_info.json";
+        const std::string json = BuildModInfoJson(data.info);
+        e.data.assign(json.begin(), json.end());
+        entries.push_back(std::move(e));
+    }
+
+    // fbsdata_mod/<bin>.json for each content bin
+    for (const auto& bin : data.contents)
+    {
+        std::string json;
+        if (bin.type == BinType::CustomizeItemCommonList)
+            json = BuildCustomizeItemCommonJson(bin);
+        else if (bin.type == BinType::CharacterList)
+            json = BuildCharacterListJson(bin);
+        else if (bin.type == BinType::CustomizeItemExclusiveList)
+            json = BuildCustomizeItemExclusiveListJson(bin);
+        else if (bin.type == BinType::AreaList)
+            json = BuildAreaListJson(bin);
+        else if (bin.type == BinType::BattleSubtitleInfoList)
+            json = BuildBattleSubtitleInfoJson(bin);
+        else if (bin.type == BinType::FateDramaPlayerStartList)
+            json = BuildFateDramaPlayerStartListJson(bin);
+        else if (bin.type == BinType::JukeboxList)
+            json = BuildJukeboxListJson(bin);
+        else if (bin.type == BinType::SeriesList)
+            json = BuildSeriesListJson(bin);
+        else if (bin.type == BinType::TamMissionList)
+            json = BuildTamMissionListJson(bin);
+        else if (bin.type == BinType::DramaPlayerStartList)
+            json = BuildDramaPlayerStartListJson(bin);
+        else if (bin.type == BinType::StageList)
+            json = BuildStageListJson(bin);
+        else if (bin.type == BinType::BallPropertyList)
+            json = BuildBallPropertyListJson(bin);
+        else if (bin.type == BinType::BodyCylinderDataList)
+            json = BuildBodyCylinderDataListJson(bin);
+        else if (bin.type == BinType::CustomizeItemUniqueList)
+            json = BuildCustomizeItemUniqueListJson(bin);
+        else if (bin.type == BinType::CharacterSelectList)
+            json = BuildCharacterSelectListJson(bin);
+        else if (bin.type == BinType::CustomizeItemProhibitDramaList)
+            json = BuildCustomizeItemProhibitDramaListJson(bin);
+        else if (bin.type == BinType::BattleMotionList)
+            json = BuildBattleMotionListJson(bin);
+        else if (bin.type == BinType::ArcadeCpuList)
+            json = BuildArcadeCpuListJson(bin);
+        else if (bin.type == BinType::BallRecommendList)
+            json = BuildBallRecommendListJson(bin);
+        else if (bin.type == BinType::BallSettingList)
+            json = BuildBallSettingListJson(bin);
+        else if (bin.type == BinType::BattleCommonList)
+            json = BuildBattleCommonListJson(bin);
+        else if (bin.type == BinType::BattleCpuList)
+            json = BuildBattleCpuListJson(bin);
+        else if (bin.type == BinType::RankList)
+            json = BuildRankListJson(bin);
+        else if (bin.type == BinType::AssistInputList)
+            json = BuildAssistInputListJson(bin);
+        else if (bin.type == BinType::CustomizePanelList)
+            json = BuildCustomizePanelListJson(bin);
+        else
+            continue;
+
+        ZipEntry e;
+        e.name = "fbsdata_mod/" + bin.name + ".json";
+        e.data.assign(json.begin(), json.end());
+        entries.push_back(std::move(e));
+    }
+
+    const std::vector<std::string> gtbNames = NormalizeGtbNames(data.customGtbNames);
+    if (!gtbNames.empty())
+    {
+        ZipEntry e;
+        e.name = "gtb_mod/gtb_mod.json";
+        const std::string json = BuildGtbManifestJson(gtbNames);
+        e.data.assign(json.begin(), json.end());
+        entries.push_back(std::move(e));
+    }
+
+    // exception/<name>.json for each exception bin
+    for (const auto& bin : data.contents)
+    {
+        if (bin.type != BinType::CustomizeItemException) continue;
+        const std::string json = BuildCustomizeItemExceptionJson(bin);
+        ZipEntry e;
+        e.name = "exception/" + bin.name + ".json";
+        e.data.assign(json.begin(), json.end());
+        entries.push_back(std::move(e));
+    }
+
+    return WriteZip(path, entries);
+}
+
+// ==========================================================
 //  Public API
 // ==========================================================
 namespace TkmodIO
 {
-    bool SaveDialog(const ModData& data)
+    bool SaveDialog(const ModData& data, std::string& outPath)
     {
         // Validate before save
         auto errors = Validate(data);
@@ -2688,102 +2792,28 @@ namespace TkmodIO
         const std::string path = OpenSaveDialog();
         if (path.empty()) return false;
 
-        std::vector<ZipEntry> entries;
+        if (!SaveToPathImpl(data, path)) return false;
+        outPath = path;
+        return true;
+    }
 
-        // mod_info.json
+    bool SaveToPath(const ModData& data, const std::string& path)
+    {
+        auto errors = Validate(data);
+        if (!errors.empty())
         {
-            ZipEntry e;
-            e.name = "mod_info.json";
-            const std::string json = BuildModInfoJson(data.info);
-            e.data.assign(json.begin(), json.end());
-            entries.push_back(std::move(e));
+            std::string msg = "The following issues were found:\n\n";
+            for (size_t i = 0; i < errors.size() && i < 10; ++i)
+                msg += "- " + errors[i] + "\n";
+            if (errors.size() > 10)
+                msg += "\n... and " + std::to_string(errors.size() - 10) + " more.\n";
+            msg += "\nSaving a malformed .tkmod can corrupt game save data.\n"
+                   "Save anyway?";
+            int result = MessageBoxA(nullptr, msg.c_str(), "TkMod Validation Warning",
+                                     MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2);
+            if (result != IDYES) return false;
         }
-
-        // fbsdata_mod/<bin>.json for each content bin
-        for (const auto& bin : data.contents)
-        {
-            std::string json;
-            if (bin.type == BinType::CustomizeItemCommonList)
-                json = BuildCustomizeItemCommonJson(bin);
-            else if (bin.type == BinType::CharacterList)
-                json = BuildCharacterListJson(bin);
-            else if (bin.type == BinType::CustomizeItemExclusiveList)
-                json = BuildCustomizeItemExclusiveListJson(bin);
-            else if (bin.type == BinType::AreaList)
-                json = BuildAreaListJson(bin);
-            else if (bin.type == BinType::BattleSubtitleInfoList)
-                json = BuildBattleSubtitleInfoJson(bin);
-            else if (bin.type == BinType::FateDramaPlayerStartList)
-                json = BuildFateDramaPlayerStartListJson(bin);
-            else if (bin.type == BinType::JukeboxList)
-                json = BuildJukeboxListJson(bin);
-            else if (bin.type == BinType::SeriesList)
-                json = BuildSeriesListJson(bin);
-            else if (bin.type == BinType::TamMissionList)
-                json = BuildTamMissionListJson(bin);
-            else if (bin.type == BinType::DramaPlayerStartList)
-                json = BuildDramaPlayerStartListJson(bin);
-            else if (bin.type == BinType::StageList)
-                json = BuildStageListJson(bin);
-            else if (bin.type == BinType::BallPropertyList)
-                json = BuildBallPropertyListJson(bin);
-            else if (bin.type == BinType::BodyCylinderDataList)
-                json = BuildBodyCylinderDataListJson(bin);
-            else if (bin.type == BinType::CustomizeItemUniqueList)
-                json = BuildCustomizeItemUniqueListJson(bin);
-            else if (bin.type == BinType::CharacterSelectList)
-                json = BuildCharacterSelectListJson(bin);
-            else if (bin.type == BinType::CustomizeItemProhibitDramaList)
-                json = BuildCustomizeItemProhibitDramaListJson(bin);
-            else if (bin.type == BinType::BattleMotionList)
-                json = BuildBattleMotionListJson(bin);
-            else if (bin.type == BinType::ArcadeCpuList)
-                json = BuildArcadeCpuListJson(bin);
-            else if (bin.type == BinType::BallRecommendList)
-                json = BuildBallRecommendListJson(bin);
-            else if (bin.type == BinType::BallSettingList)
-                json = BuildBallSettingListJson(bin);
-            else if (bin.type == BinType::BattleCommonList)
-                json = BuildBattleCommonListJson(bin);
-            else if (bin.type == BinType::BattleCpuList)
-                json = BuildBattleCpuListJson(bin);
-            else if (bin.type == BinType::RankList)
-                json = BuildRankListJson(bin);
-            else if (bin.type == BinType::AssistInputList)
-                json = BuildAssistInputListJson(bin);
-            else if (bin.type == BinType::CustomizePanelList)
-                json = BuildCustomizePanelListJson(bin);
-            else
-                continue;
-
-            ZipEntry e;
-            e.name = "fbsdata_mod/" + bin.name + ".json";
-            e.data.assign(json.begin(), json.end());
-            entries.push_back(std::move(e));
-        }
-
-        const std::vector<std::string> gtbNames = NormalizeGtbNames(data.customGtbNames);
-        if (!gtbNames.empty())
-        {
-            ZipEntry e;
-            e.name = "gtb_mod/gtb_mod.json";
-            const std::string json = BuildGtbManifestJson(gtbNames);
-            e.data.assign(json.begin(), json.end());
-            entries.push_back(std::move(e));
-        }
-
-        // exception/<name>.json for each exception bin
-        for (const auto& bin : data.contents)
-        {
-            if (bin.type != BinType::CustomizeItemException) continue;
-            const std::string json = BuildCustomizeItemExceptionJson(bin);
-            ZipEntry e;
-            e.name = "exception/" + bin.name + ".json";
-            e.data.assign(json.begin(), json.end());
-            entries.push_back(std::move(e));
-        }
-
-        return WriteZip(path, entries);
+        return SaveToPathImpl(data, path);
     }
 
     bool LoadFromPath(const std::string& path, ModData& data)
@@ -3082,10 +3112,12 @@ namespace TkmodIO
         return true;
     }
 
-    bool LoadDialog(ModData& data)
+    bool LoadDialog(ModData& data, std::string& outPath)
     {
         const std::string path = OpenLoadDialog();
         if (path.empty()) return false;
-        return LoadFromPath(path, data);
+        if (!LoadFromPath(path, data)) return false;
+        outPath = path;
+        return true;
     }
 }

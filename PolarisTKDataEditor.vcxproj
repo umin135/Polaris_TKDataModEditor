@@ -183,6 +183,7 @@ if "$(Configuration)|$(Platform)"=="Release|x64" xcopy /Y /E /Q "$(OutDir)res\" 
     <ClCompile Include="src\App.cpp" />
     <ClCompile Include="src\Config.cpp" />
     <ClCompile Include="src\fbsdata\editor\FbsDataView.cpp" />
+    <ClCompile Include="src\fbsdata\editor\TkmodManagerView.cpp" />
     <ClCompile Include="src\fbsdata\io\TkmodIO.cpp" />
     <ClCompile Include="src\moveset\editor\MovesetView.cpp" />
     <ClCompile Include="src\moveset\data\MotbinData.cpp" />

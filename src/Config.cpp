@@ -81,6 +81,8 @@ void Config::Load()
 
         if (section == "Moveset" && key == "GameRootDir")
             data.gameRootDir = val;
+        else if (section == "FbsData" && key == "TkmodManagerDir")
+            data.tkmodManagerDir = val;
     }
 
     fclose(f);
@@ -104,6 +106,9 @@ void Config::Save() const
 
     fprintf(f, "[Moveset]\n");
     fprintf(f, "GameRootDir=%s\n", data.gameRootDir.c_str());
+
+    fprintf(f, "\n[FbsData]\n");
+    fprintf(f, "TkmodManagerDir=%s\n", data.tkmodManagerDir.c_str());
 
     fclose(f);
 }

@@ -17,6 +17,7 @@
 #include <cstdio>
 #include <string>
 #include <sstream>
+#include <unordered_map>
 
 // -----------------------------------------------------------------------------
 //  All fbsdata bin files with support status
@@ -161,7 +162,30 @@ void FbsDataView::DoSave()
         FixCommonItemIds(bin.commonEntries);
         FixUniqueItemIds(bin.customizeItemUniqueEntries);
     }
-    m_lastSaveOk     = TkmodIO::SaveDialog(m_data);
+    if (!m_currentFilePath.empty())
+    {
+        m_lastSaveOk = TkmodIO::SaveToPath(m_data, m_currentFilePath);
+    }
+    else
+    {
+        std::string outPath;
+        m_lastSaveOk = TkmodIO::SaveDialog(m_data, outPath);
+        if (m_lastSaveOk) m_currentFilePath = outPath;
+    }
+    m_showSaveResult = true;
+    m_statusTimer    = 3.0f;
+}
+
+void FbsDataView::DoSaveAs()
+{
+    for (auto& bin : m_data.contents)
+    {
+        FixCommonItemIds(bin.commonEntries);
+        FixUniqueItemIds(bin.customizeItemUniqueEntries);
+    }
+    std::string outPath;
+    m_lastSaveOk = TkmodIO::SaveDialog(m_data, outPath);
+    if (m_lastSaveOk) m_currentFilePath = outPath;
     m_showSaveResult = true;
     m_statusTimer    = 3.0f;
 }
@@ -172,8 +196,9 @@ void FbsDataView::RenderToolbar()
 
     if (ImGui::Button("  New  "))
     {
-        m_data      = ModData{};
-        m_modActive = true;
+        m_data            = ModData{};
+        m_currentFilePath = {};
+        m_modActive       = true;
     }
     ImGui::SameLine(0, 6.0f);
 
@@ -184,9 +209,27 @@ void FbsDataView::RenderToolbar()
                           m_data.info.description[0]  == '\0' &&
                           m_data.info.version[0]      == '\0');
         if (infoEmpty)
+        {
             m_saveConfirmPending = true;
+            m_pendingDoSaveAs    = false;
+        }
         else
             DoSave();
+    }
+    ImGui::SameLine(0, 6.0f);
+
+    if (ImGui::Button(" Save As "))
+    {
+        bool infoEmpty = (m_data.info.author[0]      == '\0' &&
+                          m_data.info.description[0]  == '\0' &&
+                          m_data.info.version[0]      == '\0');
+        if (infoEmpty)
+        {
+            m_saveConfirmPending = true;
+            m_pendingDoSaveAs    = true;
+        }
+        else
+            DoSaveAs();
     }
     if (!m_modActive) ImGui::EndDisabled();
     ImGui::SameLine(0, 6.0f);
@@ -194,10 +237,12 @@ void FbsDataView::RenderToolbar()
     if (ImGui::Button("  Load  "))
     {
         ModData loaded;
-        if (TkmodIO::LoadDialog(loaded))
+        std::string outPath;
+        if (TkmodIO::LoadDialog(loaded, outPath))
         {
-            m_data      = std::move(loaded);
-            m_modActive = true;
+            m_data            = std::move(loaded);
+            m_currentFilePath = outPath;
+            m_modActive       = true;
         }
     }
 
@@ -220,14 +265,22 @@ void FbsDataView::RenderToolbar()
         if (m_statusTimer <= 0.0f) m_showSaveResult = false;
     }
 
-    // Right-aligned: Information Edit button (only when a mod is active)
+    // Right-aligned: Manage tkmods + Information Edit (only when a mod is active)
     if (m_modActive)
     {
-        const float infoBtnW = 160.0f;
-        const float rightX   = ImGui::GetWindowWidth() - infoBtnW - 10.0f;
-        if (rightX > ImGui::GetCursorPosX())
+        const float manageBtnW = 130.0f;
+        const float infoBtnW   = 160.0f;
+        const float manageX = ImGui::GetWindowWidth() - manageBtnW - infoBtnW - 18.0f;
+        if (manageX > ImGui::GetCursorPosX())
         {
-            ImGui::SameLine(rightX);
+            ImGui::SameLine(manageX);
+            if (ImGui::Button("tkmod Overview", ImVec2(manageBtnW, 0.f)))
+                m_managerView.Open();
+        }
+        const float infoX = ImGui::GetWindowWidth() - infoBtnW - 10.0f;
+        if (infoX > ImGui::GetCursorPosX())
+        {
+            ImGui::SameLine(infoX);
             if (ImGui::Button("Information Edit", ImVec2(infoBtnW, 0.f)))
                 m_infoEditPending = true;
         }
@@ -243,8 +296,9 @@ bool FbsDataView::LoadFromPath(const std::string& path)
     ModData loaded;
     if (!TkmodIO::LoadFromPath(path, loaded))
         return false;
-    m_data      = std::move(loaded);
-    m_modActive = true;
+    m_data            = std::move(loaded);
+    m_currentFilePath = path;
+    m_modActive       = true;
     return true;
 }
 
@@ -293,6 +347,17 @@ void FbsDataView::Render()
     // Popups at the top-level window context (not inside child windows)
     RenderInfoEditPopup();
     RenderSaveConfirmPopup();
+
+    // Manage tkmods floating window
+    m_managerView.Render(*this, [this](const std::string& path) {
+        ModData loaded;
+        if (TkmodIO::LoadFromPath(path, loaded))
+        {
+            m_data            = std::move(loaded);
+            m_currentFilePath = path;
+            m_modActive       = true;
+        }
+    });
 }
 
 // -----------------------------------------------------------------------------
@@ -778,7 +843,7 @@ void FbsDataView::RenderCustomizeItemCommonEditor(ContentsBinData& bin)
         }
     }
     ImGui::SameLine(0, ioGap);
-    if (ImGui::Button("Import", ImVec2(importBtnW, 0)))
+    if (!m_renderReadOnly && ImGui::Button("Import", ImVec2(importBtnW, 0)))
     {
         std::string path = OpenTsvOpenDialog();
         if (!path.empty())
@@ -792,7 +857,7 @@ void FbsDataView::RenderCustomizeItemCommonEditor(ContentsBinData& bin)
         }
     }
     ImGui::SameLine(0, ioGap);
-    if (ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
+    if (!m_renderReadOnly && ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
         bin.commonEntries.push_back(bin.commonEntries.empty()
             ? DefaultValues::CommonEntry()
             : bin.commonEntries.back());
@@ -854,7 +919,7 @@ void FbsDataView::RenderCustomizeItemCommonEditor(ContentsBinData& bin)
         ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
         ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
-        if (ImGui::SmallButton("X")) deleteIdx = i;
+        if (!m_renderReadOnly && ImGui::SmallButton("X")) deleteIdx = i;
         ImGui::PopStyleColor(3);
 
         // Inline helpers ---- fill the entire column width
@@ -929,10 +994,75 @@ void FbsDataView::RenderCustomizeItemCommonEditor(ContentsBinData& bin)
         ImGui::PopID();
     }
 
-    if (deleteIdx >= 0)
+    if (!m_renderReadOnly && deleteIdx >= 0)
         bin.commonEntries.erase(bin.commonEntries.begin() + deleteIdx);
 
     ImGui::EndTable();
+}
+
+// -----------------------------------------------------------------------------
+//  character_list TSV export / import
+// -----------------------------------------------------------------------------
+
+static void ExportCharacterListTsv(const std::vector<CharacterEntry>& entries, const std::string& path)
+{
+    FILE* f = nullptr;
+    fopen_s(&f, path.c_str(), "wb");
+    if (!f) return;
+    for (const auto& e : entries)
+    {
+        char line[2048];
+        int n = snprintf(line, sizeof(line),
+            "%s\t%u\t%s\t%s\t%s\t%.9g\t%s\t%u\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+            e.character_code, e.name_hash,
+            e.is_enabled    ? "TRUE" : "FALSE",
+            e.is_selectable ? "TRUE" : "FALSE",
+            e.group, e.camera_offset,
+            e.is_playable   ? "TRUE" : "FALSE",
+            e.sort_order,
+            e.full_name_key, e.short_name_jp_key, e.short_name_key,
+            e.origin_key, e.fighting_style_key, e.height_key, e.weight_key);
+        fwrite(line, 1, n, f);
+    }
+    fclose(f);
+}
+
+static std::vector<CharacterEntry> ImportCharacterListTsv(const std::string& path)
+{
+    std::vector<CharacterEntry> result;
+    FILE* f = nullptr;
+    fopen_s(&f, path.c_str(), "rb");
+    if (!f) return result;
+    char line[2048];
+    while (fgets(line, sizeof(line), f))
+    {
+        int len = (int)strlen(line);
+        while (len > 0 && (line[len-1] == '\r' || line[len-1] == '\n')) line[--len] = '\0';
+        if (len == 0) continue;
+        char* cols[15] = {};
+        int col = 0; char* p = line; cols[col++] = p;
+        for (; *p && col < 15; ++p) if (*p == '\t') { *p = '\0'; cols[col++] = p + 1; }
+        if (col < 15) continue;
+        CharacterEntry e;
+        strncpy_s(e.character_code,      cols[ 0], _TRUNCATE);
+        e.name_hash      = (uint32_t)strtoul(cols[ 1], nullptr, 10);
+        e.is_enabled     = ParseBool(cols[ 2]);
+        e.is_selectable  = ParseBool(cols[ 3]);
+        strncpy_s(e.group,               cols[ 4], _TRUNCATE);
+        e.camera_offset  = strtof(cols[ 5], nullptr);
+        e.is_playable    = ParseBool(cols[ 6]);
+        e.sort_order     = (uint32_t)strtoul(cols[ 7], nullptr, 10);
+        strncpy_s(e.full_name_key,       cols[ 8], _TRUNCATE);
+        strncpy_s(e.short_name_jp_key,   cols[ 9], _TRUNCATE);
+        strncpy_s(e.short_name_key,      cols[10], _TRUNCATE);
+        strncpy_s(e.origin_key,          cols[11], _TRUNCATE);
+        strncpy_s(e.fighting_style_key,  cols[12], _TRUNCATE);
+        strncpy_s(e.height_key,          cols[13], _TRUNCATE);
+        strncpy_s(e.weight_key,          cols[14], _TRUNCATE);
+        result.push_back(e);
+    }
+    fclose(f);
+    return result;
 }
 
 // -----------------------------------------------------------------------------
@@ -950,11 +1080,33 @@ void FbsDataView::RenderCharacterListEditor(ContentsBinData& bin)
     ImGui::Text("(%d entries)", (int)bin.characterEntries.size());
     ImGui::PopStyleColor();
 
-    // -- Add Entry button (right-aligned) --
-    const float addBtnW = 100.0f;
-    ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
-    if (ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
-        bin.characterEntries.push_back(CharacterEntry{});
+    // -- Export / Import / Add Entry buttons (right-aligned) --
+    {
+        const float addBtnW    = 100.0f;
+        const float ioGap      = 4.0f;
+        const float exportBtnW = 70.0f;
+        const float importBtnW = 70.0f;
+        const float totalW     = exportBtnW + ioGap + importBtnW + ioGap + addBtnW;
+        ImGui::SameLine(ImGui::GetContentRegionAvail().x - totalW + ImGui::GetCursorPosX());
+        if (ImGui::Button("Export##char", ImVec2(exportBtnW, 0)))
+        {
+            std::string path = OpenTsvSaveDialog(L"character_list.tsv");
+            if (!path.empty()) ExportCharacterListTsv(bin.characterEntries, path);
+        }
+        ImGui::SameLine(0, ioGap);
+        if (!m_renderReadOnly && ImGui::Button("Import##char", ImVec2(importBtnW, 0)))
+        {
+            std::string path = OpenTsvOpenDialog();
+            if (!path.empty())
+            {
+                auto imported = ImportCharacterListTsv(path);
+                if (!imported.empty()) bin.characterEntries = std::move(imported);
+            }
+        }
+        ImGui::SameLine(0, ioGap);
+        if (!m_renderReadOnly && ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
+            bin.characterEntries.push_back(CharacterEntry{});
+    }
 
     ImGui::Separator();
 
@@ -1000,7 +1152,7 @@ void FbsDataView::RenderCharacterListEditor(ContentsBinData& bin)
         ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
         ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
-        if (ImGui::SmallButton("X")) deleteIdx = i;
+        if (!m_renderReadOnly && ImGui::SmallButton("X")) deleteIdx = i;
         ImGui::PopStyleColor(3);
 
         auto StrCell = [](const char* id, char* buf, size_t sz) {
@@ -1038,10 +1190,83 @@ void FbsDataView::RenderCharacterListEditor(ContentsBinData& bin)
         ImGui::PopID();
     }
 
-    if (deleteIdx >= 0)
+    if (!m_renderReadOnly && deleteIdx >= 0)
         bin.characterEntries.erase(bin.characterEntries.begin() + deleteIdx);
 
     ImGui::EndTable();
+}
+
+// -----------------------------------------------------------------------------
+//  customize_item_exclusive_list TSV export / import (per-tab)
+// -----------------------------------------------------------------------------
+
+static void ExportExclusiveRuleTsv(const std::vector<CustomizeExclusiveRuleEntry>& entries, const std::string& path)
+{
+    FILE* f = nullptr;
+    fopen_s(&f, path.c_str(), "wb");
+    if (!f) return;
+    for (const auto& e : entries)
+        fprintf(f, "%u\t%u\t%u\t%u\n", e.item_id, e.hash, e.link_type, e.ref_item_id);
+    fclose(f);
+}
+
+static void ImportExclusiveRuleTsv(const std::string& path, std::vector<CustomizeExclusiveRuleEntry>& entries)
+{
+    FILE* f = nullptr;
+    fopen_s(&f, path.c_str(), "rb");
+    if (!f) return;
+    entries.clear();
+    char line[256];
+    while (fgets(line, sizeof(line), f))
+    {
+        int len = (int)strlen(line);
+        while (len > 0 && (line[len-1] == '\r' || line[len-1] == '\n')) line[--len] = '\0';
+        if (len == 0 || line[0] == '#') continue;
+        char* cols[4] = {}; int col = 0; char* p = line; cols[col++] = p;
+        for (; *p && col < 4; ++p) if (*p == '\t') { *p = '\0'; cols[col++] = p + 1; }
+        if (col < 4) continue;
+        CustomizeExclusiveRuleEntry e;
+        e.item_id     = (uint32_t)strtoul(cols[0], nullptr, 10);
+        e.hash        = (uint32_t)strtoul(cols[1], nullptr, 10);
+        e.link_type   = (uint32_t)strtoul(cols[2], nullptr, 10);
+        e.ref_item_id = (uint32_t)strtoul(cols[3], nullptr, 10);
+        entries.push_back(e);
+    }
+    fclose(f);
+}
+
+static void ExportExclusivePairTsv(const std::vector<CustomizeExclusivePairEntry>& entries, const std::string& path)
+{
+    FILE* f = nullptr;
+    fopen_s(&f, path.c_str(), "wb");
+    if (!f) return;
+    for (const auto& e : entries)
+        fprintf(f, "%u\t%u\t%u\n", e.item_id_a, e.item_id_b, e.flag);
+    fclose(f);
+}
+
+static void ImportExclusivePairTsv(const std::string& path, std::vector<CustomizeExclusivePairEntry>& entries)
+{
+    FILE* f = nullptr;
+    fopen_s(&f, path.c_str(), "rb");
+    if (!f) return;
+    entries.clear();
+    char line[256];
+    while (fgets(line, sizeof(line), f))
+    {
+        int len = (int)strlen(line);
+        while (len > 0 && (line[len-1] == '\r' || line[len-1] == '\n')) line[--len] = '\0';
+        if (len == 0 || line[0] == '#') continue;
+        char* cols[3] = {}; int col = 0; char* p = line; cols[col++] = p;
+        for (; *p && col < 3; ++p) if (*p == '\t') { *p = '\0'; cols[col++] = p + 1; }
+        if (col < 3) continue;
+        CustomizeExclusivePairEntry e;
+        e.item_id_a = (uint32_t)strtoul(cols[0], nullptr, 10);
+        e.item_id_b = (uint32_t)strtoul(cols[1], nullptr, 10);
+        e.flag      = (uint32_t)strtoul(cols[2], nullptr, 10);
+        entries.push_back(e);
+    }
+    fclose(f);
 }
 
 // -----------------------------------------------------------------------------
@@ -1192,14 +1417,30 @@ void FbsDataView::RenderCustomizeItemExclusiveListEditor(ContentsBinData& bin)
     };
 
     // Helper: render a RuleEntry table
-    auto RenderRuleTable = [&](const char* tableId, std::vector<CustomizeExclusiveRuleEntry>& entries, const char* const* fieldNames, bool useItemIdDropdown, bool useLocalDropdown) {
-        const float addBtnW = 100.0f;
+    auto RenderRuleTable = [&](const char* tableId, const wchar_t* tsvName, std::vector<CustomizeExclusiveRuleEntry>& entries, const char* const* fieldNames, bool useItemIdDropdown, bool useLocalDropdown) {
+        const float addBtnW    = 100.0f;
+        const float ioGap      = 4.0f;
+        const float exportBtnW = 70.0f;
+        const float importBtnW = 70.0f;
+        const float totalW     = exportBtnW + ioGap + importBtnW + ioGap + addBtnW;
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.42f, 0.42f, 0.54f, 1.00f));
         ImGui::Text("(%d entries)", (int)entries.size());
         ImGui::PopStyleColor();
-        ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
+        ImGui::SameLine(ImGui::GetContentRegionAvail().x - totalW + ImGui::GetCursorPosX());
         ImGui::PushID(tableId);
-        if (ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
+        if (ImGui::Button("Export", ImVec2(exportBtnW, 0)))
+        {
+            std::string path = OpenTsvSaveDialog(tsvName);
+            if (!path.empty()) ExportExclusiveRuleTsv(entries, path);
+        }
+        ImGui::SameLine(0, ioGap);
+        if (!m_renderReadOnly && ImGui::Button("Import", ImVec2(importBtnW, 0)))
+        {
+            std::string path = OpenTsvOpenDialog();
+            if (!path.empty()) ImportExclusiveRuleTsv(path, entries);
+        }
+        ImGui::SameLine(0, ioGap);
+        if (!m_renderReadOnly && ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
             entries.push_back(CustomizeExclusiveRuleEntry{});
         ImGui::PopID();
 
@@ -1228,7 +1469,7 @@ void FbsDataView::RenderCustomizeItemExclusiveListEditor(ContentsBinData& bin)
             ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
-            if (ImGui::SmallButton("X")) deleteIdx = i;
+            if (!m_renderReadOnly && ImGui::SmallButton("X")) deleteIdx = i;
             ImGui::PopStyleColor(3);
 
             auto U32Cell = [](const char* id, uint32_t& v) {
@@ -1248,21 +1489,37 @@ void FbsDataView::RenderCustomizeItemExclusiveListEditor(ContentsBinData& bin)
 
             ImGui::PopID();
         }
-        if (deleteIdx >= 0)
+        if (!m_renderReadOnly && deleteIdx >= 0)
             entries.erase(entries.begin() + deleteIdx);
 
         ImGui::EndTable();
     };
 
     // Helper: render a PairEntry table
-    auto RenderPairTable = [&](const char* tableId, std::vector<CustomizeExclusivePairEntry>& entries, const char* const* fieldNames, bool useItemIdDropdown, bool useLocalDropdown) {
-        const float addBtnW = 100.0f;
+    auto RenderPairTable = [&](const char* tableId, const wchar_t* tsvName, std::vector<CustomizeExclusivePairEntry>& entries, const char* const* fieldNames, bool useItemIdDropdown, bool useLocalDropdown) {
+        const float addBtnW    = 100.0f;
+        const float ioGap      = 4.0f;
+        const float exportBtnW = 70.0f;
+        const float importBtnW = 70.0f;
+        const float totalW     = exportBtnW + ioGap + importBtnW + ioGap + addBtnW;
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.42f, 0.42f, 0.54f, 1.00f));
         ImGui::Text("(%d entries)", (int)entries.size());
         ImGui::PopStyleColor();
-        ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
+        ImGui::SameLine(ImGui::GetContentRegionAvail().x - totalW + ImGui::GetCursorPosX());
         ImGui::PushID(tableId);
-        if (ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
+        if (ImGui::Button("Export", ImVec2(exportBtnW, 0)))
+        {
+            std::string path = OpenTsvSaveDialog(tsvName);
+            if (!path.empty()) ExportExclusivePairTsv(entries, path);
+        }
+        ImGui::SameLine(0, ioGap);
+        if (!m_renderReadOnly && ImGui::Button("Import", ImVec2(importBtnW, 0)))
+        {
+            std::string path = OpenTsvOpenDialog();
+            if (!path.empty()) ImportExclusivePairTsv(path, entries);
+        }
+        ImGui::SameLine(0, ioGap);
+        if (!m_renderReadOnly && ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
             entries.push_back(CustomizeExclusivePairEntry{});
         ImGui::PopID();
 
@@ -1291,7 +1548,7 @@ void FbsDataView::RenderCustomizeItemExclusiveListEditor(ContentsBinData& bin)
             ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
-            if (ImGui::SmallButton("X")) deleteIdx = i;
+            if (!m_renderReadOnly && ImGui::SmallButton("X")) deleteIdx = i;
             ImGui::PopStyleColor(3);
 
             auto U32Cell = [](const char* id, uint32_t& v) {
@@ -1310,7 +1567,7 @@ void FbsDataView::RenderCustomizeItemExclusiveListEditor(ContentsBinData& bin)
 
             ImGui::PopID();
         }
-        if (deleteIdx >= 0)
+        if (!m_renderReadOnly && deleteIdx >= 0)
             entries.erase(entries.begin() + deleteIdx);
 
         ImGui::EndTable();
@@ -1320,27 +1577,27 @@ void FbsDataView::RenderCustomizeItemExclusiveListEditor(ContentsBinData& bin)
     {
         if (ImGui::BeginTabItem(FieldNames::ExclusiveArrays[0]))
         {
-            RenderRuleTable("##RuleTable",    bin.exclusiveRuleEntries,      FieldNames::ExclusiveRule,      true,  false);
+            RenderRuleTable("##RuleTable",    L"rule_entries.tsv",       bin.exclusiveRuleEntries,      FieldNames::ExclusiveRule,      true,  false);
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem(FieldNames::ExclusiveArrays[1]))
         {
-            RenderPairTable("##PairTable",    bin.exclusivePairEntries,      FieldNames::ExclusivePair,      true,  false);
+            RenderPairTable("##PairTable",    L"pair_entries.tsv",       bin.exclusivePairEntries,      FieldNames::ExclusivePair,      true,  false);
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem(FieldNames::ExclusiveArrays[2]))
         {
-            RenderRuleTable("##GrpRuleTable", bin.exclusiveGroupRuleEntries, FieldNames::ExclusiveGroupRule, false, true);
+            RenderRuleTable("##GrpRuleTable", L"group_rule_entries.tsv", bin.exclusiveGroupRuleEntries, FieldNames::ExclusiveGroupRule, false, true);
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem(FieldNames::ExclusiveArrays[3]))
         {
-            RenderPairTable("##GrpPairTable", bin.exclusiveGroupPairEntries, FieldNames::ExclusiveGroupPair, false, true);
+            RenderPairTable("##GrpPairTable", L"group_pair_entries.tsv", bin.exclusiveGroupPairEntries, FieldNames::ExclusiveGroupPair, false, true);
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem(FieldNames::ExclusiveArrays[4]))
         {
-            RenderRuleTable("##SetRuleTable", bin.exclusiveSetRuleEntries,   FieldNames::ExclusiveSetRule,   false, true);
+            RenderRuleTable("##SetRuleTable", L"set_rule_entries.tsv",   bin.exclusiveSetRuleEntries,   FieldNames::ExclusiveSetRule,   false, true);
             ImGui::EndTabItem();
         }
         ImGui::EndTabBar();
@@ -1610,6 +1867,25 @@ void FbsDataView::RenderAddPopup()
 //  area_list editor
 // -----------------------------------------------------------------------------
 
+static void ExportAreaListTsv(const std::vector<AreaEntry>& entries, const std::string& path)
+{
+    FILE* f = nullptr; fopen_s(&f, path.c_str(), "wb"); if (!f) return;
+    for (const auto& e : entries) { char line[512]; int n = snprintf(line, sizeof(line), "%u\t%s\n", e.area_hash, e.area_code); fwrite(line, 1, n, f); }
+    fclose(f);
+}
+static std::vector<AreaEntry> ImportAreaListTsv(const std::string& path)
+{
+    std::vector<AreaEntry> result; FILE* f = nullptr; fopen_s(&f, path.c_str(), "rb"); if (!f) return result;
+    char line[512];
+    while (fgets(line, sizeof(line), f))
+    {
+        int len = (int)strlen(line); while (len > 0 && (line[len-1]=='\r'||line[len-1]=='\n')) line[--len]='\0'; if (!len) continue;
+        char* cols[2]={}; int col=0; char* p=line; cols[col++]=p; for(;*p&&col<2;++p) if(*p=='\t'){*p='\0';cols[col++]=p+1;} if(col<2) continue;
+        AreaEntry e; e.area_hash=(uint32_t)strtoul(cols[0],nullptr,10); strncpy_s(e.area_code,cols[1],_TRUNCATE); result.push_back(e);
+    }
+    fclose(f); return result;
+}
+
 void FbsDataView::RenderAreaListEditor(ContentsBinData& bin)
 {
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.82f, 1.00f, 1.00f));
@@ -1620,10 +1896,17 @@ void FbsDataView::RenderAreaListEditor(ContentsBinData& bin)
     ImGui::Text("(%d entries)", (int)bin.areaEntries.size());
     ImGui::PopStyleColor();
 
-    const float addBtnW = 100.0f;
-    ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
-    if (ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
-        bin.areaEntries.push_back(AreaEntry{});
+    {
+        const float addBtnW=100.0f, ioGap=4.0f, exportBtnW=70.0f, importBtnW=70.0f;
+        const float totalW=exportBtnW+ioGap+importBtnW+ioGap+addBtnW;
+        ImGui::SameLine(ImGui::GetContentRegionAvail().x - totalW + ImGui::GetCursorPosX());
+        if (ImGui::Button("Export##area", ImVec2(exportBtnW, 0))) { std::string p=OpenTsvSaveDialog(L"area_list.tsv"); if(!p.empty()) ExportAreaListTsv(bin.areaEntries,p); }
+        ImGui::SameLine(0, ioGap);
+        if (!m_renderReadOnly && ImGui::Button("Import##area", ImVec2(importBtnW, 0))) { std::string p=OpenTsvOpenDialog(); if(!p.empty()){auto imp=ImportAreaListTsv(p);if(!imp.empty())bin.areaEntries=std::move(imp);} }
+        ImGui::SameLine(0, ioGap);
+        if (!m_renderReadOnly && ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
+            bin.areaEntries.push_back(AreaEntry{});
+    }
 
     ImGui::Separator();
 
@@ -1661,7 +1944,7 @@ void FbsDataView::RenderAreaListEditor(ContentsBinData& bin)
             ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
-            if (ImGui::SmallButton("X")) deleteIdx = i;
+            if (!m_renderReadOnly && ImGui::SmallButton("X")) deleteIdx = i;
             ImGui::PopStyleColor(3);
 
             auto U32Cell = [](const char* id, uint32_t& v) {
@@ -1679,7 +1962,7 @@ void FbsDataView::RenderAreaListEditor(ContentsBinData& bin)
             ImGui::PopID();
         }
     }
-    if (deleteIdx >= 0)
+    if (!m_renderReadOnly && deleteIdx >= 0)
         bin.areaEntries.erase(bin.areaEntries.begin() + deleteIdx);
 
     ImGui::EndTable();
@@ -1688,6 +1971,25 @@ void FbsDataView::RenderAreaListEditor(ContentsBinData& bin)
 // -----------------------------------------------------------------------------
 //  battle_subtitle_info editor
 // -----------------------------------------------------------------------------
+
+static void ExportBattleSubtitleTsv(const std::vector<BattleSubtitleInfoEntry>& entries, const std::string& path)
+{
+    FILE* f = nullptr; fopen_s(&f, path.c_str(), "wb"); if (!f) return;
+    for (const auto& e : entries) fprintf(f, "%u\t%u\n", e.subtitle_hash, e.subtitle_type);
+    fclose(f);
+}
+static std::vector<BattleSubtitleInfoEntry> ImportBattleSubtitleTsv(const std::string& path)
+{
+    std::vector<BattleSubtitleInfoEntry> result; FILE* f = nullptr; fopen_s(&f, path.c_str(), "rb"); if (!f) return result;
+    char line[256];
+    while (fgets(line, sizeof(line), f))
+    {
+        int len=(int)strlen(line); while(len>0&&(line[len-1]=='\r'||line[len-1]=='\n'))line[--len]='\0'; if(!len) continue;
+        char* cols[2]={}; int col=0; char* p=line; cols[col++]=p; for(;*p&&col<2;++p) if(*p=='\t'){*p='\0';cols[col++]=p+1;} if(col<2) continue;
+        BattleSubtitleInfoEntry e; e.subtitle_hash=(uint32_t)strtoul(cols[0],nullptr,10); e.subtitle_type=(uint32_t)strtoul(cols[1],nullptr,10); result.push_back(e);
+    }
+    fclose(f); return result;
+}
 
 void FbsDataView::RenderBattleSubtitleInfoEditor(ContentsBinData& bin)
 {
@@ -1699,10 +2001,17 @@ void FbsDataView::RenderBattleSubtitleInfoEditor(ContentsBinData& bin)
     ImGui::Text("(%d entries)", (int)bin.battleSubtitleEntries.size());
     ImGui::PopStyleColor();
 
-    const float addBtnW = 100.0f;
-    ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
-    if (ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
-        bin.battleSubtitleEntries.push_back(BattleSubtitleInfoEntry{});
+    {
+        const float addBtnW=100.0f, ioGap=4.0f, exportBtnW=70.0f, importBtnW=70.0f;
+        const float totalW=exportBtnW+ioGap+importBtnW+ioGap+addBtnW;
+        ImGui::SameLine(ImGui::GetContentRegionAvail().x - totalW + ImGui::GetCursorPosX());
+        if (ImGui::Button("Export##bsi", ImVec2(exportBtnW, 0))) { std::string p=OpenTsvSaveDialog(L"battle_subtitle_info.tsv"); if(!p.empty()) ExportBattleSubtitleTsv(bin.battleSubtitleEntries,p); }
+        ImGui::SameLine(0, ioGap);
+        if (!m_renderReadOnly && ImGui::Button("Import##bsi", ImVec2(importBtnW, 0))) { std::string p=OpenTsvOpenDialog(); if(!p.empty()){auto imp=ImportBattleSubtitleTsv(p);if(!imp.empty())bin.battleSubtitleEntries=std::move(imp);} }
+        ImGui::SameLine(0, ioGap);
+        if (!m_renderReadOnly && ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
+            bin.battleSubtitleEntries.push_back(BattleSubtitleInfoEntry{});
+    }
 
     ImGui::Separator();
 
@@ -1740,7 +2049,7 @@ void FbsDataView::RenderBattleSubtitleInfoEditor(ContentsBinData& bin)
             ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
-            if (ImGui::SmallButton("X")) deleteIdx = i;
+            if (!m_renderReadOnly && ImGui::SmallButton("X")) deleteIdx = i;
             ImGui::PopStyleColor(3);
 
             auto U32Cell = [](const char* id, uint32_t& v) {
@@ -1754,7 +2063,7 @@ void FbsDataView::RenderBattleSubtitleInfoEditor(ContentsBinData& bin)
             ImGui::PopID();
         }
     }
-    if (deleteIdx >= 0)
+    if (!m_renderReadOnly && deleteIdx >= 0)
         bin.battleSubtitleEntries.erase(bin.battleSubtitleEntries.begin() + deleteIdx);
 
     ImGui::EndTable();
@@ -1763,6 +2072,28 @@ void FbsDataView::RenderBattleSubtitleInfoEditor(ContentsBinData& bin)
 // -----------------------------------------------------------------------------
 //  fate_drama_player_start_list editor
 // -----------------------------------------------------------------------------
+
+static void ExportFateDramaPlayerStartTsv(const std::vector<FateDramaPlayerStartEntry>& entries, const std::string& path)
+{
+    FILE* f = nullptr; fopen_s(&f, path.c_str(), "wb"); if (!f) return;
+    for (const auto& e : entries) fprintf(f, "%u\t%u\t%u\t%u\t%s\n", e.character1_hash, e.character2_hash, e.value_0, e.hash_2, e.value_4?"TRUE":"FALSE");
+    fclose(f);
+}
+static std::vector<FateDramaPlayerStartEntry> ImportFateDramaPlayerStartTsv(const std::string& path)
+{
+    std::vector<FateDramaPlayerStartEntry> result; FILE* f=nullptr; fopen_s(&f,path.c_str(),"rb"); if(!f) return result;
+    char line[256];
+    while (fgets(line, sizeof(line), f))
+    {
+        int len=(int)strlen(line); while(len>0&&(line[len-1]=='\r'||line[len-1]=='\n'))line[--len]='\0'; if(!len) continue;
+        char* cols[5]={}; int col=0; char* p=line; cols[col++]=p; for(;*p&&col<5;++p) if(*p=='\t'){*p='\0';cols[col++]=p+1;} if(col<5) continue;
+        FateDramaPlayerStartEntry e;
+        e.character1_hash=(uint32_t)strtoul(cols[0],nullptr,10); e.character2_hash=(uint32_t)strtoul(cols[1],nullptr,10);
+        e.value_0=(uint32_t)strtoul(cols[2],nullptr,10); e.hash_2=(uint32_t)strtoul(cols[3],nullptr,10); e.value_4=ParseBool(cols[4]);
+        result.push_back(e);
+    }
+    fclose(f); return result;
+}
 
 void FbsDataView::RenderFateDramaPlayerStartListEditor(ContentsBinData& bin)
 {
@@ -1774,10 +2105,17 @@ void FbsDataView::RenderFateDramaPlayerStartListEditor(ContentsBinData& bin)
     ImGui::Text("(%d entries)", (int)bin.fateDramaPlayerStartEntries.size());
     ImGui::PopStyleColor();
 
-    const float addBtnW = 100.0f;
-    ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
-    if (ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
-        bin.fateDramaPlayerStartEntries.push_back(FateDramaPlayerStartEntry{});
+    {
+        const float addBtnW=100.0f, ioGap=4.0f, exportBtnW=70.0f, importBtnW=70.0f;
+        const float totalW=exportBtnW+ioGap+importBtnW+ioGap+addBtnW;
+        ImGui::SameLine(ImGui::GetContentRegionAvail().x - totalW + ImGui::GetCursorPosX());
+        if (ImGui::Button("Export##fdps", ImVec2(exportBtnW, 0))) { std::string p=OpenTsvSaveDialog(L"fate_drama_player_start_list.tsv"); if(!p.empty()) ExportFateDramaPlayerStartTsv(bin.fateDramaPlayerStartEntries,p); }
+        ImGui::SameLine(0, ioGap);
+        if (!m_renderReadOnly && ImGui::Button("Import##fdps", ImVec2(importBtnW, 0))) { std::string p=OpenTsvOpenDialog(); if(!p.empty()){auto imp=ImportFateDramaPlayerStartTsv(p);if(!imp.empty())bin.fateDramaPlayerStartEntries=std::move(imp);} }
+        ImGui::SameLine(0, ioGap);
+        if (!m_renderReadOnly && ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
+            bin.fateDramaPlayerStartEntries.push_back(FateDramaPlayerStartEntry{});
+    }
 
     ImGui::Separator();
 
@@ -1818,7 +2156,7 @@ void FbsDataView::RenderFateDramaPlayerStartListEditor(ContentsBinData& bin)
             ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
-            if (ImGui::SmallButton("X")) deleteIdx = i;
+            if (!m_renderReadOnly && ImGui::SmallButton("X")) deleteIdx = i;
             ImGui::PopStyleColor(3);
 
             auto U32Cell = [](const char* id, uint32_t& v) {
@@ -1836,7 +2174,7 @@ void FbsDataView::RenderFateDramaPlayerStartListEditor(ContentsBinData& bin)
             ImGui::PopID();
         }
     }
-    if (deleteIdx >= 0)
+    if (!m_renderReadOnly && deleteIdx >= 0)
         bin.fateDramaPlayerStartEntries.erase(bin.fateDramaPlayerStartEntries.begin() + deleteIdx);
 
     ImGui::EndTable();
@@ -1845,6 +2183,35 @@ void FbsDataView::RenderFateDramaPlayerStartListEditor(ContentsBinData& bin)
 // -----------------------------------------------------------------------------
 //  jukebox_list editor
 // -----------------------------------------------------------------------------
+
+static void ExportJukeboxListTsv(const std::vector<JukeboxEntry>& entries, const std::string& path)
+{
+    FILE* f=nullptr; fopen_s(&f,path.c_str(),"wb"); if(!f) return;
+    for (const auto& e : entries)
+    {
+        char line[2048];
+        int n=snprintf(line,sizeof(line),"%u\t%u\t%u\t%s\t%s\t%s\t%s\t%s\t%s\n",
+            e.bgm_hash,e.series_hash,e.unk_2,e.cue_name,e.arrangement,e.alt_cue_name_1,e.alt_cue_name_2,e.alt_cue_name_3,e.display_text_key);
+        fwrite(line,1,n,f);
+    }
+    fclose(f);
+}
+static std::vector<JukeboxEntry> ImportJukeboxListTsv(const std::string& path)
+{
+    std::vector<JukeboxEntry> result; FILE* f=nullptr; fopen_s(&f,path.c_str(),"rb"); if(!f) return result;
+    char line[2048];
+    while (fgets(line, sizeof(line), f))
+    {
+        int len=(int)strlen(line); while(len>0&&(line[len-1]=='\r'||line[len-1]=='\n'))line[--len]='\0'; if(!len) continue;
+        char* cols[9]={}; int col=0; char* p=line; cols[col++]=p; for(;*p&&col<9;++p) if(*p=='\t'){*p='\0';cols[col++]=p+1;} if(col<9) continue;
+        JukeboxEntry e;
+        e.bgm_hash=(uint32_t)strtoul(cols[0],nullptr,10); e.series_hash=(uint32_t)strtoul(cols[1],nullptr,10); e.unk_2=(uint32_t)strtoul(cols[2],nullptr,10);
+        strncpy_s(e.cue_name,cols[3],_TRUNCATE); strncpy_s(e.arrangement,cols[4],_TRUNCATE); strncpy_s(e.alt_cue_name_1,cols[5],_TRUNCATE);
+        strncpy_s(e.alt_cue_name_2,cols[6],_TRUNCATE); strncpy_s(e.alt_cue_name_3,cols[7],_TRUNCATE); strncpy_s(e.display_text_key,cols[8],_TRUNCATE);
+        result.push_back(e);
+    }
+    fclose(f); return result;
+}
 
 void FbsDataView::RenderJukeboxListEditor(ContentsBinData& bin)
 {
@@ -1856,10 +2223,17 @@ void FbsDataView::RenderJukeboxListEditor(ContentsBinData& bin)
     ImGui::Text("(%d entries)", (int)bin.jukeboxEntries.size());
     ImGui::PopStyleColor();
 
-    const float addBtnW = 100.0f;
-    ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
-    if (ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
-        bin.jukeboxEntries.push_back(JukeboxEntry{});
+    {
+        const float addBtnW=100.0f, ioGap=4.0f, exportBtnW=70.0f, importBtnW=70.0f;
+        const float totalW=exportBtnW+ioGap+importBtnW+ioGap+addBtnW;
+        ImGui::SameLine(ImGui::GetContentRegionAvail().x - totalW + ImGui::GetCursorPosX());
+        if (ImGui::Button("Export##juke", ImVec2(exportBtnW, 0))) { std::string p=OpenTsvSaveDialog(L"jukebox_list.tsv"); if(!p.empty()) ExportJukeboxListTsv(bin.jukeboxEntries,p); }
+        ImGui::SameLine(0, ioGap);
+        if (!m_renderReadOnly && ImGui::Button("Import##juke", ImVec2(importBtnW, 0))) { std::string p=OpenTsvOpenDialog(); if(!p.empty()){auto imp=ImportJukeboxListTsv(p);if(!imp.empty())bin.jukeboxEntries=std::move(imp);} }
+        ImGui::SameLine(0, ioGap);
+        if (!m_renderReadOnly && ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
+            bin.jukeboxEntries.push_back(JukeboxEntry{});
+    }
 
     ImGui::Separator();
 
@@ -1898,7 +2272,7 @@ void FbsDataView::RenderJukeboxListEditor(ContentsBinData& bin)
             ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
-            if (ImGui::SmallButton("X")) deleteIdx = i;
+            if (!m_renderReadOnly && ImGui::SmallButton("X")) deleteIdx = i;
             ImGui::PopStyleColor(3);
 
             auto U32Cell = [](const char* id, uint32_t& v) {
@@ -1923,15 +2297,41 @@ void FbsDataView::RenderJukeboxListEditor(ContentsBinData& bin)
             ImGui::PopID();
         }
     }
-    if (deleteIdx >= 0)
+    if (!m_renderReadOnly && deleteIdx >= 0)
         bin.jukeboxEntries.erase(bin.jukeboxEntries.begin() + deleteIdx);
 
     ImGui::EndTable();
 }
 
 // -----------------------------------------------------------------------------
-//  series_list editor
+//  series_list TSV export / import + editor
 // -----------------------------------------------------------------------------
+
+static void ExportSeriesListTsv(const std::vector<SeriesEntry>& entries, const std::string& path)
+{
+    FILE* f=nullptr; fopen_s(&f,path.c_str(),"wb"); if(!f) return;
+    for (const auto& e : entries)
+    {
+        char line[2048]; int n=snprintf(line,sizeof(line),"%u\t%s\t%s\t%s\t%s\n",e.series_hash,e.jacket_text_key,e.jacket_icon_key,e.logo_text_key,e.logo_icon_key);
+        fwrite(line,1,n,f);
+    }
+    fclose(f);
+}
+static std::vector<SeriesEntry> ImportSeriesListTsv(const std::string& path)
+{
+    std::vector<SeriesEntry> result; FILE* f=nullptr; fopen_s(&f,path.c_str(),"rb"); if(!f) return result;
+    char line[2048];
+    while (fgets(line, sizeof(line), f))
+    {
+        int len=(int)strlen(line); while(len>0&&(line[len-1]=='\r'||line[len-1]=='\n'))line[--len]='\0'; if(!len) continue;
+        char* cols[5]={}; int col=0; char* p=line; cols[col++]=p; for(;*p&&col<5;++p) if(*p=='\t'){*p='\0';cols[col++]=p+1;} if(col<5) continue;
+        SeriesEntry e; e.series_hash=(uint32_t)strtoul(cols[0],nullptr,10);
+        strncpy_s(e.jacket_text_key,cols[1],_TRUNCATE); strncpy_s(e.jacket_icon_key,cols[2],_TRUNCATE);
+        strncpy_s(e.logo_text_key,cols[3],_TRUNCATE); strncpy_s(e.logo_icon_key,cols[4],_TRUNCATE);
+        result.push_back(e);
+    }
+    fclose(f); return result;
+}
 
 void FbsDataView::RenderSeriesListEditor(ContentsBinData& bin)
 {
@@ -1943,10 +2343,17 @@ void FbsDataView::RenderSeriesListEditor(ContentsBinData& bin)
     ImGui::Text("(%d entries)", (int)bin.seriesEntries.size());
     ImGui::PopStyleColor();
 
-    const float addBtnW = 100.0f;
-    ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
-    if (ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
-        bin.seriesEntries.push_back(SeriesEntry{});
+    {
+        const float addBtnW=100.0f, ioGap=4.0f, exportBtnW=70.0f, importBtnW=70.0f;
+        const float totalW=exportBtnW+ioGap+importBtnW+ioGap+addBtnW;
+        ImGui::SameLine(ImGui::GetContentRegionAvail().x - totalW + ImGui::GetCursorPosX());
+        if (ImGui::Button("Export##series", ImVec2(exportBtnW, 0))) { std::string p=OpenTsvSaveDialog(L"series_list.tsv"); if(!p.empty()) ExportSeriesListTsv(bin.seriesEntries,p); }
+        ImGui::SameLine(0, ioGap);
+        if (!m_renderReadOnly && ImGui::Button("Import##series", ImVec2(importBtnW, 0))) { std::string p=OpenTsvOpenDialog(); if(!p.empty()){auto imp=ImportSeriesListTsv(p);if(!imp.empty())bin.seriesEntries=std::move(imp);} }
+        ImGui::SameLine(0, ioGap);
+        if (!m_renderReadOnly && ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
+            bin.seriesEntries.push_back(SeriesEntry{});
+    }
 
     ImGui::Separator();
 
@@ -1984,7 +2391,7 @@ void FbsDataView::RenderSeriesListEditor(ContentsBinData& bin)
             ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
-            if (ImGui::SmallButton("X")) deleteIdx = i;
+            if (!m_renderReadOnly && ImGui::SmallButton("X")) deleteIdx = i;
             ImGui::PopStyleColor(3);
 
             auto U32Cell = [](const char* id, uint32_t& v) {
@@ -2005,15 +2412,45 @@ void FbsDataView::RenderSeriesListEditor(ContentsBinData& bin)
             ImGui::PopID();
         }
     }
-    if (deleteIdx >= 0)
+    if (!m_renderReadOnly && deleteIdx >= 0)
         bin.seriesEntries.erase(bin.seriesEntries.begin() + deleteIdx);
 
     ImGui::EndTable();
 }
 
 // -----------------------------------------------------------------------------
-//  tam_mission_list editor
+//  tam_mission_list TSV export / import + editor
 // -----------------------------------------------------------------------------
+
+static void ExportTamMissionListTsv(const std::vector<TamMissionEntry>& entries, const std::string& path)
+{
+    FILE* f=nullptr; fopen_s(&f,path.c_str(),"wb"); if(!f) return;
+    for (const auto& e : entries)
+    {
+        char line[1024]; int n=snprintf(line,sizeof(line),"%u\t%u\t%u\t%s\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\n",
+            e.mission_id,e.value_1,e.value_2,e.location,e.hash_0,e.hash_1,e.hash_2,e.hash_3,e.hash_4,e.value_9,e.value_10,e.value_11);
+        fwrite(line,1,n,f);
+    }
+    fclose(f);
+}
+static std::vector<TamMissionEntry> ImportTamMissionListTsv(const std::string& path)
+{
+    std::vector<TamMissionEntry> result; FILE* f=nullptr; fopen_s(&f,path.c_str(),"rb"); if(!f) return result;
+    char line[1024];
+    while (fgets(line, sizeof(line), f))
+    {
+        int len=(int)strlen(line); while(len>0&&(line[len-1]=='\r'||line[len-1]=='\n'))line[--len]='\0'; if(!len) continue;
+        char* cols[12]={}; int col=0; char* p=line; cols[col++]=p; for(;*p&&col<12;++p) if(*p=='\t'){*p='\0';cols[col++]=p+1;} if(col<12) continue;
+        TamMissionEntry e;
+        e.mission_id=(uint32_t)strtoul(cols[0],nullptr,10); e.value_1=(uint32_t)strtoul(cols[1],nullptr,10); e.value_2=(uint32_t)strtoul(cols[2],nullptr,10);
+        strncpy_s(e.location,cols[3],_TRUNCATE);
+        e.hash_0=(uint32_t)strtoul(cols[4],nullptr,10); e.hash_1=(uint32_t)strtoul(cols[5],nullptr,10); e.hash_2=(uint32_t)strtoul(cols[6],nullptr,10);
+        e.hash_3=(uint32_t)strtoul(cols[7],nullptr,10); e.hash_4=(uint32_t)strtoul(cols[8],nullptr,10);
+        e.value_9=(uint32_t)strtoul(cols[9],nullptr,10); e.value_10=(uint32_t)strtoul(cols[10],nullptr,10); e.value_11=(uint32_t)strtoul(cols[11],nullptr,10);
+        result.push_back(e);
+    }
+    fclose(f); return result;
+}
 
 void FbsDataView::RenderTamMissionListEditor(ContentsBinData& bin)
 {
@@ -2025,10 +2462,17 @@ void FbsDataView::RenderTamMissionListEditor(ContentsBinData& bin)
     ImGui::Text("(%d entries)", (int)bin.tamMissionEntries.size());
     ImGui::PopStyleColor();
 
-    const float addBtnW = 100.0f;
-    ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
-    if (ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
-        bin.tamMissionEntries.push_back(TamMissionEntry{});
+    {
+        const float addBtnW=100.0f, ioGap=4.0f, exportBtnW=70.0f, importBtnW=70.0f;
+        const float totalW=exportBtnW+ioGap+importBtnW+ioGap+addBtnW;
+        ImGui::SameLine(ImGui::GetContentRegionAvail().x - totalW + ImGui::GetCursorPosX());
+        if (ImGui::Button("Export##tam", ImVec2(exportBtnW, 0))) { std::string p=OpenTsvSaveDialog(L"tam_mission_list.tsv"); if(!p.empty()) ExportTamMissionListTsv(bin.tamMissionEntries,p); }
+        ImGui::SameLine(0, ioGap);
+        if (!m_renderReadOnly && ImGui::Button("Import##tam", ImVec2(importBtnW, 0))) { std::string p=OpenTsvOpenDialog(); if(!p.empty()){auto imp=ImportTamMissionListTsv(p);if(!imp.empty())bin.tamMissionEntries=std::move(imp);} }
+        ImGui::SameLine(0, ioGap);
+        if (!m_renderReadOnly && ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
+            bin.tamMissionEntries.push_back(TamMissionEntry{});
+    }
 
     ImGui::Separator();
 
@@ -2068,7 +2512,7 @@ void FbsDataView::RenderTamMissionListEditor(ContentsBinData& bin)
             ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
-            if (ImGui::SmallButton("X")) deleteIdx = i;
+            if (!m_renderReadOnly && ImGui::SmallButton("X")) deleteIdx = i;
             ImGui::PopStyleColor(3);
 
             auto U32Cell = [](const char* id, uint32_t& v) {
@@ -2092,15 +2536,76 @@ void FbsDataView::RenderTamMissionListEditor(ContentsBinData& bin)
             ImGui::PopID();
         }
     }
-    if (deleteIdx >= 0)
+    if (!m_renderReadOnly && deleteIdx >= 0)
         bin.tamMissionEntries.erase(bin.tamMissionEntries.begin() + deleteIdx);
 
     ImGui::EndTable();
 }
 
 // -----------------------------------------------------------------------------
-//  drama_player_start_list editor
+//  drama_player_start_list TSV export / import + editor
 // -----------------------------------------------------------------------------
+
+static void ExportDramaPlayerStartListTsv(const std::vector<DramaPlayerStartEntry>& entries, const std::string& path)
+{
+    FILE* f=nullptr; fopen_s(&f,path.c_str(),"wb"); if(!f) return;
+    for (const auto& e : entries)
+    {
+        char line[4096];
+        int n=snprintf(line,sizeof(line),
+            "%u\t%u\t%u\t%u\t%u\t%.9g\t%.9g\t%.9g\t%u\t%u\t%.9g\t%u\t%.9g\t%.9g\t%.9g\t%.9g\t%u\t%u\t%.9g\t%.9g"
+            "\t%u\t%.9g\t%.9g\t%.9g\t%.9g\t%.9g\t%.9g\t%.9g\t%.9g\t%u\t%u"
+            "\t%u\t%.9g\t%.9g\t%.9g\t%.9g\t%.9g\t%.9g\t%.9g\t%.9g\t%u\t%u"
+            "\t%u\t%.9g\t%.9g\t%.9g\t%.9g\t%.9g\t%.9g\t%.9g\t%.9g\t%u\t%u"
+            "\t%u\t%.9g\t%.9g\t%.9g\t%.9g\t%.9g\t%.9g\t%.9g\t%.9g\t%u\t%u"
+            "\t%u\t%.9g\t%.9g\t%.9g\t%.9g\t%.9g\t%.9g\n",
+            e.character_hash,e.hash_1,e.index,e.scene_hash,e.config_hash,
+            e.unk_float_5,e.pos_x,e.pos_y,e.state_hash,e.unk_9,e.scale,e.ref_hash,
+            e.unk_float_12,e.unk_float_13,e.unk_float_14,e.unk_float_15,
+            e.unk_16,e.unk_17,e.unk_float_18,e.rate,
+            e.blk1_marker,e.blk1_scale,e.blk1_field_22,e.blk1_field_23,e.blk1_field_24,e.blk1_field_25,e.blk1_field_26,e.blk1_field_27,e.blk1_field_28,e.blk1_angle,e.blk1_hash_a,e.blk1_hash_b,
+            e.blk2_marker,e.blk2_scale,e.blk2_field_34,e.blk2_field_35,e.blk2_field_36,e.blk2_field_37,e.blk2_field_38,e.blk2_field_39,e.blk2_field_40,e.blk2_angle,e.blk2_hash_a,e.blk2_hash_b,
+            e.blk3_marker,e.blk3_scale,e.blk3_field_46,e.blk3_field_47,e.blk3_field_48,e.blk3_field_49,e.blk3_field_50,e.blk3_field_51,e.blk3_field_52,e.blk3_angle,e.blk3_hash_a,e.blk3_hash_b,
+            e.end_marker,e.unk_float_57,e.extra_range,e.extra_param_a,e.extra_param_b,e.extra_param_c,e.extra_param_d);
+        fwrite(line,1,n,f);
+    }
+    fclose(f);
+}
+static std::vector<DramaPlayerStartEntry> ImportDramaPlayerStartListTsv(const std::string& path)
+{
+    std::vector<DramaPlayerStartEntry> result; FILE* f=nullptr; fopen_s(&f,path.c_str(),"rb"); if(!f) return result;
+    char line[4096];
+    while (fgets(line, sizeof(line), f))
+    {
+        int len=(int)strlen(line); while(len>0&&(line[len-1]=='\r'||line[len-1]=='\n'))line[--len]='\0'; if(!len) continue;
+        char* cols[63]={}; int col=0; char* p=line; cols[col++]=p; for(;*p&&col<63;++p) if(*p=='\t'){*p='\0';cols[col++]=p+1;} if(col<63) continue;
+        DramaPlayerStartEntry e;
+        e.character_hash=(uint32_t)strtoul(cols[0],nullptr,10); e.hash_1=(uint32_t)strtoul(cols[1],nullptr,10);
+        e.index=(uint32_t)strtoul(cols[2],nullptr,10); e.scene_hash=(uint32_t)strtoul(cols[3],nullptr,10); e.config_hash=(uint32_t)strtoul(cols[4],nullptr,10);
+        e.unk_float_5=strtof(cols[5],nullptr); e.pos_x=strtof(cols[6],nullptr); e.pos_y=strtof(cols[7],nullptr);
+        e.state_hash=(uint32_t)strtoul(cols[8],nullptr,10); e.unk_9=(uint32_t)strtoul(cols[9],nullptr,10);
+        e.scale=strtof(cols[10],nullptr); e.ref_hash=(uint32_t)strtoul(cols[11],nullptr,10);
+        e.unk_float_12=strtof(cols[12],nullptr); e.unk_float_13=strtof(cols[13],nullptr); e.unk_float_14=strtof(cols[14],nullptr); e.unk_float_15=strtof(cols[15],nullptr);
+        e.unk_16=(uint32_t)strtoul(cols[16],nullptr,10); e.unk_17=(uint32_t)strtoul(cols[17],nullptr,10);
+        e.unk_float_18=strtof(cols[18],nullptr); e.rate=strtof(cols[19],nullptr);
+        e.blk1_marker=(uint32_t)strtoul(cols[20],nullptr,10); e.blk1_scale=strtof(cols[21],nullptr);
+        e.blk1_field_22=strtof(cols[22],nullptr); e.blk1_field_23=strtof(cols[23],nullptr); e.blk1_field_24=strtof(cols[24],nullptr);
+        e.blk1_field_25=strtof(cols[25],nullptr); e.blk1_field_26=strtof(cols[26],nullptr); e.blk1_field_27=strtof(cols[27],nullptr); e.blk1_field_28=strtof(cols[28],nullptr);
+        e.blk1_angle=strtof(cols[29],nullptr); e.blk1_hash_a=(uint32_t)strtoul(cols[30],nullptr,10); e.blk1_hash_b=(uint32_t)strtoul(cols[31],nullptr,10);
+        e.blk2_marker=(uint32_t)strtoul(cols[32],nullptr,10); e.blk2_scale=strtof(cols[33],nullptr);
+        e.blk2_field_34=strtof(cols[34],nullptr); e.blk2_field_35=strtof(cols[35],nullptr); e.blk2_field_36=strtof(cols[36],nullptr);
+        e.blk2_field_37=strtof(cols[37],nullptr); e.blk2_field_38=strtof(cols[38],nullptr); e.blk2_field_39=strtof(cols[39],nullptr); e.blk2_field_40=strtof(cols[40],nullptr);
+        e.blk2_angle=strtof(cols[41],nullptr); e.blk2_hash_a=(uint32_t)strtoul(cols[42],nullptr,10); e.blk2_hash_b=(uint32_t)strtoul(cols[43],nullptr,10);
+        e.blk3_marker=(uint32_t)strtoul(cols[44],nullptr,10); e.blk3_scale=strtof(cols[45],nullptr);
+        e.blk3_field_46=strtof(cols[46],nullptr); e.blk3_field_47=strtof(cols[47],nullptr); e.blk3_field_48=strtof(cols[48],nullptr);
+        e.blk3_field_49=strtof(cols[49],nullptr); e.blk3_field_50=strtof(cols[50],nullptr); e.blk3_field_51=strtof(cols[51],nullptr); e.blk3_field_52=strtof(cols[52],nullptr);
+        e.blk3_angle=strtof(cols[53],nullptr); e.blk3_hash_a=(uint32_t)strtoul(cols[54],nullptr,10); e.blk3_hash_b=(uint32_t)strtoul(cols[55],nullptr,10);
+        e.end_marker=(uint32_t)strtoul(cols[56],nullptr,10); e.unk_float_57=strtof(cols[57],nullptr); e.extra_range=strtof(cols[58],nullptr);
+        e.extra_param_a=strtof(cols[59],nullptr); e.extra_param_b=strtof(cols[60],nullptr); e.extra_param_c=strtof(cols[61],nullptr); e.extra_param_d=strtof(cols[62],nullptr);
+        result.push_back(e);
+    }
+    fclose(f); return result;
+}
 
 void FbsDataView::RenderDramaPlayerStartListEditor(ContentsBinData& bin)
 {
@@ -2112,10 +2617,17 @@ void FbsDataView::RenderDramaPlayerStartListEditor(ContentsBinData& bin)
     ImGui::Text("(%d entries)", (int)bin.dramaPlayerStartEntries.size());
     ImGui::PopStyleColor();
 
-    const float addBtnW = 100.0f;
-    ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
-    if (ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
-        bin.dramaPlayerStartEntries.push_back(DramaPlayerStartEntry{});
+    {
+        const float addBtnW=100.0f, ioGap=4.0f, exportBtnW=70.0f, importBtnW=70.0f;
+        const float totalW=exportBtnW+ioGap+importBtnW+ioGap+addBtnW;
+        ImGui::SameLine(ImGui::GetContentRegionAvail().x - totalW + ImGui::GetCursorPosX());
+        if (ImGui::Button("Export##dps", ImVec2(exportBtnW, 0))) { std::string p=OpenTsvSaveDialog(L"drama_player_start_list.tsv"); if(!p.empty()) ExportDramaPlayerStartListTsv(bin.dramaPlayerStartEntries,p); }
+        ImGui::SameLine(0, ioGap);
+        if (!m_renderReadOnly && ImGui::Button("Import##dps", ImVec2(importBtnW, 0))) { std::string p=OpenTsvOpenDialog(); if(!p.empty()){auto imp=ImportDramaPlayerStartListTsv(p);if(!imp.empty())bin.dramaPlayerStartEntries=std::move(imp);} }
+        ImGui::SameLine(0, ioGap);
+        if (!m_renderReadOnly && ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
+            bin.dramaPlayerStartEntries.push_back(DramaPlayerStartEntry{});
+    }
 
     ImGui::Separator();
 
@@ -2155,7 +2667,7 @@ void FbsDataView::RenderDramaPlayerStartListEditor(ContentsBinData& bin)
             ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
-            if (ImGui::SmallButton("X")) deleteIdx = i;
+            if (!m_renderReadOnly && ImGui::SmallButton("X")) deleteIdx = i;
             ImGui::PopStyleColor(3);
 
             auto U32Cell = [](const char* id, uint32_t& v) {
@@ -2179,7 +2691,7 @@ void FbsDataView::RenderDramaPlayerStartListEditor(ContentsBinData& bin)
             ImGui::PopID();
         }
     }
-    if (deleteIdx >= 0)
+    if (!m_renderReadOnly && deleteIdx >= 0)
         bin.dramaPlayerStartEntries.erase(bin.dramaPlayerStartEntries.begin() + deleteIdx);
 
     ImGui::EndTable();
@@ -2256,6 +2768,56 @@ static uint32_t AutoStageHash(const char* stageCode)
 
 } // namespace stage_list_helpers
 
+static void ExportStageListTsv(const std::vector<StageEntry>& entries, const std::string& path)
+{
+    FILE* f=nullptr; fopen_s(&f,path.c_str(),"wb"); if(!f) return;
+    for (const auto& e : entries)
+    {
+        char line[4096];
+        int n=snprintf(line,sizeof(line),
+            "%s\t%u\t%s\t%.9g\t%u\t%u\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%u\t%u\t%u\t%u\t%u\t%s\t%u\t%s\t%s\t%s\t%s\t%u\t%u\t%u\t%u\t%s\n",
+            e.stage_code,e.stage_hash,e.is_selectable?"TRUE":"FALSE",e.camera_offset,e.parent_stage_index,e.variant_hash,
+            e.has_weather?"TRUE":"FALSE",e.is_active?"TRUE":"FALSE",e.flag_interlocked?"TRUE":"FALSE",e.flag_ocean?"TRUE":"FALSE",
+            e.flag_10?"TRUE":"FALSE",e.flag_infinite?"TRUE":"FALSE",e.flag_battle?"TRUE":"FALSE",e.flag_13?"TRUE":"FALSE",
+            e.flag_balcony?"TRUE":"FALSE",e.flag_15?"TRUE":"FALSE",e.reserved_16?"TRUE":"FALSE",e.is_online_enabled?"TRUE":"FALSE",
+            e.is_ranked_enabled?"TRUE":"FALSE",e.reserved_19?"TRUE":"FALSE",e.reserved_20?"TRUE":"FALSE",
+            e.arena_width,e.arena_depth,e.reserved_23,e.arena_param,e.extra_width,
+            e.extra_group,e.extra_depth,e.group_id,e.stage_name_key,e.level_name,e.sound_bank,
+            e.wall_distance_a,e.wall_distance_b,e.stage_mode,e.reserved_35,e.is_default_variant?"TRUE":"FALSE");
+        fwrite(line,1,n,f);
+    }
+    fclose(f);
+}
+static std::vector<StageEntry> ImportStageListTsv(const std::string& path)
+{
+    std::vector<StageEntry> result; FILE* f=nullptr; fopen_s(&f,path.c_str(),"rb"); if(!f) return result;
+    char line[4096];
+    while (fgets(line, sizeof(line), f))
+    {
+        int len=(int)strlen(line); while(len>0&&(line[len-1]=='\r'||line[len-1]=='\n'))line[--len]='\0'; if(!len) continue;
+        char* cols[37]={}; int col=0; char* p=line; cols[col++]=p; for(;*p&&col<37;++p) if(*p=='\t'){*p='\0';cols[col++]=p+1;} if(col<37) continue;
+        StageEntry e;
+        strncpy_s(e.stage_code,cols[0],_TRUNCATE); e.stage_hash=(uint32_t)strtoul(cols[1],nullptr,10);
+        e.is_selectable=ParseBool(cols[2]); e.camera_offset=strtof(cols[3],nullptr);
+        e.parent_stage_index=(uint32_t)strtoul(cols[4],nullptr,10); e.variant_hash=(uint32_t)strtoul(cols[5],nullptr,10);
+        e.has_weather=ParseBool(cols[6]); e.is_active=ParseBool(cols[7]); e.flag_interlocked=ParseBool(cols[8]);
+        e.flag_ocean=ParseBool(cols[9]); e.flag_10=ParseBool(cols[10]); e.flag_infinite=ParseBool(cols[11]);
+        e.flag_battle=ParseBool(cols[12]); e.flag_13=ParseBool(cols[13]); e.flag_balcony=ParseBool(cols[14]);
+        e.flag_15=ParseBool(cols[15]); e.reserved_16=ParseBool(cols[16]); e.is_online_enabled=ParseBool(cols[17]);
+        e.is_ranked_enabled=ParseBool(cols[18]); e.reserved_19=ParseBool(cols[19]); e.reserved_20=ParseBool(cols[20]);
+        e.arena_width=(uint32_t)strtoul(cols[21],nullptr,10); e.arena_depth=(uint32_t)strtoul(cols[22],nullptr,10);
+        e.reserved_23=(uint32_t)strtoul(cols[23],nullptr,10); e.arena_param=(uint32_t)strtoul(cols[24],nullptr,10);
+        e.extra_width=(uint32_t)strtoul(cols[25],nullptr,10); strncpy_s(e.extra_group,cols[26],_TRUNCATE);
+        e.extra_depth=(uint32_t)strtoul(cols[27],nullptr,10); strncpy_s(e.group_id,cols[28],_TRUNCATE);
+        strncpy_s(e.stage_name_key,cols[29],_TRUNCATE); strncpy_s(e.level_name,cols[30],_TRUNCATE); strncpy_s(e.sound_bank,cols[31],_TRUNCATE);
+        e.wall_distance_a=(uint32_t)strtoul(cols[32],nullptr,10); e.wall_distance_b=(uint32_t)strtoul(cols[33],nullptr,10);
+        e.stage_mode=(uint32_t)strtoul(cols[34],nullptr,10); e.reserved_35=(uint32_t)strtoul(cols[35],nullptr,10);
+        e.is_default_variant=ParseBool(cols[36]);
+        result.push_back(e);
+    }
+    fclose(f); return result;
+}
+
 void FbsDataView::RenderStageListEditor(ContentsBinData& bin)
 {
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.82f, 1.00f, 1.00f));
@@ -2266,10 +2828,17 @@ void FbsDataView::RenderStageListEditor(ContentsBinData& bin)
     ImGui::Text("(%d entries)", (int)bin.stageEntries.size());
     ImGui::PopStyleColor();
 
-    const float addBtnW = 100.0f;
-    ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
-    if (ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
-        bin.stageEntries.push_back(StageEntry{});
+    {
+        const float addBtnW=100.0f, ioGap=4.0f, exportBtnW=70.0f, importBtnW=70.0f;
+        const float totalW=exportBtnW+ioGap+importBtnW+ioGap+addBtnW;
+        ImGui::SameLine(ImGui::GetContentRegionAvail().x - totalW + ImGui::GetCursorPosX());
+        if (ImGui::Button("Export##stage", ImVec2(exportBtnW, 0))) { std::string p=OpenTsvSaveDialog(L"stage_list.tsv"); if(!p.empty()) ExportStageListTsv(bin.stageEntries,p); }
+        ImGui::SameLine(0, ioGap);
+        if (!m_renderReadOnly && ImGui::Button("Import##stage", ImVec2(importBtnW, 0))) { std::string p=OpenTsvOpenDialog(); if(!p.empty()){auto imp=ImportStageListTsv(p);if(!imp.empty())bin.stageEntries=std::move(imp);} }
+        ImGui::SameLine(0, ioGap);
+        if (!m_renderReadOnly && ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
+            bin.stageEntries.push_back(StageEntry{});
+    }
 
     // Authoring note: the loader's stage-id cave is now table-driven. Authors
     // pick any unique stage_hash and the loader maps it to a free slot in
@@ -2347,7 +2916,7 @@ void FbsDataView::RenderStageListEditor(ContentsBinData& bin)
             ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
-            if (ImGui::SmallButton("X")) deleteIdx = i;
+            if (!m_renderReadOnly && ImGui::SmallButton("X")) deleteIdx = i;
             ImGui::PopStyleColor(3);
 
             auto U32Cell = [](const char* id, uint32_t& v) {
@@ -2463,15 +3032,49 @@ void FbsDataView::RenderStageListEditor(ContentsBinData& bin)
         StageEntry copy = bin.stageEntries[duplicateIdx];
         bin.stageEntries.insert(bin.stageEntries.begin() + duplicateIdx + 1, copy);
     }
-    if (deleteIdx >= 0)
+    if (!m_renderReadOnly && deleteIdx >= 0)
         bin.stageEntries.erase(bin.stageEntries.begin() + deleteIdx);
 
     ImGui::EndTable();
 }
 
 // -----------------------------------------------------------------------------
-//  ball_property_list editor
+//  ball_property_list TSV export / import + editor
 // -----------------------------------------------------------------------------
+
+static void ExportBallPropertyListTsv(const std::vector<BallPropertyEntry>& entries, const std::string& path)
+{
+    FILE* f=nullptr; fopen_s(&f,path.c_str(),"wb"); if(!f) return;
+    for (const auto& e : entries)
+    {
+        char line[2048];
+        int n=snprintf(line,sizeof(line),"%u\t%s\t%s\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%.9g\t%.9g\t%.9g\t%.9g\t%.9g\t%.9g\t%.9g\t%.9g\t%.9g\n",
+            e.ball_hash,e.ball_code,e.effect_name,e.hash_3,e.hash_4,e.unk_5,e.unk_6,e.hash_7,e.item_no,e.rarity,
+            e.value_10,e.value_11,e.value_12,e.value_13,e.value_14,e.value_15,e.value_16,e.value_17,e.value_18);
+        fwrite(line,1,n,f);
+    }
+    fclose(f);
+}
+static std::vector<BallPropertyEntry> ImportBallPropertyListTsv(const std::string& path)
+{
+    std::vector<BallPropertyEntry> result; FILE* f=nullptr; fopen_s(&f,path.c_str(),"rb"); if(!f) return result;
+    char line[2048];
+    while (fgets(line, sizeof(line), f))
+    {
+        int len=(int)strlen(line); while(len>0&&(line[len-1]=='\r'||line[len-1]=='\n'))line[--len]='\0'; if(!len) continue;
+        char* cols[19]={}; int col=0; char* p=line; cols[col++]=p; for(;*p&&col<19;++p) if(*p=='\t'){*p='\0';cols[col++]=p+1;} if(col<19) continue;
+        BallPropertyEntry e;
+        e.ball_hash=(uint32_t)strtoul(cols[0],nullptr,10); strncpy_s(e.ball_code,cols[1],_TRUNCATE); strncpy_s(e.effect_name,cols[2],_TRUNCATE);
+        e.hash_3=(uint32_t)strtoul(cols[3],nullptr,10); e.hash_4=(uint32_t)strtoul(cols[4],nullptr,10);
+        e.unk_5=(uint32_t)strtoul(cols[5],nullptr,10); e.unk_6=(uint32_t)strtoul(cols[6],nullptr,10);
+        e.hash_7=(uint32_t)strtoul(cols[7],nullptr,10); e.item_no=(uint32_t)strtoul(cols[8],nullptr,10); e.rarity=(uint32_t)strtoul(cols[9],nullptr,10);
+        e.value_10=strtof(cols[10],nullptr); e.value_11=strtof(cols[11],nullptr); e.value_12=strtof(cols[12],nullptr);
+        e.value_13=strtof(cols[13],nullptr); e.value_14=strtof(cols[14],nullptr); e.value_15=strtof(cols[15],nullptr);
+        e.value_16=strtof(cols[16],nullptr); e.value_17=strtof(cols[17],nullptr); e.value_18=strtof(cols[18],nullptr);
+        result.push_back(e);
+    }
+    fclose(f); return result;
+}
 
 void FbsDataView::RenderBallPropertyListEditor(ContentsBinData& bin)
 {
@@ -2483,10 +3086,17 @@ void FbsDataView::RenderBallPropertyListEditor(ContentsBinData& bin)
     ImGui::Text("(%d entries)", (int)bin.ballPropertyEntries.size());
     ImGui::PopStyleColor();
 
-    const float addBtnW = 100.0f;
-    ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
-    if (ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
-        bin.ballPropertyEntries.push_back(BallPropertyEntry{});
+    {
+        const float addBtnW=100.0f, ioGap=4.0f, exportBtnW=70.0f, importBtnW=70.0f;
+        const float totalW=exportBtnW+ioGap+importBtnW+ioGap+addBtnW;
+        ImGui::SameLine(ImGui::GetContentRegionAvail().x - totalW + ImGui::GetCursorPosX());
+        if (ImGui::Button("Export##ballp", ImVec2(exportBtnW, 0))) { std::string p=OpenTsvSaveDialog(L"ball_property_list.tsv"); if(!p.empty()) ExportBallPropertyListTsv(bin.ballPropertyEntries,p); }
+        ImGui::SameLine(0, ioGap);
+        if (!m_renderReadOnly && ImGui::Button("Import##ballp", ImVec2(importBtnW, 0))) { std::string p=OpenTsvOpenDialog(); if(!p.empty()){auto imp=ImportBallPropertyListTsv(p);if(!imp.empty())bin.ballPropertyEntries=std::move(imp);} }
+        ImGui::SameLine(0, ioGap);
+        if (!m_renderReadOnly && ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
+            bin.ballPropertyEntries.push_back(BallPropertyEntry{});
+    }
 
     ImGui::Separator();
 
@@ -2526,7 +3136,7 @@ void FbsDataView::RenderBallPropertyListEditor(ContentsBinData& bin)
             ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
-            if (ImGui::SmallButton("X")) deleteIdx = i;
+            if (!m_renderReadOnly && ImGui::SmallButton("X")) deleteIdx = i;
             ImGui::PopStyleColor(3);
 
             auto U32Cell = [](const char* id, uint32_t& v) {
@@ -2555,15 +3165,52 @@ void FbsDataView::RenderBallPropertyListEditor(ContentsBinData& bin)
             ImGui::PopID();
         }
     }
-    if (deleteIdx >= 0)
+    if (!m_renderReadOnly && deleteIdx >= 0)
         bin.ballPropertyEntries.erase(bin.ballPropertyEntries.begin() + deleteIdx);
 
     ImGui::EndTable();
 }
 
 // -----------------------------------------------------------------------------
-//  body_cylinder_data_list editor
+//  body_cylinder_data_list TSV export / import + editor
 // -----------------------------------------------------------------------------
+
+static void ExportBodyCylinderDataListTsv(const std::vector<BodyCylinderDataEntry>& entries, const std::string& path)
+{
+    FILE* f=nullptr; fopen_s(&f,path.c_str(),"wb"); if(!f) return;
+    for (const auto& e : entries)
+    {
+        char line[1024];
+        int n=snprintf(line,sizeof(line),"%u\t%.9g\t%.9g\t%.9g\t%u\t%u\t%u\t%u\t%.9g\t%.9g\t%.9g\t%u\t%u\t%u\t%u\t%.9g\t%.9g\t%.9g\t%u\n",
+            e.character_hash,e.cyl0_radius,e.cyl0_height,e.cyl0_offset_y,e.cyl0_unk_hash,e.unk_5,e.unk_6,e.unk_7,
+            e.cyl1_radius,e.cyl1_height,e.cyl1_offset_y,e.cyl1_unk_hash,e.unk_12,e.unk_13,e.unk_14,
+            e.cyl2_radius,e.cyl2_height,e.cyl2_offset_y,e.cyl2_unk_hash);
+        fwrite(line,1,n,f);
+    }
+    fclose(f);
+}
+static std::vector<BodyCylinderDataEntry> ImportBodyCylinderDataListTsv(const std::string& path)
+{
+    std::vector<BodyCylinderDataEntry> result; FILE* f=nullptr; fopen_s(&f,path.c_str(),"rb"); if(!f) return result;
+    char line[1024];
+    while (fgets(line, sizeof(line), f))
+    {
+        int len=(int)strlen(line); while(len>0&&(line[len-1]=='\r'||line[len-1]=='\n'))line[--len]='\0'; if(!len) continue;
+        char* cols[19]={}; int col=0; char* p=line; cols[col++]=p; for(;*p&&col<19;++p) if(*p=='\t'){*p='\0';cols[col++]=p+1;} if(col<19) continue;
+        BodyCylinderDataEntry e;
+        e.character_hash=(uint32_t)strtoul(cols[0],nullptr,10);
+        e.cyl0_radius=strtof(cols[1],nullptr); e.cyl0_height=strtof(cols[2],nullptr); e.cyl0_offset_y=strtof(cols[3],nullptr);
+        e.cyl0_unk_hash=(uint32_t)strtoul(cols[4],nullptr,10); e.unk_5=(uint32_t)strtoul(cols[5],nullptr,10);
+        e.unk_6=(uint32_t)strtoul(cols[6],nullptr,10); e.unk_7=(uint32_t)strtoul(cols[7],nullptr,10);
+        e.cyl1_radius=strtof(cols[8],nullptr); e.cyl1_height=strtof(cols[9],nullptr); e.cyl1_offset_y=strtof(cols[10],nullptr);
+        e.cyl1_unk_hash=(uint32_t)strtoul(cols[11],nullptr,10); e.unk_12=(uint32_t)strtoul(cols[12],nullptr,10);
+        e.unk_13=(uint32_t)strtoul(cols[13],nullptr,10); e.unk_14=(uint32_t)strtoul(cols[14],nullptr,10);
+        e.cyl2_radius=strtof(cols[15],nullptr); e.cyl2_height=strtof(cols[16],nullptr); e.cyl2_offset_y=strtof(cols[17],nullptr);
+        e.cyl2_unk_hash=(uint32_t)strtoul(cols[18],nullptr,10);
+        result.push_back(e);
+    }
+    fclose(f); return result;
+}
 
 void FbsDataView::RenderBodyCylinderDataListEditor(ContentsBinData& bin)
 {
@@ -2575,10 +3222,17 @@ void FbsDataView::RenderBodyCylinderDataListEditor(ContentsBinData& bin)
     ImGui::Text("(%d entries)", (int)bin.bodyCylinderDataEntries.size());
     ImGui::PopStyleColor();
 
-    const float addBtnW = 100.0f;
-    ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
-    if (ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
-        bin.bodyCylinderDataEntries.push_back(BodyCylinderDataEntry{});
+    {
+        const float addBtnW=100.0f, ioGap=4.0f, exportBtnW=70.0f, importBtnW=70.0f;
+        const float totalW=exportBtnW+ioGap+importBtnW+ioGap+addBtnW;
+        ImGui::SameLine(ImGui::GetContentRegionAvail().x - totalW + ImGui::GetCursorPosX());
+        if (ImGui::Button("Export##bcd", ImVec2(exportBtnW, 0))) { std::string p=OpenTsvSaveDialog(L"body_cylinder_data_list.tsv"); if(!p.empty()) ExportBodyCylinderDataListTsv(bin.bodyCylinderDataEntries,p); }
+        ImGui::SameLine(0, ioGap);
+        if (!m_renderReadOnly && ImGui::Button("Import##bcd", ImVec2(importBtnW, 0))) { std::string p=OpenTsvOpenDialog(); if(!p.empty()){auto imp=ImportBodyCylinderDataListTsv(p);if(!imp.empty())bin.bodyCylinderDataEntries=std::move(imp);} }
+        ImGui::SameLine(0, ioGap);
+        if (!m_renderReadOnly && ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
+            bin.bodyCylinderDataEntries.push_back(BodyCylinderDataEntry{});
+    }
 
     // global_scale scalar above table
     ImGui::SetNextItemWidth(120.0f);
@@ -2623,7 +3277,7 @@ void FbsDataView::RenderBodyCylinderDataListEditor(ContentsBinData& bin)
             ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
-            if (ImGui::SmallButton("X")) deleteIdx = i;
+            if (!m_renderReadOnly && ImGui::SmallButton("X")) deleteIdx = i;
             ImGui::PopStyleColor(3);
 
             auto U32Cell = [](const char* id, uint32_t& v) {
@@ -2649,7 +3303,7 @@ void FbsDataView::RenderBodyCylinderDataListEditor(ContentsBinData& bin)
             ImGui::PopID();
         }
     }
-    if (deleteIdx >= 0)
+    if (!m_renderReadOnly && deleteIdx >= 0)
         bin.bodyCylinderDataEntries.erase(bin.bodyCylinderDataEntries.begin() + deleteIdx);
 
     ImGui::EndTable();
@@ -2686,7 +3340,7 @@ void FbsDataView::RenderCustomizeItemUniqueListEditor(ContentsBinData& bin)
         }
     }
     ImGui::SameLine(0, ioGap);
-    if (ImGui::Button("Import##u", ImVec2(importBtnW, 0)))
+    if (!m_renderReadOnly && ImGui::Button("Import##u", ImVec2(importBtnW, 0)))
     {
         std::string path = OpenTsvOpenDialog();
         if (!path.empty())
@@ -2700,7 +3354,7 @@ void FbsDataView::RenderCustomizeItemUniqueListEditor(ContentsBinData& bin)
         }
     }
     ImGui::SameLine(0, ioGap);
-    if (ImGui::Button("+ Add Entry##u", ImVec2(addBtnW, 0)))
+    if (!m_renderReadOnly && ImGui::Button("+ Add Entry##u", ImVec2(addBtnW, 0)))
         bin.customizeItemUniqueEntries.push_back(bin.customizeItemUniqueEntries.empty()
             ? DefaultValues::UniqueEntry()
             : bin.customizeItemUniqueEntries.back());
@@ -2747,7 +3401,7 @@ void FbsDataView::RenderCustomizeItemUniqueListEditor(ContentsBinData& bin)
             ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
-            if (ImGui::SmallButton("X")) deleteIdx = i;
+            if (!m_renderReadOnly && ImGui::SmallButton("X")) deleteIdx = i;
             ImGui::PopStyleColor(3);
 
             auto U32Cell = [](const char* id, uint32_t& v) {
@@ -2814,21 +3468,62 @@ void FbsDataView::RenderCustomizeItemUniqueListEditor(ContentsBinData& bin)
             ImGui::PopID();
         }
     }
-    if (deleteIdx >= 0)
+    if (!m_renderReadOnly && deleteIdx >= 0)
         bin.customizeItemUniqueEntries.erase(bin.customizeItemUniqueEntries.begin() + deleteIdx);
 
     ImGui::EndTable();
 }
 
 // -----------------------------------------------------------------------------
-//  character_select_list editor
+//  character_select_list TSV export / import + editor
 // -----------------------------------------------------------------------------
+
+static void ExportCharacterSelectListTsv(const ContentsBinData& bin, const std::string& path)
+{
+    FILE* f=nullptr; fopen_s(&f,path.c_str(),"wb"); if(!f) return;
+    fprintf(f,"#hash_entries\n");
+    for (const auto& e : bin.characterSelectHashEntries) fprintf(f,"%u\n",e.character_hash);
+    fprintf(f,"#param_entries\n");
+    for (const auto& e : bin.characterSelectParamEntries) fprintf(f,"%u\t%u\n",e.game_version,e.value_1);
+    fclose(f);
+}
+static void ImportCharacterSelectListTsv(const std::string& path, ContentsBinData& bin)
+{
+    FILE* f=nullptr; fopen_s(&f,path.c_str(),"rb"); if(!f) return;
+    bin.characterSelectHashEntries.clear(); bin.characterSelectParamEntries.clear();
+    enum { NONE=0, HASH, PARAM } cur=NONE;
+    char line[512];
+    while (fgets(line, sizeof(line), f))
+    {
+        int len=(int)strlen(line); while(len>0&&(line[len-1]=='\r'||line[len-1]=='\n'))line[--len]='\0'; if(!len) continue;
+        if (line[0]=='#') { if(strcmp(line,"#hash_entries")==0)cur=HASH; else if(strcmp(line,"#param_entries")==0)cur=PARAM; continue; }
+        if (cur==HASH) { CharacterSelectHashEntry e; e.character_hash=(uint32_t)strtoul(line,nullptr,10); bin.characterSelectHashEntries.push_back(e); }
+        else if (cur==PARAM)
+        {
+            char* cols[2]={}; int col=0; char* p=line; cols[col++]=p; for(;*p&&col<2;++p) if(*p=='\t'){*p='\0';cols[col++]=p+1;} if(col<2) continue;
+            CharacterSelectParamEntry e; e.game_version=(uint32_t)strtoul(cols[0],nullptr,10); e.value_1=(uint32_t)strtoul(cols[1],nullptr,10);
+            bin.characterSelectParamEntries.push_back(e);
+        }
+    }
+    fclose(f);
+}
 
 void FbsDataView::RenderCharacterSelectListEditor(ContentsBinData& bin)
 {
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.82f, 1.00f, 1.00f));
     ImGui::Text("character_select_list.bin");
     ImGui::PopStyleColor();
+
+    // -- Export / Import buttons (right-aligned, no Add Entry at top level) --
+    {
+        const float ioGap=4.0f, exportBtnW=70.0f, importBtnW=70.0f;
+        const float totalW=exportBtnW+ioGap+importBtnW;
+        ImGui::SameLine(ImGui::GetContentRegionAvail().x - totalW + ImGui::GetCursorPosX());
+        if (ImGui::Button("Export##charsel", ImVec2(exportBtnW, 0))) { std::string p=OpenTsvSaveDialog(L"character_select_list.tsv"); if(!p.empty()) ExportCharacterSelectListTsv(bin,p); }
+        ImGui::SameLine(0, ioGap);
+        if (!m_renderReadOnly && ImGui::Button("Import##charsel", ImVec2(importBtnW, 0))) { std::string p=OpenTsvOpenDialog(); if(!p.empty()) ImportCharacterSelectListTsv(p,bin); }
+    }
+
     ImGui::Separator();
 
     constexpr ImGuiTableFlags tFlags =
@@ -2847,7 +3542,7 @@ void FbsDataView::RenderCharacterSelectListEditor(ContentsBinData& bin)
         ImGui::PopStyleColor();
         const float addBtnW = 100.0f;
         ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
-        if (ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
+        if (!m_renderReadOnly && ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
             bin.characterSelectHashEntries.push_back(CharacterSelectHashEntry{});
 
         if (ImGui::BeginTable("##CSHashTable", 2, tFlags, ImGui::GetContentRegionAvail()))
@@ -2876,7 +3571,7 @@ void FbsDataView::RenderCharacterSelectListEditor(ContentsBinData& bin)
                     ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
                     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
                     ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
-                    if (ImGui::SmallButton("X")) deleteIdx = i;
+                    if (!m_renderReadOnly && ImGui::SmallButton("X")) deleteIdx = i;
                     ImGui::PopStyleColor(3);
 
                     ImGui::TableSetColumnIndex(1);
@@ -2886,7 +3581,7 @@ void FbsDataView::RenderCharacterSelectListEditor(ContentsBinData& bin)
                     ImGui::PopID();
                 }
             }
-            if (deleteIdx >= 0)
+            if (!m_renderReadOnly && deleteIdx >= 0)
                 bin.characterSelectHashEntries.erase(bin.characterSelectHashEntries.begin() + deleteIdx);
 
             ImGui::EndTable();
@@ -2901,7 +3596,7 @@ void FbsDataView::RenderCharacterSelectListEditor(ContentsBinData& bin)
         ImGui::PopStyleColor();
         const float addBtnW = 100.0f;
         ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
-        if (ImGui::Button("+ Add Entry##prm", ImVec2(addBtnW, 0)))
+        if (!m_renderReadOnly && ImGui::Button("+ Add Entry##prm", ImVec2(addBtnW, 0)))
             bin.characterSelectParamEntries.push_back(CharacterSelectParamEntry{});
 
         if (ImGui::BeginTable("##CSParamTable", 3, tFlags, ImGui::GetContentRegionAvail()))
@@ -2931,7 +3626,7 @@ void FbsDataView::RenderCharacterSelectListEditor(ContentsBinData& bin)
                     ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
                     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
                     ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
-                    if (ImGui::SmallButton("X")) deleteIdx = i;
+                    if (!m_renderReadOnly && ImGui::SmallButton("X")) deleteIdx = i;
                     ImGui::PopStyleColor(3);
 
                     ImGui::TableSetColumnIndex(1);
@@ -2944,7 +3639,7 @@ void FbsDataView::RenderCharacterSelectListEditor(ContentsBinData& bin)
                     ImGui::PopID();
                 }
             }
-            if (deleteIdx >= 0)
+            if (!m_renderReadOnly && deleteIdx >= 0)
                 bin.characterSelectParamEntries.erase(bin.characterSelectParamEntries.begin() + deleteIdx);
 
             ImGui::EndTable();
@@ -2956,14 +3651,57 @@ void FbsDataView::RenderCharacterSelectListEditor(ContentsBinData& bin)
 }
 
 // -----------------------------------------------------------------------------
-//  customize_item_prohibit_drama_list editor
+//  customize_item_prohibit_drama_list TSV export / import + editor
 // -----------------------------------------------------------------------------
+
+static void ExportProhibitDramaListTsv(const ContentsBinData& bin, const std::string& path)
+{
+    FILE* f=nullptr; fopen_s(&f,path.c_str(),"wb"); if(!f) return;
+    fprintf(f,"#group_0\n");
+    for (const auto& e : bin.prohibitDramaGroup0) fprintf(f,"%d\t%d\n",e.value_0,e.value_1);
+    fprintf(f,"#group_1\n");
+    for (const auto& e : bin.prohibitDramaGroup1) fprintf(f,"%d\t%d\n",e.value_0,e.value_1);
+    fprintf(f,"#category_values\n");
+    for (const auto& v : bin.prohibitDramaCategoryValues) fprintf(f,"%u\n",v);
+    fclose(f);
+}
+static void ImportProhibitDramaListTsv(const std::string& path, ContentsBinData& bin)
+{
+    FILE* f=nullptr; fopen_s(&f,path.c_str(),"rb"); if(!f) return;
+    bin.prohibitDramaGroup0.clear(); bin.prohibitDramaGroup1.clear(); bin.prohibitDramaCategoryValues.clear();
+    enum { NONE=0, G0, G1, CAT } cur=NONE;
+    char line[512];
+    while (fgets(line, sizeof(line), f))
+    {
+        int len=(int)strlen(line); while(len>0&&(line[len-1]=='\r'||line[len-1]=='\n'))line[--len]='\0'; if(!len) continue;
+        if (line[0]=='#') { if(strcmp(line,"#group_0")==0)cur=G0; else if(strcmp(line,"#group_1")==0)cur=G1; else if(strcmp(line,"#category_values")==0)cur=CAT; continue; }
+        if (cur==G0||cur==G1)
+        {
+            char* cols[2]={}; int col=0; char* p=line; cols[col++]=p; for(;*p&&col<2;++p) if(*p=='\t'){*p='\0';cols[col++]=p+1;} if(col<2) continue;
+            CustomizeItemProhibitDramaEntry e; e.value_0=(int32_t)strtol(cols[0],nullptr,10); e.value_1=(int32_t)strtol(cols[1],nullptr,10);
+            if(cur==G0) bin.prohibitDramaGroup0.push_back(e); else bin.prohibitDramaGroup1.push_back(e);
+        }
+        else if (cur==CAT) bin.prohibitDramaCategoryValues.push_back((uint32_t)strtoul(line,nullptr,10));
+    }
+    fclose(f);
+}
 
 void FbsDataView::RenderCustomizeItemProhibitDramaListEditor(ContentsBinData& bin)
 {
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.82f, 1.00f, 1.00f));
     ImGui::Text("customize_item_prohibit_drama_list.bin");
     ImGui::PopStyleColor();
+
+    // -- Export / Import buttons (right-aligned) --
+    {
+        const float ioGap=4.0f, exportBtnW=70.0f, importBtnW=70.0f;
+        const float totalW=exportBtnW+ioGap+importBtnW;
+        ImGui::SameLine(ImGui::GetContentRegionAvail().x - totalW + ImGui::GetCursorPosX());
+        if (ImGui::Button("Export##cpd", ImVec2(exportBtnW, 0))) { std::string p=OpenTsvSaveDialog(L"customize_item_prohibit_drama_list.tsv"); if(!p.empty()) ExportProhibitDramaListTsv(bin,p); }
+        ImGui::SameLine(0, ioGap);
+        if (!m_renderReadOnly && ImGui::Button("Import##cpd", ImVec2(importBtnW, 0))) { std::string p=OpenTsvOpenDialog(); if(!p.empty()) ImportProhibitDramaListTsv(p,bin); }
+    }
+
     ImGui::Separator();
 
     constexpr ImGuiTableFlags tFlags =
@@ -2979,7 +3717,7 @@ void FbsDataView::RenderCustomizeItemProhibitDramaListEditor(ContentsBinData& bi
         const float addBtnW = 100.0f;
         ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
         ImGui::PushID(addId);
-        if (ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
+        if (!m_renderReadOnly && ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
             entries.push_back(CustomizeItemProhibitDramaEntry{});
         ImGui::PopID();
 
@@ -3011,7 +3749,7 @@ void FbsDataView::RenderCustomizeItemProhibitDramaListEditor(ContentsBinData& bi
                 ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
                 ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
                 ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
-                if (ImGui::SmallButton("X")) deleteIdx = i;
+                if (!m_renderReadOnly && ImGui::SmallButton("X")) deleteIdx = i;
                 ImGui::PopStyleColor(3);
 
                 ImGui::TableSetColumnIndex(1);
@@ -3024,7 +3762,7 @@ void FbsDataView::RenderCustomizeItemProhibitDramaListEditor(ContentsBinData& bi
                 ImGui::PopID();
             }
         }
-        if (deleteIdx >= 0)
+        if (!m_renderReadOnly && deleteIdx >= 0)
             entries.erase(entries.begin() + deleteIdx);
 
         ImGui::EndTable();
@@ -3061,14 +3799,14 @@ void FbsDataView::RenderCustomizeItemProhibitDramaListEditor(ContentsBinData& bi
             ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
-            if (ImGui::SmallButton("X")) deleteIdx = i;
+            if (!m_renderReadOnly && ImGui::SmallButton("X")) deleteIdx = i;
             ImGui::PopStyleColor(3);
             ImGui::SameLine();
             ImGui::SetNextItemWidth(120.0f);
             ImGui::InputScalar("##cv", ImGuiDataType_U32, &bin.prohibitDramaCategoryValues[i]);
             ImGui::PopID();
         }
-        if (deleteIdx >= 0)
+        if (!m_renderReadOnly && deleteIdx >= 0)
             bin.prohibitDramaCategoryValues.erase(bin.prohibitDramaCategoryValues.begin() + deleteIdx);
         ImGui::EndChild();
         ImGui::EndTabItem();
@@ -3078,14 +3816,80 @@ void FbsDataView::RenderCustomizeItemProhibitDramaListEditor(ContentsBinData& bi
 }
 
 // -----------------------------------------------------------------------------
-//  battle_motion_list editor
+//  battle_motion_list TSV export / import + editor
 // -----------------------------------------------------------------------------
+
+static void WriteBattleMotionEntries(FILE* f, const std::vector<BattleMotionEntry>& entries)
+{
+    for (const auto& e : entries) fprintf(f,"%u\t%u\t%u\n",(uint32_t)e.motion_id,e.value_1,e.value_2);
+}
+
+static void ExportBattleMotionListTsv(const ContentsBinData& bin, const std::string& path)
+{
+    FILE* f=nullptr; fopen_s(&f,path.c_str(),"wb"); if(!f) return;
+    fprintf(f,"#list_params\n");
+    fprintf(f,"%.9g\t%.9g\t%.9g\t%.9g\t%.9g\t%.9g\t%.9g\t%.9g\t%.9g\t%.9g\t%u\n",
+        bin.battleMotionValue1,bin.battleMotionValue2,bin.battleMotionValue3,bin.battleMotionValue4,
+        bin.battleMotionValue5,bin.battleMotionValue6,bin.battleMotionValue7,bin.battleMotionValue8,
+        bin.battleMotionValue9,bin.battleMotionValue10,bin.battleMotionValue11);
+    fprintf(f,"#entries\n");
+    WriteBattleMotionEntries(f, bin.battleMotionEntries);
+    fprintf(f,"#alt_entries\n");
+    WriteBattleMotionEntries(f, bin.battleMotionEntriesAlt);
+    fclose(f);
+}
+static void ImportBattleMotionListTsv(const std::string& path, ContentsBinData& bin)
+{
+    FILE* f=nullptr; fopen_s(&f,path.c_str(),"rb"); if(!f) return;
+    bin.battleMotionEntries.clear(); bin.battleMotionEntriesAlt.clear();
+    enum { NONE=0, PARAMS, ENTRIES, ALT } cur=NONE;
+    char line[512];
+    while (fgets(line, sizeof(line), f))
+    {
+        int len=(int)strlen(line); while(len>0&&(line[len-1]=='\r'||line[len-1]=='\n'))line[--len]='\0'; if(!len) continue;
+        if (line[0]=='#')
+        {
+            if(strcmp(line,"#list_params")==0)cur=PARAMS;
+            else if(strcmp(line,"#entries")==0)cur=ENTRIES;
+            else if(strcmp(line,"#alt_entries")==0)cur=ALT;
+            continue;
+        }
+        if (cur==PARAMS)
+        {
+            char* cols[11]={}; int col=0; char* p=line; cols[col++]=p; for(;*p&&col<11;++p) if(*p=='\t'){*p='\0';cols[col++]=p+1;} if(col<11) continue;
+            bin.battleMotionValue1=strtof(cols[0],nullptr); bin.battleMotionValue2=strtof(cols[1],nullptr);
+            bin.battleMotionValue3=strtof(cols[2],nullptr); bin.battleMotionValue4=strtof(cols[3],nullptr);
+            bin.battleMotionValue5=strtof(cols[4],nullptr); bin.battleMotionValue6=strtof(cols[5],nullptr);
+            bin.battleMotionValue7=strtof(cols[6],nullptr); bin.battleMotionValue8=strtof(cols[7],nullptr);
+            bin.battleMotionValue9=strtof(cols[8],nullptr); bin.battleMotionValue10=strtof(cols[9],nullptr);
+            bin.battleMotionValue11=(uint32_t)strtoul(cols[10],nullptr,10);
+        }
+        else if (cur==ENTRIES||cur==ALT)
+        {
+            char* cols[3]={}; int col=0; char* p=line; cols[col++]=p; for(;*p&&col<3;++p) if(*p=='\t'){*p='\0';cols[col++]=p+1;} if(col<3) continue;
+            BattleMotionEntry e; e.motion_id=(uint8_t)strtoul(cols[0],nullptr,10); e.value_1=(uint32_t)strtoul(cols[1],nullptr,10); e.value_2=(uint32_t)strtoul(cols[2],nullptr,10);
+            if(cur==ENTRIES) bin.battleMotionEntries.push_back(e); else bin.battleMotionEntriesAlt.push_back(e);
+        }
+    }
+    fclose(f);
+}
 
 void FbsDataView::RenderBattleMotionListEditor(ContentsBinData& bin)
 {
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.82f, 1.00f, 1.00f));
     ImGui::Text("battle_motion_list.bin");
     ImGui::PopStyleColor();
+
+    // -- Export / Import buttons (right-aligned) --
+    {
+        const float ioGap=4.0f, exportBtnW=70.0f, importBtnW=70.0f;
+        const float totalW=exportBtnW+ioGap+importBtnW;
+        ImGui::SameLine(ImGui::GetContentRegionAvail().x - totalW + ImGui::GetCursorPosX());
+        if (ImGui::Button("Export##bmotion", ImVec2(exportBtnW, 0))) { std::string p=OpenTsvSaveDialog(L"battle_motion_list.tsv"); if(!p.empty()) ExportBattleMotionListTsv(bin,p); }
+        ImGui::SameLine(0, ioGap);
+        if (!m_renderReadOnly && ImGui::Button("Import##bmotion", ImVec2(importBtnW, 0))) { std::string p=OpenTsvOpenDialog(); if(!p.empty()) ImportBattleMotionListTsv(p,bin); }
+    }
+
     ImGui::Separator();
 
     // Scalar header section -- 2-column grid
@@ -3129,7 +3933,7 @@ void FbsDataView::RenderBattleMotionListEditor(ContentsBinData& bin)
         const float addBtnW = 100.0f;
         ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
         ImGui::PushID(addId);
-        if (ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
+        if (!m_renderReadOnly && ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
             entries.push_back(BattleMotionEntry{});
         ImGui::PopID();
 
@@ -3161,7 +3965,7 @@ void FbsDataView::RenderBattleMotionListEditor(ContentsBinData& bin)
                 ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
                 ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
                 ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
-                if (ImGui::SmallButton("X")) deleteIdx = i;
+                if (!m_renderReadOnly && ImGui::SmallButton("X")) deleteIdx = i;
                 ImGui::PopStyleColor(3);
 
                 ImGui::TableSetColumnIndex(1);
@@ -3177,7 +3981,7 @@ void FbsDataView::RenderBattleMotionListEditor(ContentsBinData& bin)
                 ImGui::PopID();
             }
         }
-        if (deleteIdx >= 0)
+        if (!m_renderReadOnly && deleteIdx >= 0)
             entries.erase(entries.begin() + deleteIdx);
 
         ImGui::EndTable();
@@ -3201,14 +4005,90 @@ void FbsDataView::RenderBattleMotionListEditor(ContentsBinData& bin)
 }
 
 // -----------------------------------------------------------------------------
-//  arcade_cpu_list editor
+//  arcade_cpu_list TSV export / import + editor
 // -----------------------------------------------------------------------------
+
+static void ExportArcadeCpuListTsv(const ContentsBinData& bin, const std::string& path)
+{
+    FILE* f=nullptr; fopen_s(&f,path.c_str(),"wb"); if(!f) return;
+    fprintf(f,"#settings\n%u\t%u\t%u\n",bin.arcadeCpuSettings.unk_0,bin.arcadeCpuSettings.unk_1,bin.arcadeCpuSettings.unk_2);
+    fprintf(f,"#character_entries\n");
+    for (const auto& e : bin.arcadeCpuCharacterEntries)
+        fprintf(f,"%u\t%u\t%.9g\t%u\t%.9g\t%u\t%.9g\n",e.character_hash,e.ai_level,e.float_1,e.uint_2,e.float_2,e.uint_3,e.float_3);
+    fprintf(f,"#hash_group_a\n");
+    for (const auto& e : bin.arcadeCpuHashGroupA) fprintf(f,"%u\n",e.value_hash);
+    fprintf(f,"#hash_group_b\n");
+    for (const auto& e : bin.arcadeCpuHashGroupB) fprintf(f,"%u\n",e.value_hash);
+    fprintf(f,"#rule_entries\n");
+    for (const auto& e : bin.arcadeCpuRuleEntries)
+        fprintf(f,"%u\t%u\t%u\t%u\n",(uint32_t)e.flag_0,(uint32_t)e.flag_1,e.value_2,e.value_3);
+    fclose(f);
+}
+static void ImportArcadeCpuListTsv(const std::string& path, ContentsBinData& bin)
+{
+    FILE* f=nullptr; fopen_s(&f,path.c_str(),"rb"); if(!f) return;
+    bin.arcadeCpuCharacterEntries.clear(); bin.arcadeCpuHashGroupA.clear(); bin.arcadeCpuHashGroupB.clear(); bin.arcadeCpuRuleEntries.clear();
+    enum { NONE=0, SETTINGS, CHAR, HA, HB, RULE } cur=NONE;
+    char line[512];
+    while (fgets(line, sizeof(line), f))
+    {
+        int len=(int)strlen(line); while(len>0&&(line[len-1]=='\r'||line[len-1]=='\n'))line[--len]='\0'; if(!len) continue;
+        if (line[0]=='#')
+        {
+            if(strcmp(line,"#settings")==0)cur=SETTINGS;
+            else if(strcmp(line,"#character_entries")==0)cur=CHAR;
+            else if(strcmp(line,"#hash_group_a")==0)cur=HA;
+            else if(strcmp(line,"#hash_group_b")==0)cur=HB;
+            else if(strcmp(line,"#rule_entries")==0)cur=RULE;
+            continue;
+        }
+        if (cur==SETTINGS)
+        {
+            char* cols[3]={}; int col=0; char* p=line; cols[col++]=p; for(;*p&&col<3;++p) if(*p=='\t'){*p='\0';cols[col++]=p+1;} if(col<3) continue;
+            bin.arcadeCpuSettings.unk_0=(uint32_t)strtoul(cols[0],nullptr,10); bin.arcadeCpuSettings.unk_1=(uint32_t)strtoul(cols[1],nullptr,10); bin.arcadeCpuSettings.unk_2=(uint32_t)strtoul(cols[2],nullptr,10);
+        }
+        else if (cur==CHAR)
+        {
+            char* cols[7]={}; int col=0; char* p=line; cols[col++]=p; for(;*p&&col<7;++p) if(*p=='\t'){*p='\0';cols[col++]=p+1;} if(col<7) continue;
+            ArcadeCpuCharacterEntry e;
+            e.character_hash=(uint32_t)strtoul(cols[0],nullptr,10); e.ai_level=(uint32_t)strtoul(cols[1],nullptr,10);
+            e.float_1=strtof(cols[2],nullptr); e.uint_2=(uint32_t)strtoul(cols[3],nullptr,10);
+            e.float_2=strtof(cols[4],nullptr); e.uint_3=(uint32_t)strtoul(cols[5],nullptr,10); e.float_3=strtof(cols[6],nullptr);
+            bin.arcadeCpuCharacterEntries.push_back(e);
+        }
+        else if (cur==HA||cur==HB)
+        {
+            ArcadeCpuHashEntry e; e.value_hash=(uint32_t)strtoul(line,nullptr,10);
+            if(cur==HA) bin.arcadeCpuHashGroupA.push_back(e); else bin.arcadeCpuHashGroupB.push_back(e);
+        }
+        else if (cur==RULE)
+        {
+            char* cols[4]={}; int col=0; char* p=line; cols[col++]=p; for(;*p&&col<4;++p) if(*p=='\t'){*p='\0';cols[col++]=p+1;} if(col<4) continue;
+            ArcadeCpuRuleEntry e;
+            e.flag_0=(uint8_t)strtoul(cols[0],nullptr,10); e.flag_1=(uint8_t)strtoul(cols[1],nullptr,10);
+            e.value_2=(uint32_t)strtoul(cols[2],nullptr,10); e.value_3=(uint32_t)strtoul(cols[3],nullptr,10);
+            bin.arcadeCpuRuleEntries.push_back(e);
+        }
+    }
+    fclose(f);
+}
 
 void FbsDataView::RenderArcadeCpuListEditor(ContentsBinData& bin)
 {
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.82f, 1.00f, 1.00f));
     ImGui::Text("arcade_cpu_list.bin");
     ImGui::PopStyleColor();
+
+    // -- Export / Import buttons (right-aligned) --
+    {
+        const float ioGap=4.0f, exportBtnW=70.0f, importBtnW=70.0f;
+        const float totalW=exportBtnW+ioGap+importBtnW;
+        ImGui::SameLine(ImGui::GetContentRegionAvail().x - totalW + ImGui::GetCursorPosX());
+        if (ImGui::Button("Export##acpu", ImVec2(exportBtnW, 0))) { std::string p=OpenTsvSaveDialog(L"arcade_cpu_list.tsv"); if(!p.empty()) ExportArcadeCpuListTsv(bin,p); }
+        ImGui::SameLine(0, ioGap);
+        if (!m_renderReadOnly && ImGui::Button("Import##acpu", ImVec2(importBtnW, 0))) { std::string p=OpenTsvOpenDialog(); if(!p.empty()) ImportArcadeCpuListTsv(p,bin); }
+    }
+
     ImGui::Separator();
 
     constexpr ImGuiTableFlags tFlags =
@@ -3238,7 +4118,7 @@ void FbsDataView::RenderArcadeCpuListEditor(ContentsBinData& bin)
         ImGui::PopStyleColor();
         const float addBtnW = 100.0f;
         ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
-        if (ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
+        if (!m_renderReadOnly && ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
             bin.arcadeCpuCharacterEntries.push_back(ArcadeCpuCharacterEntry{});
 
         if (ImGui::BeginTable("##ACCharTable", 8, tFlags, ImGui::GetContentRegionAvail()))
@@ -3268,7 +4148,7 @@ void FbsDataView::RenderArcadeCpuListEditor(ContentsBinData& bin)
                     ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
                     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
                     ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
-                    if (ImGui::SmallButton("X")) deleteIdx = i;
+                    if (!m_renderReadOnly && ImGui::SmallButton("X")) deleteIdx = i;
                     ImGui::PopStyleColor(3);
 
                     auto U32Cell = [](const char* id, uint32_t& v) {
@@ -3291,7 +4171,7 @@ void FbsDataView::RenderArcadeCpuListEditor(ContentsBinData& bin)
                     ImGui::PopID();
                 }
             }
-            if (deleteIdx >= 0)
+            if (!m_renderReadOnly && deleteIdx >= 0)
                 bin.arcadeCpuCharacterEntries.erase(bin.arcadeCpuCharacterEntries.begin() + deleteIdx);
 
             ImGui::EndTable();
@@ -3308,7 +4188,7 @@ void FbsDataView::RenderArcadeCpuListEditor(ContentsBinData& bin)
             const float addBtnW = 100.0f;
             ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
             ImGui::PushID(addId);
-            if (ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
+            if (!m_renderReadOnly && ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
                 entries.push_back(ArcadeCpuHashEntry{});
             ImGui::PopID();
 
@@ -3338,7 +4218,7 @@ void FbsDataView::RenderArcadeCpuListEditor(ContentsBinData& bin)
                         ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
                         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
                         ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
-                        if (ImGui::SmallButton("X")) deleteIdx = i;
+                        if (!m_renderReadOnly && ImGui::SmallButton("X")) deleteIdx = i;
                         ImGui::PopStyleColor(3);
 
                         ImGui::TableSetColumnIndex(1);
@@ -3348,7 +4228,7 @@ void FbsDataView::RenderArcadeCpuListEditor(ContentsBinData& bin)
                         ImGui::PopID();
                     }
                 }
-                if (deleteIdx >= 0)
+                if (!m_renderReadOnly && deleteIdx >= 0)
                     entries.erase(entries.begin() + deleteIdx);
 
                 ImGui::EndTable();
@@ -3367,7 +4247,7 @@ void FbsDataView::RenderArcadeCpuListEditor(ContentsBinData& bin)
         ImGui::PopStyleColor();
         const float addBtnW = 100.0f;
         ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
-        if (ImGui::Button("+ Add Entry##rule", ImVec2(addBtnW, 0)))
+        if (!m_renderReadOnly && ImGui::Button("+ Add Entry##rule", ImVec2(addBtnW, 0)))
             bin.arcadeCpuRuleEntries.push_back(ArcadeCpuRuleEntry{});
 
         if (ImGui::BeginTable("##ACRuleTable", 5, tFlags, ImGui::GetContentRegionAvail()))
@@ -3397,7 +4277,7 @@ void FbsDataView::RenderArcadeCpuListEditor(ContentsBinData& bin)
                     ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
                     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
                     ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
-                    if (ImGui::SmallButton("X")) deleteIdx = i;
+                    if (!m_renderReadOnly && ImGui::SmallButton("X")) deleteIdx = i;
                     ImGui::PopStyleColor(3);
 
                     ImGui::TableSetColumnIndex(1);
@@ -3416,7 +4296,7 @@ void FbsDataView::RenderArcadeCpuListEditor(ContentsBinData& bin)
                     ImGui::PopID();
                 }
             }
-            if (deleteIdx >= 0)
+            if (!m_renderReadOnly && deleteIdx >= 0)
                 bin.arcadeCpuRuleEntries.erase(bin.arcadeCpuRuleEntries.begin() + deleteIdx);
 
             ImGui::EndTable();
@@ -3431,11 +4311,117 @@ void FbsDataView::RenderArcadeCpuListEditor(ContentsBinData& bin)
 //  ball_recommend_list editor
 // -----------------------------------------------------------------------------
 
+static void ExportBallRecommendListTsv(const ContentsBinData& bin, const std::string& path)
+{
+    FILE* f = nullptr;
+    if (fopen_s(&f, path.c_str(), "wb") != 0 || !f) return;
+
+    auto writeGroup = [&](const char* header, const std::vector<BallRecommendEntry>& entries) {
+        fprintf(f, "%s\n", header);
+        fprintf(f, "character_hash\tmove_name_key\tcommand_text_key\tunk_3\tunk_4\n");
+        for (const auto& e : entries)
+            fprintf(f, "%u\t%s\t%s\t%u\t%u\n", e.character_hash, e.move_name_key, e.command_text_key, e.unk_3, e.unk_4);
+    };
+
+    writeGroup("#group_0", bin.ballRecommendGroup0);
+    writeGroup("#group_1", bin.ballRecommendGroup1);
+    writeGroup("#group_2", bin.ballRecommendGroup2);
+
+    fprintf(f, "#unk_values\n");
+    for (int i = 0; i < (int)bin.ballRecommendUnkValues.size(); ++i)
+    {
+        if (i > 0) fputc('\t', f);
+        fprintf(f, "%u", bin.ballRecommendUnkValues[i]);
+    }
+    fputc('\n', f);
+
+    fclose(f);
+}
+
+static void ImportBallRecommendListTsv(const std::string& path, ContentsBinData& bin)
+{
+    FILE* f = nullptr;
+    if (fopen_s(&f, path.c_str(), "rb") != 0 || !f) return;
+
+    std::vector<BallRecommendEntry> g0, g1, g2;
+    std::vector<uint32_t> unkVals;
+
+    enum class Sec { None, G0, G1, G2, Unk } sec = Sec::None;
+    bool headerSkipped = false;
+
+    char line[1024];
+    while (fgets(line, sizeof(line), f))
+    {
+        int len = (int)strlen(line);
+        while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r')) line[--len] = '\0';
+        if (len == 0) continue;
+
+        if (line[0] == '#')
+        {
+            headerSkipped = false;
+            if      (strcmp(line, "#group_0")   == 0) { sec = Sec::G0;  }
+            else if (strcmp(line, "#group_1")   == 0) { sec = Sec::G1;  }
+            else if (strcmp(line, "#group_2")   == 0) { sec = Sec::G2;  }
+            else if (strcmp(line, "#unk_values") == 0) { sec = Sec::Unk; }
+            else                                        { sec = Sec::None; }
+            continue;
+        }
+
+        if (sec == Sec::G0 || sec == Sec::G1 || sec == Sec::G2)
+        {
+            if (!headerSkipped) { headerSkipped = true; continue; }
+            char* cols[5] = {}; int col = 0; char* p = line;
+            cols[col++] = p;
+            for (; *p && col < 5; ++p) if (*p == '\t') { *p = '\0'; cols[col++] = p+1; }
+            if (col < 5) continue;
+            BallRecommendEntry e;
+            e.character_hash = (uint32_t)strtoul(cols[0], nullptr, 10);
+            strncpy_s(e.move_name_key,    sizeof(e.move_name_key),    cols[1], _TRUNCATE);
+            strncpy_s(e.command_text_key, sizeof(e.command_text_key), cols[2], _TRUNCATE);
+            e.unk_3 = (uint32_t)strtoul(cols[3], nullptr, 10);
+            e.unk_4 = (uint32_t)strtoul(cols[4], nullptr, 10);
+            if      (sec == Sec::G0) g0.push_back(e);
+            else if (sec == Sec::G1) g1.push_back(e);
+            else                     g2.push_back(e);
+        }
+        else if (sec == Sec::Unk)
+        {
+            // single row, tab-separated uint32 values
+            char* p = line;
+            while (*p)
+            {
+                char* start = p;
+                while (*p && *p != '\t') ++p;
+                char saved = *p; *p = '\0';
+                unkVals.push_back((uint32_t)strtoul(start, nullptr, 10));
+                if (saved) ++p; else break;
+            }
+        }
+    }
+    fclose(f);
+
+    bin.ballRecommendGroup0    = std::move(g0);
+    bin.ballRecommendGroup1    = std::move(g1);
+    bin.ballRecommendGroup2    = std::move(g2);
+    bin.ballRecommendUnkValues = std::move(unkVals);
+}
+
 void FbsDataView::RenderBallRecommendListEditor(ContentsBinData& bin)
 {
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.82f, 1.00f, 1.00f));
     ImGui::Text("ball_recommend_list.bin");
     ImGui::PopStyleColor();
+
+    // -- Export / Import buttons (right-aligned) --
+    {
+        const float ioGap=4.0f, exportBtnW=70.0f, importBtnW=70.0f;
+        const float totalW=exportBtnW+ioGap+importBtnW;
+        ImGui::SameLine(ImGui::GetContentRegionAvail().x - totalW + ImGui::GetCursorPosX());
+        if (ImGui::Button("Export##brecom", ImVec2(exportBtnW, 0))) { std::string p=OpenTsvSaveDialog(L"ball_recommend_list.tsv"); if(!p.empty()) ExportBallRecommendListTsv(bin,p); }
+        ImGui::SameLine(0, ioGap);
+        if (!m_renderReadOnly && ImGui::Button("Import##brecom", ImVec2(importBtnW, 0))) { std::string p=OpenTsvOpenDialog(); if(!p.empty()) ImportBallRecommendListTsv(p,bin); }
+    }
+
     ImGui::Separator();
 
     constexpr ImGuiTableFlags tFlags =
@@ -3453,7 +4439,7 @@ void FbsDataView::RenderBallRecommendListEditor(ContentsBinData& bin)
             const float addBtnW = 100.0f;
             ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
             ImGui::PushID(addId);
-            if (ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
+            if (!m_renderReadOnly && ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
                 entries.push_back(BallRecommendEntry{});
             ImGui::PopID();
 
@@ -3484,7 +4470,7 @@ void FbsDataView::RenderBallRecommendListEditor(ContentsBinData& bin)
                         ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
                         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
                         ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
-                        if (ImGui::SmallButton("X")) deleteIdx = i;
+                        if (!m_renderReadOnly && ImGui::SmallButton("X")) deleteIdx = i;
                         ImGui::PopStyleColor(3);
 
                         ImGui::TableSetColumnIndex(1);
@@ -3506,7 +4492,7 @@ void FbsDataView::RenderBallRecommendListEditor(ContentsBinData& bin)
                         ImGui::PopID();
                     }
                 }
-                if (deleteIdx >= 0)
+                if (!m_renderReadOnly && deleteIdx >= 0)
                     entries.erase(entries.begin() + deleteIdx);
 
                 ImGui::EndTable();
@@ -3540,14 +4526,14 @@ void FbsDataView::RenderBallRecommendListEditor(ContentsBinData& bin)
             ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
-            if (ImGui::SmallButton("X")) deleteIdx = i;
+            if (!m_renderReadOnly && ImGui::SmallButton("X")) deleteIdx = i;
             ImGui::PopStyleColor(3);
             ImGui::SameLine();
             ImGui::SetNextItemWidth(120.0f);
             ImGui::InputScalar("##uv", ImGuiDataType_U32, &bin.ballRecommendUnkValues[i]);
             ImGui::PopID();
         }
-        if (deleteIdx >= 0)
+        if (!m_renderReadOnly && deleteIdx >= 0)
             bin.ballRecommendUnkValues.erase(bin.ballRecommendUnkValues.begin() + deleteIdx);
         ImGui::EndChild();
         ImGui::EndTabItem();
@@ -3560,11 +4546,179 @@ void FbsDataView::RenderBallRecommendListEditor(ContentsBinData& bin)
 //  ball_setting_list editor (property grid)
 // -----------------------------------------------------------------------------
 
+static void ExportBallSettingListTsv(const ContentsBinData& bin, const std::string& path)
+{
+    FILE* f = nullptr;
+    if (fopen_s(&f, path.c_str(), "wb") != 0 || !f) return;
+
+    static const bool k_IsUint[72] = {
+        false,false,false,false,false,false,false,false,false,
+        true,true,
+        false,false,false,false,
+        true,
+        false,
+        true,
+        false,false,false,false,false,false,
+        true,true,true,true,true,true,
+        false,
+        true,
+        false,
+        true,true,true,true,true,true,true,true,
+        false,false,false,
+        true,true,
+        false,
+        true,true,true,true,true,true,
+        false,false,
+        true,
+        false,false,
+        true,true,true,
+        false,false,
+        true,true,true,true,true,true,true,true,true
+    };
+
+    // header row
+    fprintf(f, "value_0");
+    for (int i = 1; i < 72; ++i) fprintf(f, "\tvalue_%d", i);
+    fputc('\n', f);
+
+    // data row - single row with all 72 values
+    const auto& d = bin.ballSettingData;
+    const float*    fv[72] = {};
+    const uint32_t* uv[72] = {};
+    fv[0]=&d.value_0; fv[1]=&d.value_1; fv[2]=&d.value_2; fv[3]=&d.value_3;
+    fv[4]=&d.value_4; fv[5]=&d.value_5; fv[6]=&d.value_6; fv[7]=&d.value_7;
+    fv[8]=&d.value_8;
+    uv[9]=&d.value_9; uv[10]=&d.value_10;
+    fv[11]=&d.value_11; fv[12]=&d.value_12; fv[13]=&d.value_13; fv[14]=&d.value_14;
+    uv[15]=&d.value_15; fv[16]=&d.value_16; uv[17]=&d.value_17;
+    fv[18]=&d.value_18; fv[19]=&d.value_19; fv[20]=&d.value_20; fv[21]=&d.value_21;
+    fv[22]=&d.value_22; fv[23]=&d.value_23;
+    uv[24]=&d.value_24; uv[25]=&d.value_25; uv[26]=&d.value_26; uv[27]=&d.value_27;
+    uv[28]=&d.value_28; uv[29]=&d.value_29;
+    fv[30]=&d.value_30; uv[31]=&d.value_31; fv[32]=&d.value_32;
+    uv[33]=&d.value_33; uv[34]=&d.value_34; uv[35]=&d.value_35; uv[36]=&d.value_36;
+    uv[37]=&d.value_37; uv[38]=&d.value_38; uv[39]=&d.value_39; uv[40]=&d.value_40;
+    fv[41]=&d.value_41; fv[42]=&d.value_42; fv[43]=&d.value_43;
+    uv[44]=&d.value_44; uv[45]=&d.value_45;
+    fv[46]=&d.value_46;
+    uv[47]=&d.value_47; uv[48]=&d.value_48; uv[49]=&d.value_49;
+    uv[50]=&d.value_50; uv[51]=&d.value_51; uv[52]=&d.value_52;
+    fv[53]=&d.value_53; fv[54]=&d.value_54; uv[55]=&d.value_55;
+    fv[56]=&d.value_56; fv[57]=&d.value_57;
+    uv[58]=&d.value_58; uv[59]=&d.value_59; uv[60]=&d.value_60;
+    fv[61]=&d.value_61; fv[62]=&d.value_62;
+    uv[63]=&d.value_63; uv[64]=&d.value_64; uv[65]=&d.value_65; uv[66]=&d.value_66;
+    uv[67]=&d.value_67; uv[68]=&d.value_68; uv[69]=&d.value_69; uv[70]=&d.value_70;
+    uv[71]=&d.value_71;
+
+    for (int i = 0; i < 72; ++i)
+    {
+        if (i > 0) fputc('\t', f);
+        if (k_IsUint[i]) fprintf(f, "%u", *uv[i]);
+        else             fprintf(f, "%.9g", *fv[i]);
+    }
+    fputc('\n', f);
+    fclose(f);
+}
+
+static void ImportBallSettingListTsv(const std::string& path, ContentsBinData& bin)
+{
+    FILE* f = nullptr;
+    if (fopen_s(&f, path.c_str(), "rb") != 0 || !f) return;
+
+    static const bool k_IsUint[72] = {
+        false,false,false,false,false,false,false,false,false,
+        true,true,
+        false,false,false,false,
+        true,
+        false,
+        true,
+        false,false,false,false,false,false,
+        true,true,true,true,true,true,
+        false,
+        true,
+        false,
+        true,true,true,true,true,true,true,true,
+        false,false,false,
+        true,true,
+        false,
+        true,true,true,true,true,true,
+        false,false,
+        true,
+        false,false,
+        true,true,true,
+        false,false,
+        true,true,true,true,true,true,true,true,true
+    };
+
+    auto& d = bin.ballSettingData;
+    float*    fv[72] = {};
+    uint32_t* uv[72] = {};
+    fv[0]=&d.value_0; fv[1]=&d.value_1; fv[2]=&d.value_2; fv[3]=&d.value_3;
+    fv[4]=&d.value_4; fv[5]=&d.value_5; fv[6]=&d.value_6; fv[7]=&d.value_7;
+    fv[8]=&d.value_8;
+    uv[9]=&d.value_9; uv[10]=&d.value_10;
+    fv[11]=&d.value_11; fv[12]=&d.value_12; fv[13]=&d.value_13; fv[14]=&d.value_14;
+    uv[15]=&d.value_15; fv[16]=&d.value_16; uv[17]=&d.value_17;
+    fv[18]=&d.value_18; fv[19]=&d.value_19; fv[20]=&d.value_20; fv[21]=&d.value_21;
+    fv[22]=&d.value_22; fv[23]=&d.value_23;
+    uv[24]=&d.value_24; uv[25]=&d.value_25; uv[26]=&d.value_26; uv[27]=&d.value_27;
+    uv[28]=&d.value_28; uv[29]=&d.value_29;
+    fv[30]=&d.value_30; uv[31]=&d.value_31; fv[32]=&d.value_32;
+    uv[33]=&d.value_33; uv[34]=&d.value_34; uv[35]=&d.value_35; uv[36]=&d.value_36;
+    uv[37]=&d.value_37; uv[38]=&d.value_38; uv[39]=&d.value_39; uv[40]=&d.value_40;
+    fv[41]=&d.value_41; fv[42]=&d.value_42; fv[43]=&d.value_43;
+    uv[44]=&d.value_44; uv[45]=&d.value_45;
+    fv[46]=&d.value_46;
+    uv[47]=&d.value_47; uv[48]=&d.value_48; uv[49]=&d.value_49;
+    uv[50]=&d.value_50; uv[51]=&d.value_51; uv[52]=&d.value_52;
+    fv[53]=&d.value_53; fv[54]=&d.value_54; uv[55]=&d.value_55;
+    fv[56]=&d.value_56; fv[57]=&d.value_57;
+    uv[58]=&d.value_58; uv[59]=&d.value_59; uv[60]=&d.value_60;
+    fv[61]=&d.value_61; fv[62]=&d.value_62;
+    uv[63]=&d.value_63; uv[64]=&d.value_64; uv[65]=&d.value_65; uv[66]=&d.value_66;
+    uv[67]=&d.value_67; uv[68]=&d.value_68; uv[69]=&d.value_69; uv[70]=&d.value_70;
+    uv[71]=&d.value_71;
+
+    char line[2048];
+    bool headerSkipped = false;
+    while (fgets(line, sizeof(line), f))
+    {
+        int len = (int)strlen(line);
+        while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r')) line[--len] = '\0';
+        if (len == 0 || line[0] == '#') continue;
+        if (!headerSkipped) { headerSkipped = true; continue; }
+
+        char* cols[72] = {}; int col = 0; char* p = line;
+        cols[col++] = p;
+        for (; *p && col < 72; ++p) if (*p == '\t') { *p = '\0'; cols[col++] = p+1; }
+        for (int i = 0; i < col && i < 72; ++i)
+        {
+            if (!cols[i]) continue;
+            if (k_IsUint[i]) { if (uv[i]) *uv[i] = (uint32_t)strtoul(cols[i], nullptr, 10); }
+            else              { if (fv[i]) *fv[i] = strtof(cols[i], nullptr); }
+        }
+        break; // single data row
+    }
+    fclose(f);
+}
+
 void FbsDataView::RenderBallSettingListEditor(ContentsBinData& bin)
 {
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.82f, 1.00f, 1.00f));
     ImGui::Text("ball_setting_list.bin");
     ImGui::PopStyleColor();
+
+    // -- Export / Import buttons (right-aligned) --
+    {
+        const float ioGap=4.0f, exportBtnW=70.0f, importBtnW=70.0f;
+        const float totalW=exportBtnW+ioGap+importBtnW;
+        ImGui::SameLine(ImGui::GetContentRegionAvail().x - totalW + ImGui::GetCursorPosX());
+        if (ImGui::Button("Export##bset", ImVec2(exportBtnW, 0))) { std::string p=OpenTsvSaveDialog(L"ball_setting_list.tsv"); if(!p.empty()) ExportBallSettingListTsv(bin,p); }
+        ImGui::SameLine(0, ioGap);
+        if (!m_renderReadOnly && ImGui::Button("Import##bset", ImVec2(importBtnW, 0))) { std::string p=OpenTsvOpenDialog(); if(!p.empty()) ImportBallSettingListTsv(p,bin); }
+    }
+
     ImGui::Separator();
 
     constexpr ImGuiTableFlags tFlags =
@@ -3657,11 +4811,167 @@ void FbsDataView::RenderBallSettingListEditor(ContentsBinData& bin)
 //  battle_common_list editor
 // -----------------------------------------------------------------------------
 
+static void ExportBattleCommonListTsv(const ContentsBinData& bin, const std::string& path)
+{
+    FILE* f = nullptr;
+    if (fopen_s(&f, path.c_str(), "wb") != 0 || !f) return;
+
+    // list_params: 10 scalar values (single row)
+    fprintf(f, "#list_params\n");
+    fprintf(f, "battleCommonValue3\tbattleCommonValue4\tbattleCommonValue6\tbattleCommonValue7\tbattleCommonValue8\tbattleCommonValue9\tbattleCommonValue10\tbattleCommonValue11\tbattleCommonValue12\tbattleCommonValue13\n");
+    fprintf(f, "%u\t%u\t%.9g\t%.9g\t%.9g\t%u\t%.9g\t%u\t%u\t%u\n",
+        bin.battleCommonValue3, bin.battleCommonValue4,
+        bin.battleCommonValue6, bin.battleCommonValue7, bin.battleCommonValue8,
+        bin.battleCommonValue9, bin.battleCommonValue10,
+        bin.battleCommonValue11, bin.battleCommonValue12, bin.battleCommonValue13);
+
+    // single_value_entries
+    fprintf(f, "#single_value_entries\n");
+    fprintf(f, "value\n");
+    for (const auto& e : bin.battleCommonSingleValueEntries)
+        fprintf(f, "%u\n", e.value);
+
+    // character_scale_entries
+    fprintf(f, "#character_scale_entries\n");
+    fprintf(f, "hash_0\tvalue_1\tvalue_2\tvalue_3\tvalue_4\tvalue_5\tvalue_6\tvalue_7\n");
+    for (const auto& e : bin.battleCommonCharacterScaleEntries)
+        fprintf(f, "%u\t%.9g\t%.9g\t%.9g\t%.9g\t%.9g\t%.9g\t%.9g\n",
+            e.hash_0, e.value_1, e.value_2, e.value_3, e.value_4, e.value_5, e.value_6, e.value_7);
+
+    // pair_entries
+    fprintf(f, "#pair_entries\n");
+    fprintf(f, "value_0\tvalue_1\tvalue_2\n");
+    for (const auto& e : bin.battleCommonPairEntries)
+        fprintf(f, "%u\t%u\t%u\n", e.value_0, e.value_1, e.value_2);
+
+    // misc_entries
+    fprintf(f, "#misc_entries\n");
+    fprintf(f, "value_0\tvalue_1\tvalue_2\n");
+    for (const auto& e : bin.battleCommonMiscEntries)
+        fprintf(f, "%.9g\t%.9g\t%.9g\n", e.value_0, e.value_1, e.value_2);
+
+    fclose(f);
+}
+
+static void ImportBattleCommonListTsv(const std::string& path, ContentsBinData& bin)
+{
+    FILE* f = nullptr;
+    if (fopen_s(&f, path.c_str(), "rb") != 0 || !f) return;
+
+    std::vector<BattleCommonSingleValueEntry>    sv;
+    std::vector<BattleCommonCharacterScaleEntry> cs;
+    std::vector<BattleCommonPairEntry>           pe;
+    std::vector<BattleCommonMiscEntry>           me;
+
+    enum class Sec { None, Params, SingleValue, CharScale, Pair, Misc } sec = Sec::None;
+    bool headerSkipped = false;
+
+    char line[512];
+    while (fgets(line, sizeof(line), f))
+    {
+        int len = (int)strlen(line);
+        while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r')) line[--len] = '\0';
+        if (len == 0) continue;
+
+        if (line[0] == '#')
+        {
+            headerSkipped = false;
+            if      (strcmp(line, "#list_params")              == 0) sec = Sec::Params;
+            else if (strcmp(line, "#single_value_entries")     == 0) sec = Sec::SingleValue;
+            else if (strcmp(line, "#character_scale_entries")  == 0) sec = Sec::CharScale;
+            else if (strcmp(line, "#pair_entries")             == 0) sec = Sec::Pair;
+            else if (strcmp(line, "#misc_entries")             == 0) sec = Sec::Misc;
+            else                                                      sec = Sec::None;
+            continue;
+        }
+        if (!headerSkipped) { headerSkipped = true; continue; }
+
+        if (sec == Sec::Params)
+        {
+            char* cols[10] = {}; int col = 0; char* p = line;
+            cols[col++] = p;
+            for (; *p && col < 10; ++p) if (*p == '\t') { *p = '\0'; cols[col++] = p+1; }
+            if (col < 10) continue;
+            bin.battleCommonValue3  = (uint32_t)strtoul(cols[0], nullptr, 10);
+            bin.battleCommonValue4  = (uint32_t)strtoul(cols[1], nullptr, 10);
+            bin.battleCommonValue6  = strtof(cols[2], nullptr);
+            bin.battleCommonValue7  = strtof(cols[3], nullptr);
+            bin.battleCommonValue8  = strtof(cols[4], nullptr);
+            bin.battleCommonValue9  = (uint32_t)strtoul(cols[5], nullptr, 10);
+            bin.battleCommonValue10 = strtof(cols[6], nullptr);
+            bin.battleCommonValue11 = (uint32_t)strtoul(cols[7], nullptr, 10);
+            bin.battleCommonValue12 = (uint32_t)strtoul(cols[8], nullptr, 10);
+            bin.battleCommonValue13 = (uint32_t)strtoul(cols[9], nullptr, 10);
+        }
+        else if (sec == Sec::SingleValue)
+        {
+            BattleCommonSingleValueEntry e;
+            e.value = (uint32_t)strtoul(line, nullptr, 10);
+            sv.push_back(e);
+        }
+        else if (sec == Sec::CharScale)
+        {
+            char* cols[8] = {}; int col = 0; char* p = line;
+            cols[col++] = p;
+            for (; *p && col < 8; ++p) if (*p == '\t') { *p = '\0'; cols[col++] = p+1; }
+            if (col < 8) continue;
+            BattleCommonCharacterScaleEntry e;
+            e.hash_0  = (uint32_t)strtoul(cols[0], nullptr, 10);
+            e.value_1 = strtof(cols[1], nullptr); e.value_2 = strtof(cols[2], nullptr);
+            e.value_3 = strtof(cols[3], nullptr); e.value_4 = strtof(cols[4], nullptr);
+            e.value_5 = strtof(cols[5], nullptr); e.value_6 = strtof(cols[6], nullptr);
+            e.value_7 = strtof(cols[7], nullptr);
+            cs.push_back(e);
+        }
+        else if (sec == Sec::Pair)
+        {
+            char* cols[3] = {}; int col = 0; char* p = line;
+            cols[col++] = p;
+            for (; *p && col < 3; ++p) if (*p == '\t') { *p = '\0'; cols[col++] = p+1; }
+            if (col < 3) continue;
+            BattleCommonPairEntry e;
+            e.value_0 = (uint32_t)strtoul(cols[0], nullptr, 10);
+            e.value_1 = (uint32_t)strtoul(cols[1], nullptr, 10);
+            e.value_2 = (uint32_t)strtoul(cols[2], nullptr, 10);
+            pe.push_back(e);
+        }
+        else if (sec == Sec::Misc)
+        {
+            char* cols[3] = {}; int col = 0; char* p = line;
+            cols[col++] = p;
+            for (; *p && col < 3; ++p) if (*p == '\t') { *p = '\0'; cols[col++] = p+1; }
+            if (col < 3) continue;
+            BattleCommonMiscEntry e;
+            e.value_0 = strtof(cols[0], nullptr);
+            e.value_1 = strtof(cols[1], nullptr);
+            e.value_2 = strtof(cols[2], nullptr);
+            me.push_back(e);
+        }
+    }
+    fclose(f);
+
+    bin.battleCommonSingleValueEntries    = std::move(sv);
+    bin.battleCommonCharacterScaleEntries = std::move(cs);
+    bin.battleCommonPairEntries           = std::move(pe);
+    bin.battleCommonMiscEntries           = std::move(me);
+}
+
 void FbsDataView::RenderBattleCommonListEditor(ContentsBinData& bin)
 {
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.82f, 1.00f, 1.00f));
     ImGui::Text("battle_common_list.bin");
     ImGui::PopStyleColor();
+
+    // -- Export / Import buttons (right-aligned) --
+    {
+        const float ioGap=4.0f, exportBtnW=70.0f, importBtnW=70.0f;
+        const float totalW=exportBtnW+ioGap+importBtnW;
+        ImGui::SameLine(ImGui::GetContentRegionAvail().x - totalW + ImGui::GetCursorPosX());
+        if (ImGui::Button("Export##bcommon", ImVec2(exportBtnW, 0))) { std::string p=OpenTsvSaveDialog(L"battle_common_list.tsv"); if(!p.empty()) ExportBattleCommonListTsv(bin,p); }
+        ImGui::SameLine(0, ioGap);
+        if (!m_renderReadOnly && ImGui::Button("Import##bcommon", ImVec2(importBtnW, 0))) { std::string p=OpenTsvOpenDialog(); if(!p.empty()) ImportBattleCommonListTsv(p,bin); }
+    }
+
     ImGui::Separator();
 
     constexpr ImGuiTableFlags tFlags =
@@ -3695,7 +5005,7 @@ void FbsDataView::RenderBattleCommonListEditor(ContentsBinData& bin)
         ImGui::PopStyleColor();
         const float addBtnW = 100.0f;
         ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
-        if (ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
+        if (!m_renderReadOnly && ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
             bin.battleCommonSingleValueEntries.push_back(BattleCommonSingleValueEntry{});
 
         if (ImGui::BeginTable("##BCSVTable", 2, tFlags, ImGui::GetContentRegionAvail()))
@@ -3724,7 +5034,7 @@ void FbsDataView::RenderBattleCommonListEditor(ContentsBinData& bin)
                     ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
                     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
                     ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
-                    if (ImGui::SmallButton("X")) deleteIdx = i;
+                    if (!m_renderReadOnly && ImGui::SmallButton("X")) deleteIdx = i;
                     ImGui::PopStyleColor(3);
 
                     ImGui::TableSetColumnIndex(1);
@@ -3734,7 +5044,7 @@ void FbsDataView::RenderBattleCommonListEditor(ContentsBinData& bin)
                     ImGui::PopID();
                 }
             }
-            if (deleteIdx >= 0)
+            if (!m_renderReadOnly && deleteIdx >= 0)
                 bin.battleCommonSingleValueEntries.erase(bin.battleCommonSingleValueEntries.begin() + deleteIdx);
 
             ImGui::EndTable();
@@ -3749,7 +5059,7 @@ void FbsDataView::RenderBattleCommonListEditor(ContentsBinData& bin)
         ImGui::PopStyleColor();
         const float addBtnW = 100.0f;
         ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
-        if (ImGui::Button("+ Add Entry##cs", ImVec2(addBtnW, 0)))
+        if (!m_renderReadOnly && ImGui::Button("+ Add Entry##cs", ImVec2(addBtnW, 0)))
             bin.battleCommonCharacterScaleEntries.push_back(BattleCommonCharacterScaleEntry{});
 
         if (ImGui::BeginTable("##BCCSTable", 9, tFlags, ImGui::GetContentRegionAvail()))
@@ -3780,7 +5090,7 @@ void FbsDataView::RenderBattleCommonListEditor(ContentsBinData& bin)
                     ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
                     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
                     ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
-                    if (ImGui::SmallButton("X")) deleteIdx = i;
+                    if (!m_renderReadOnly && ImGui::SmallButton("X")) deleteIdx = i;
                     ImGui::PopStyleColor(3);
 
                     ImGui::TableSetColumnIndex(1); ImGui::SetNextItemWidth(-FLT_MIN); ImGui::InputScalar("##h0", ImGuiDataType_U32,   &e.hash_0);
@@ -3795,7 +5105,7 @@ void FbsDataView::RenderBattleCommonListEditor(ContentsBinData& bin)
                     ImGui::PopID();
                 }
             }
-            if (deleteIdx >= 0)
+            if (!m_renderReadOnly && deleteIdx >= 0)
                 bin.battleCommonCharacterScaleEntries.erase(bin.battleCommonCharacterScaleEntries.begin() + deleteIdx);
 
             ImGui::EndTable();
@@ -3810,7 +5120,7 @@ void FbsDataView::RenderBattleCommonListEditor(ContentsBinData& bin)
         ImGui::PopStyleColor();
         const float addBtnW = 100.0f;
         ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
-        if (ImGui::Button("+ Add Entry##pe", ImVec2(addBtnW, 0)))
+        if (!m_renderReadOnly && ImGui::Button("+ Add Entry##pe", ImVec2(addBtnW, 0)))
             bin.battleCommonPairEntries.push_back(BattleCommonPairEntry{});
 
         if (ImGui::BeginTable("##BCPairTable", 4, tFlags, ImGui::GetContentRegionAvail()))
@@ -3840,7 +5150,7 @@ void FbsDataView::RenderBattleCommonListEditor(ContentsBinData& bin)
                     ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
                     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
                     ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
-                    if (ImGui::SmallButton("X")) deleteIdx = i;
+                    if (!m_renderReadOnly && ImGui::SmallButton("X")) deleteIdx = i;
                     ImGui::PopStyleColor(3);
 
                     ImGui::TableSetColumnIndex(1); ImGui::SetNextItemWidth(-FLT_MIN); ImGui::InputScalar("##v0", ImGuiDataType_U32, &e.value_0);
@@ -3850,7 +5160,7 @@ void FbsDataView::RenderBattleCommonListEditor(ContentsBinData& bin)
                     ImGui::PopID();
                 }
             }
-            if (deleteIdx >= 0)
+            if (!m_renderReadOnly && deleteIdx >= 0)
                 bin.battleCommonPairEntries.erase(bin.battleCommonPairEntries.begin() + deleteIdx);
 
             ImGui::EndTable();
@@ -3865,7 +5175,7 @@ void FbsDataView::RenderBattleCommonListEditor(ContentsBinData& bin)
         ImGui::PopStyleColor();
         const float addBtnW = 100.0f;
         ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
-        if (ImGui::Button("+ Add Entry##me", ImVec2(addBtnW, 0)))
+        if (!m_renderReadOnly && ImGui::Button("+ Add Entry##me", ImVec2(addBtnW, 0)))
             bin.battleCommonMiscEntries.push_back(BattleCommonMiscEntry{});
 
         if (ImGui::BeginTable("##BCMiscTable", 4, tFlags, ImGui::GetContentRegionAvail()))
@@ -3895,7 +5205,7 @@ void FbsDataView::RenderBattleCommonListEditor(ContentsBinData& bin)
                     ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
                     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
                     ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
-                    if (ImGui::SmallButton("X")) deleteIdx = i;
+                    if (!m_renderReadOnly && ImGui::SmallButton("X")) deleteIdx = i;
                     ImGui::PopStyleColor(3);
 
                     ImGui::TableSetColumnIndex(1); ImGui::SetNextItemWidth(-FLT_MIN); ImGui::InputScalar("##v0", ImGuiDataType_Float, &e.value_0);
@@ -3905,7 +5215,7 @@ void FbsDataView::RenderBattleCommonListEditor(ContentsBinData& bin)
                     ImGui::PopID();
                 }
             }
-            if (deleteIdx >= 0)
+            if (!m_renderReadOnly && deleteIdx >= 0)
                 bin.battleCommonMiscEntries.erase(bin.battleCommonMiscEntries.begin() + deleteIdx);
 
             ImGui::EndTable();
@@ -3920,11 +5230,156 @@ void FbsDataView::RenderBattleCommonListEditor(ContentsBinData& bin)
 //  battle_cpu_list editor
 // -----------------------------------------------------------------------------
 
+static void WriteBattleCpuRankEntry(FILE* f, const BattleCpuRankEntry& e)
+{
+    for (int vi = 0; vi < 47; ++vi)
+    {
+        if (vi > 0) fputc('\t', f);
+        fprintf(f, "%u", e.values[vi]);
+    }
+    fprintf(f, "\t%s\n", e.rank_label);
+}
+
+static void ExportBattleCpuListTsv(const ContentsBinData& bin, const std::string& path)
+{
+    FILE* f = nullptr;
+    if (fopen_s(&f, path.c_str(), "wb") != 0 || !f) return;
+
+    // rank_entries
+    fprintf(f, "#rank_entries\n");
+    fprintf(f, "values[0]");
+    for (int vi = 1; vi < 47; ++vi) fprintf(f, "\tvalues[%d]", vi);
+    fprintf(f, "\trank_label\n");
+    for (const auto& e : bin.battleCpuRankEntries)
+        WriteBattleCpuRankEntry(f, e);
+
+    // step_entries
+    fprintf(f, "#step_entries\n");
+    fprintf(f, "value_0\tvalue_1\tvalue_2\tvalue_3\n");
+    for (const auto& e : bin.battleCpuStepEntries)
+        fprintf(f, "%u\t%u\t%u\t%u\n", e.value_0, e.value_1, e.value_2, e.value_3);
+
+    // param_values
+    fprintf(f, "#param_values\n");
+    for (int i = 0; i < (int)bin.battleCpuParamValues.size(); ++i)
+    {
+        if (i > 0) fputc('\t', f);
+        fprintf(f, "%d", bin.battleCpuParamValues[i]);
+    }
+    fputc('\n', f);
+
+    // rank_ex_entry
+    fprintf(f, "#rank_ex_entry\n");
+    fprintf(f, "values[0]");
+    for (int vi = 1; vi < 47; ++vi) fprintf(f, "\tvalues[%d]", vi);
+    fprintf(f, "\trank_label\n");
+    WriteBattleCpuRankEntry(f, bin.battleCpuRankExEntry);
+
+    fclose(f);
+}
+
+static bool ParseBattleCpuRankEntry(char* line, BattleCpuRankEntry& out)
+{
+    char* cols[48] = {}; int col = 0; char* p = line;
+    cols[col++] = p;
+    for (; *p && col < 48; ++p) if (*p == '\t') { *p = '\0'; cols[col++] = p+1; }
+    if (col < 48) return false;
+    for (int vi = 0; vi < 47; ++vi)
+        out.values[vi] = (uint32_t)strtoul(cols[vi], nullptr, 10);
+    strncpy_s(out.rank_label, sizeof(out.rank_label), cols[47], _TRUNCATE);
+    return true;
+}
+
+static void ImportBattleCpuListTsv(const std::string& path, ContentsBinData& bin)
+{
+    FILE* f = nullptr;
+    if (fopen_s(&f, path.c_str(), "rb") != 0 || !f) return;
+
+    std::vector<BattleCpuRankEntry> rankEntries;
+    std::vector<BattleCpuStepEntry> stepEntries;
+    std::vector<int32_t>            paramValues;
+    BattleCpuRankEntry              rankExEntry{};
+
+    enum class Sec { None, Rank, Step, Param, RankEx } sec = Sec::None;
+    bool headerSkipped = false;
+
+    char line[2048];
+    while (fgets(line, sizeof(line), f))
+    {
+        int len = (int)strlen(line);
+        while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r')) line[--len] = '\0';
+        if (len == 0) continue;
+
+        if (line[0] == '#')
+        {
+            headerSkipped = false;
+            if      (strcmp(line, "#rank_entries") == 0) sec = Sec::Rank;
+            else if (strcmp(line, "#step_entries") == 0) sec = Sec::Step;
+            else if (strcmp(line, "#param_values") == 0) sec = Sec::Param;
+            else if (strcmp(line, "#rank_ex_entry") == 0) sec = Sec::RankEx;
+            else                                           sec = Sec::None;
+            continue;
+        }
+        if (!headerSkipped) { headerSkipped = true; continue; }
+
+        if (sec == Sec::Rank)
+        {
+            BattleCpuRankEntry e{};
+            if (ParseBattleCpuRankEntry(line, e)) rankEntries.push_back(e);
+        }
+        else if (sec == Sec::Step)
+        {
+            char* cols[4] = {}; int col = 0; char* p = line;
+            cols[col++] = p;
+            for (; *p && col < 4; ++p) if (*p == '\t') { *p = '\0'; cols[col++] = p+1; }
+            if (col < 4) continue;
+            BattleCpuStepEntry e;
+            e.value_0 = (uint32_t)strtoul(cols[0], nullptr, 10);
+            e.value_1 = (uint32_t)strtoul(cols[1], nullptr, 10);
+            e.value_2 = (uint32_t)strtoul(cols[2], nullptr, 10);
+            e.value_3 = (uint32_t)strtoul(cols[3], nullptr, 10);
+            stepEntries.push_back(e);
+        }
+        else if (sec == Sec::Param)
+        {
+            char* p = line;
+            while (*p)
+            {
+                char* start = p;
+                while (*p && *p != '\t') ++p;
+                char saved = *p; *p = '\0';
+                paramValues.push_back((int32_t)strtol(start, nullptr, 10));
+                if (saved) ++p; else break;
+            }
+        }
+        else if (sec == Sec::RankEx)
+        {
+            ParseBattleCpuRankEntry(line, rankExEntry);
+        }
+    }
+    fclose(f);
+
+    bin.battleCpuRankEntries = std::move(rankEntries);
+    bin.battleCpuStepEntries = std::move(stepEntries);
+    bin.battleCpuParamValues = std::move(paramValues);
+    bin.battleCpuRankExEntry = rankExEntry;
+}
+
 void FbsDataView::RenderBattleCpuListEditor(ContentsBinData& bin)
 {
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.82f, 1.00f, 1.00f));
     ImGui::Text("battle_cpu_list.bin");
     ImGui::PopStyleColor();
+
+    // -- Export / Import buttons (right-aligned) --
+    {
+        const float ioGap=4.0f, exportBtnW=70.0f, importBtnW=70.0f;
+        const float totalW=exportBtnW+ioGap+importBtnW;
+        ImGui::SameLine(ImGui::GetContentRegionAvail().x - totalW + ImGui::GetCursorPosX());
+        if (ImGui::Button("Export##bcpu", ImVec2(exportBtnW, 0))) { std::string p=OpenTsvSaveDialog(L"battle_cpu_list.tsv"); if(!p.empty()) ExportBattleCpuListTsv(bin,p); }
+        ImGui::SameLine(0, ioGap);
+        if (!m_renderReadOnly && ImGui::Button("Import##bcpu", ImVec2(importBtnW, 0))) { std::string p=OpenTsvOpenDialog(); if(!p.empty()) ImportBattleCpuListTsv(p,bin); }
+    }
 
     // rank_ex_entry header section
     {
@@ -3955,7 +5410,7 @@ void FbsDataView::RenderBattleCpuListEditor(ContentsBinData& bin)
         ImGui::PopStyleColor();
         const float addBtnW = 100.0f;
         ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
-        if (ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
+        if (!m_renderReadOnly && ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
             bin.battleCpuRankEntries.push_back(BattleCpuRankEntry{});
 
         // 49 cols: # + values[0..46] + rank_label
@@ -3987,7 +5442,7 @@ void FbsDataView::RenderBattleCpuListEditor(ContentsBinData& bin)
                     ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
                     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
                     ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
-                    if (ImGui::SmallButton("X")) deleteIdx = i;
+                    if (!m_renderReadOnly && ImGui::SmallButton("X")) deleteIdx = i;
                     ImGui::PopStyleColor(3);
 
                     for (int vi = 0; vi < 47; ++vi)
@@ -4005,7 +5460,7 @@ void FbsDataView::RenderBattleCpuListEditor(ContentsBinData& bin)
                     ImGui::PopID();
                 }
             }
-            if (deleteIdx >= 0)
+            if (!m_renderReadOnly && deleteIdx >= 0)
                 bin.battleCpuRankEntries.erase(bin.battleCpuRankEntries.begin() + deleteIdx);
 
             ImGui::EndTable();
@@ -4020,7 +5475,7 @@ void FbsDataView::RenderBattleCpuListEditor(ContentsBinData& bin)
         ImGui::PopStyleColor();
         const float addBtnW = 100.0f;
         ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
-        if (ImGui::Button("+ Add Entry##step", ImVec2(addBtnW, 0)))
+        if (!m_renderReadOnly && ImGui::Button("+ Add Entry##step", ImVec2(addBtnW, 0)))
             bin.battleCpuStepEntries.push_back(BattleCpuStepEntry{});
 
         if (ImGui::BeginTable("##BCStepTable", 5, tFlags, ImGui::GetContentRegionAvail()))
@@ -4050,7 +5505,7 @@ void FbsDataView::RenderBattleCpuListEditor(ContentsBinData& bin)
                     ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
                     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
                     ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
-                    if (ImGui::SmallButton("X")) deleteIdx = i;
+                    if (!m_renderReadOnly && ImGui::SmallButton("X")) deleteIdx = i;
                     ImGui::PopStyleColor(3);
 
                     ImGui::TableSetColumnIndex(1); ImGui::SetNextItemWidth(-FLT_MIN); ImGui::InputScalar("##v0", ImGuiDataType_U32, &e.value_0);
@@ -4061,7 +5516,7 @@ void FbsDataView::RenderBattleCpuListEditor(ContentsBinData& bin)
                     ImGui::PopID();
                 }
             }
-            if (deleteIdx >= 0)
+            if (!m_renderReadOnly && deleteIdx >= 0)
                 bin.battleCpuStepEntries.erase(bin.battleCpuStepEntries.begin() + deleteIdx);
 
             ImGui::EndTable();
@@ -4087,14 +5542,14 @@ void FbsDataView::RenderBattleCpuListEditor(ContentsBinData& bin)
             ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
-            if (ImGui::SmallButton("X")) deleteIdx = i;
+            if (!m_renderReadOnly && ImGui::SmallButton("X")) deleteIdx = i;
             ImGui::PopStyleColor(3);
             ImGui::SameLine();
             ImGui::SetNextItemWidth(120.0f);
             ImGui::InputScalar("##pv", ImGuiDataType_S32, &bin.battleCpuParamValues[i]);
             ImGui::PopID();
         }
-        if (deleteIdx >= 0)
+        if (!m_renderReadOnly && deleteIdx >= 0)
             bin.battleCpuParamValues.erase(bin.battleCpuParamValues.begin() + deleteIdx);
         ImGui::EndChild();
         ImGui::EndTabItem();
@@ -4107,11 +5562,82 @@ void FbsDataView::RenderBattleCpuListEditor(ContentsBinData& bin)
 //  rank_list editor
 // -----------------------------------------------------------------------------
 
+static void ExportRankListTsv(const ContentsBinData& bin, const std::string& path)
+{
+    FILE* f = nullptr;
+    if (fopen_s(&f, path.c_str(), "wb") != 0 || !f) return;
+
+    fprintf(f, "group_id\thash\ttext_key\tname\trank\n");
+    for (const auto& grp : bin.rankGroups)
+        for (const auto& e : grp.entries)
+            fprintf(f, "%u\t%u\t%s\t%s\t%u\n", grp.group_id, e.hash, e.text_key, e.name, e.rank);
+
+    fclose(f);
+}
+
+static void ImportRankListTsv(const std::string& path, ContentsBinData& bin)
+{
+    FILE* f = nullptr;
+    if (fopen_s(&f, path.c_str(), "rb") != 0 || !f) return;
+
+    std::unordered_map<uint32_t, std::vector<RankItem>> groupMap;
+    std::vector<uint32_t> groupOrder;
+
+    bool headerSkipped = false;
+    char line[1024];
+    while (fgets(line, sizeof(line), f))
+    {
+        int len = (int)strlen(line);
+        while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r')) line[--len] = '\0';
+        if (len == 0 || line[0] == '#') continue;
+        if (!headerSkipped) { headerSkipped = true; continue; }
+
+        char* cols[5] = {}; int col = 0; char* p = line;
+        cols[col++] = p;
+        for (; *p && col < 5; ++p) if (*p == '\t') { *p = '\0'; cols[col++] = p+1; }
+        if (col < 5) continue;
+
+        uint32_t gid = (uint32_t)strtoul(cols[0], nullptr, 10);
+        if (groupMap.find(gid) == groupMap.end())
+            groupOrder.push_back(gid);
+
+        RankItem e;
+        e.hash = (uint32_t)strtoul(cols[1], nullptr, 10);
+        strncpy_s(e.text_key, sizeof(e.text_key), cols[2], _TRUNCATE);
+        strncpy_s(e.name,     sizeof(e.name),     cols[3], _TRUNCATE);
+        e.rank = (uint32_t)strtoul(cols[4], nullptr, 10);
+        groupMap[gid].push_back(e);
+    }
+    fclose(f);
+
+    std::vector<RankGroup> groups;
+    groups.reserve(groupOrder.size());
+    for (uint32_t gid : groupOrder)
+    {
+        RankGroup grp;
+        grp.group_id = gid;
+        grp.entries  = std::move(groupMap[gid]);
+        groups.push_back(std::move(grp));
+    }
+    bin.rankGroups = std::move(groups);
+}
+
 void FbsDataView::RenderRankListEditor(ContentsBinData& bin)
 {
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.82f, 1.00f, 1.00f));
     ImGui::Text("rank_list.bin");
     ImGui::PopStyleColor();
+
+    // -- Export / Import buttons (right-aligned) --
+    {
+        const float ioGap=4.0f, exportBtnW=70.0f, importBtnW=70.0f;
+        const float totalW=exportBtnW+ioGap+importBtnW;
+        ImGui::SameLine(ImGui::GetContentRegionAvail().x - totalW + ImGui::GetCursorPosX());
+        if (ImGui::Button("Export##rank", ImVec2(exportBtnW, 0))) { std::string p=OpenTsvSaveDialog(L"rank_list.tsv"); if(!p.empty()) ExportRankListTsv(bin,p); }
+        ImGui::SameLine(0, ioGap);
+        if (!m_renderReadOnly && ImGui::Button("Import##rank", ImVec2(importBtnW, 0))) { std::string p=OpenTsvOpenDialog(); if(!p.empty()) ImportRankListTsv(p,bin); }
+    }
+
     ImGui::Separator();
 
     constexpr ImGuiTableFlags tFlags =
@@ -4217,7 +5743,7 @@ void FbsDataView::RenderRankListEditor(ContentsBinData& bin)
                     ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
                     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
                     ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
-                    if (ImGui::SmallButton("X")) deleteIdx = i;
+                    if (!m_renderReadOnly && ImGui::SmallButton("X")) deleteIdx = i;
                     ImGui::PopStyleColor(3);
 
                     ImGui::TableSetColumnIndex(1); ImGui::SetNextItemWidth(-FLT_MIN); ImGui::InputScalar("##h",  ImGuiDataType_U32, &e.hash);
@@ -4228,7 +5754,7 @@ void FbsDataView::RenderRankListEditor(ContentsBinData& bin)
                     ImGui::PopID();
                 }
             }
-            if (deleteIdx >= 0)
+            if (!m_renderReadOnly && deleteIdx >= 0)
                 grp.entries.erase(grp.entries.begin() + deleteIdx);
 
             ImGui::EndTable();
@@ -4246,6 +5772,54 @@ void FbsDataView::RenderRankListEditor(ContentsBinData& bin)
 //  assist_input_list editor
 // -----------------------------------------------------------------------------
 
+static void ExportAssistInputListTsv(const ContentsBinData& bin, const std::string& path)
+{
+    FILE* f = nullptr;
+    if (fopen_s(&f, path.c_str(), "wb") != 0 || !f) return;
+
+    fprintf(f, "character_hash");
+    for (int vi = 0; vi < 58; ++vi) fprintf(f, "\tvalues[%d]", vi);
+    fputc('\n', f);
+
+    for (const auto& e : bin.assistInputEntries)
+    {
+        fprintf(f, "%u", e.character_hash);
+        for (int vi = 0; vi < 58; ++vi) fprintf(f, "\t%d", e.values[vi]);
+        fputc('\n', f);
+    }
+    fclose(f);
+}
+
+static std::vector<AssistInputEntry> ImportAssistInputListTsv(const std::string& path)
+{
+    std::vector<AssistInputEntry> result;
+    FILE* f = nullptr;
+    if (fopen_s(&f, path.c_str(), "rb") != 0 || !f) return result;
+
+    bool headerSkipped = false;
+    char line[2048];
+    while (fgets(line, sizeof(line), f))
+    {
+        int len = (int)strlen(line);
+        while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r')) line[--len] = '\0';
+        if (len == 0 || line[0] == '#') continue;
+        if (!headerSkipped) { headerSkipped = true; continue; }
+
+        char* cols[59] = {}; int col = 0; char* p = line;
+        cols[col++] = p;
+        for (; *p && col < 59; ++p) if (*p == '\t') { *p = '\0'; cols[col++] = p+1; }
+        if (col < 59) continue;
+
+        AssistInputEntry e;
+        e.character_hash = (uint32_t)strtoul(cols[0], nullptr, 10);
+        for (int vi = 0; vi < 58; ++vi)
+            e.values[vi] = (int32_t)strtol(cols[vi+1], nullptr, 10);
+        result.push_back(e);
+    }
+    fclose(f);
+    return result;
+}
+
 void FbsDataView::RenderAssistInputListEditor(ContentsBinData& bin)
 {
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.82f, 1.00f, 1.00f));
@@ -4256,10 +5830,17 @@ void FbsDataView::RenderAssistInputListEditor(ContentsBinData& bin)
     ImGui::Text("(%d entries)", (int)bin.assistInputEntries.size());
     ImGui::PopStyleColor();
 
-    const float addBtnW = 100.0f;
-    ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
-    if (ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
-        bin.assistInputEntries.push_back(AssistInputEntry{});
+    {
+        const float addBtnW=100.0f, ioGap=4.0f, exportBtnW=70.0f, importBtnW=70.0f;
+        const float totalW=exportBtnW+ioGap+importBtnW+ioGap+addBtnW;
+        ImGui::SameLine(ImGui::GetContentRegionAvail().x - totalW + ImGui::GetCursorPosX());
+        if (ImGui::Button("Export##asst", ImVec2(exportBtnW, 0))) { std::string p=OpenTsvSaveDialog(L"assist_input_list.tsv"); if(!p.empty()) ExportAssistInputListTsv(bin,p); }
+        ImGui::SameLine(0, ioGap);
+        if (!m_renderReadOnly && ImGui::Button("Import##asst", ImVec2(importBtnW, 0))) { std::string p=OpenTsvOpenDialog(); if(!p.empty()){auto imp=ImportAssistInputListTsv(p);if(!imp.empty())bin.assistInputEntries=std::move(imp);} }
+        ImGui::SameLine(0, ioGap);
+        if (!m_renderReadOnly && ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
+            bin.assistInputEntries.push_back(AssistInputEntry{});
+    }
 
     ImGui::Separator();
 
@@ -4299,7 +5880,7 @@ void FbsDataView::RenderAssistInputListEditor(ContentsBinData& bin)
             ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
-            if (ImGui::SmallButton("X")) deleteIdx = i;
+            if (!m_renderReadOnly && ImGui::SmallButton("X")) deleteIdx = i;
             ImGui::PopStyleColor(3);
 
             ImGui::TableSetColumnIndex(1);
@@ -4318,7 +5899,7 @@ void FbsDataView::RenderAssistInputListEditor(ContentsBinData& bin)
             ImGui::PopID();
         }
     }
-    if (deleteIdx >= 0)
+    if (!m_renderReadOnly && deleteIdx >= 0)
         bin.assistInputEntries.erase(bin.assistInputEntries.begin() + deleteIdx);
 
     ImGui::EndTable();
@@ -4415,6 +5996,58 @@ void FbsDataView::RenderInfoEditPopup()
 //  customize_panel_list editor
 // -----------------------------------------------------------------------------
 
+static void ExportCustomizePanelListTsv(const ContentsBinData& bin, const std::string& path)
+{
+    FILE* f = nullptr;
+    if (fopen_s(&f, path.c_str(), "wb") != 0 || !f) return;
+
+    fprintf(f, "panel_hash\tpanel_id\tprice\tcategory\tsort_id\ttext_key\ttexture_1\ttexture_2\ttexture_3\tflag_9\thash_10\n");
+    for (const auto& e : bin.customizePanelEntries)
+        fprintf(f, "%u\t%u\t%u\t%u\t%u\t%s\t%s\t%s\t%s\t%s\t%u\n",
+            e.panel_hash, e.panel_id, e.price, e.category, e.sort_id,
+            e.text_key, e.texture_1, e.texture_2, e.texture_3,
+            e.flag_9 ? "TRUE" : "FALSE", e.hash_10);
+    fclose(f);
+}
+
+static std::vector<CustomizePanelEntry> ImportCustomizePanelListTsv(const std::string& path)
+{
+    std::vector<CustomizePanelEntry> result;
+    FILE* f = nullptr;
+    if (fopen_s(&f, path.c_str(), "rb") != 0 || !f) return result;
+
+    bool headerSkipped = false;
+    char line[1536];
+    while (fgets(line, sizeof(line), f))
+    {
+        int len = (int)strlen(line);
+        while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r')) line[--len] = '\0';
+        if (len == 0 || line[0] == '#') continue;
+        if (!headerSkipped) { headerSkipped = true; continue; }
+
+        char* cols[11] = {}; int col = 0; char* p = line;
+        cols[col++] = p;
+        for (; *p && col < 11; ++p) if (*p == '\t') { *p = '\0'; cols[col++] = p+1; }
+        if (col < 11) continue;
+
+        CustomizePanelEntry e;
+        e.panel_hash = (uint32_t)strtoul(cols[0], nullptr, 10);
+        e.panel_id   = (uint32_t)strtoul(cols[1], nullptr, 10);
+        e.price      = (uint32_t)strtoul(cols[2], nullptr, 10);
+        e.category   = (uint32_t)strtoul(cols[3], nullptr, 10);
+        e.sort_id    = (uint32_t)strtoul(cols[4], nullptr, 10);
+        strncpy_s(e.text_key,  sizeof(e.text_key),  cols[5], _TRUNCATE);
+        strncpy_s(e.texture_1, sizeof(e.texture_1), cols[6], _TRUNCATE);
+        strncpy_s(e.texture_2, sizeof(e.texture_2), cols[7], _TRUNCATE);
+        strncpy_s(e.texture_3, sizeof(e.texture_3), cols[8], _TRUNCATE);
+        e.flag_9  = ParseBool(cols[9]);
+        e.hash_10 = (uint32_t)strtoul(cols[10], nullptr, 10);
+        result.push_back(e);
+    }
+    fclose(f);
+    return result;
+}
+
 void FbsDataView::RenderCustomizePanelListEditor(ContentsBinData& bin)
 {
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.82f, 1.00f, 1.00f));
@@ -4425,12 +6058,19 @@ void FbsDataView::RenderCustomizePanelListEditor(ContentsBinData& bin)
     ImGui::Text("(%d entries)", (int)bin.customizePanelEntries.size());
     ImGui::PopStyleColor();
 
-    const float addBtnW = 100.0f;
-    ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
-    if (ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
-        bin.customizePanelEntries.push_back(bin.customizePanelEntries.empty()
-            ? CustomizePanelEntry{}
-            : bin.customizePanelEntries.back());
+    {
+        const float addBtnW=100.0f, ioGap=4.0f, exportBtnW=70.0f, importBtnW=70.0f;
+        const float totalW=exportBtnW+ioGap+importBtnW+ioGap+addBtnW;
+        ImGui::SameLine(ImGui::GetContentRegionAvail().x - totalW + ImGui::GetCursorPosX());
+        if (ImGui::Button("Export##cpanel", ImVec2(exportBtnW, 0))) { std::string p=OpenTsvSaveDialog(L"customize_panel_list.tsv"); if(!p.empty()) ExportCustomizePanelListTsv(bin,p); }
+        ImGui::SameLine(0, ioGap);
+        if (!m_renderReadOnly && ImGui::Button("Import##cpanel", ImVec2(importBtnW, 0))) { std::string p=OpenTsvOpenDialog(); if(!p.empty()){auto imp=ImportCustomizePanelListTsv(p);if(!imp.empty())bin.customizePanelEntries=std::move(imp);} }
+        ImGui::SameLine(0, ioGap);
+        if (!m_renderReadOnly && ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
+            bin.customizePanelEntries.push_back(bin.customizePanelEntries.empty()
+                ? CustomizePanelEntry{}
+                : bin.customizePanelEntries.back());
+    }
 
     ImGui::Separator();
 
@@ -4467,7 +6107,7 @@ void FbsDataView::RenderCustomizePanelListEditor(ContentsBinData& bin)
         ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.12f, 0.12f, 1.00f));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.78f, 0.18f, 0.18f, 1.00f));
         ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.65f, 0.15f, 0.15f, 1.00f));
-        if (ImGui::SmallButton("X")) deleteIdx = i;
+        if (!m_renderReadOnly && ImGui::SmallButton("X")) deleteIdx = i;
         ImGui::PopStyleColor(3);
 
         auto U32Cell = [](const char* id, uint32_t& v) {
@@ -4494,7 +6134,7 @@ void FbsDataView::RenderCustomizePanelListEditor(ContentsBinData& bin)
         ImGui::PopID();
     }
 
-    if (deleteIdx >= 0)
+    if (!m_renderReadOnly && deleteIdx >= 0)
         bin.customizePanelEntries.erase(bin.customizePanelEntries.begin() + deleteIdx);
 
     ImGui::EndTable();
@@ -4537,7 +6177,7 @@ void FbsDataView::RenderCustomizeItemExceptionEditor(ContentsBinData& bin)
 
     const float addBtnW = 100.0f;
     ImGui::SameLine(ImGui::GetContentRegionAvail().x - addBtnW + ImGui::GetCursorPosX());
-    if (ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
+    if (!m_renderReadOnly && ImGui::Button("+ Add Entry", ImVec2(addBtnW, 0)))
         bin.exceptionEntries.push_back(CustomizeItemExceptionEntry{});
 
     ImGui::Separator();
@@ -4674,16 +6314,1886 @@ void FbsDataView::RenderCustomizeItemExceptionEditor(ContentsBinData& bin)
 
         // -- Delete button ----------------------------------------------------
         ImGui::TableSetColumnIndex(2);
-        if (ImGui::SmallButton("x"))
+        if (!m_renderReadOnly && ImGui::SmallButton("x"))
             removeIdx = i;
 
         ImGui::PopID();
     }
 
-    if (removeIdx >= 0)
+    if (!m_renderReadOnly && removeIdx >= 0)
         bin.exceptionEntries.erase(bin.exceptionEntries.begin() + removeIdx);
 
     ImGui::EndTable();
+}
+
+// -----------------------------------------------------------------------------
+//  Merged overview table (used by TkmodManagerView)
+// -----------------------------------------------------------------------------
+
+void FbsDataView::RenderBinMergedOverview(
+    const std::vector<BinViewSource>& sources,
+    const std::function<void(const std::string&)>& openCb)
+{
+    if (sources.empty()) return;
+
+    constexpr ImGuiTableFlags kOvTF =
+        ImGuiTableFlags_ScrollX | ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg |
+        ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersInnerV |
+        ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable |
+        ImGuiTableFlags_Hideable | ImGuiTableFlags_SizingFixedFit;
+    constexpr float kTkmodW = 190.0f;
+
+    auto fmtHash = [](uint32_t h, const std::vector<std::pair<uint32_t,std::string>>& items) -> std::string {
+        for (auto& kv : items) if (kv.first == h) return kv.second;
+        char buf[16]; snprintf(buf, sizeof(buf), "%u", h); return buf;
+    };
+    auto& charItems = GetCharHashItems();
+    auto& typeItems = GetTypeHashItems();
+
+    // Helper: render the tkmod cell (column 0) for source index si.
+    // Call inside PushID(rowIndex)/PopID() so the button ID is unique per row.
+    auto RenderTkmodCell = [&](int si) {
+        ImGui::TableSetColumnIndex(0);
+        if (ImGui::SmallButton("Open##ov"))
+            openCb(sources[si].path);
+        ImGui::SameLine(0, 4.0f);
+        ImGui::TextUnformatted(sources[si].filename);
+    };
+
+    // Helper: section header with optional Export button.
+    // exportFilename: suggested filename for the save dialog; exportFn: called with the first source's bin path string.
+    auto RenderSectionHeader = [&](const char* binLabel, int totalEntries,
+        const wchar_t* exportFilename = nullptr,
+        std::function<void(const ContentsBinData&, const std::string&)> exportFn = nullptr)
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.82f, 1.00f, 1.00f));
+        ImGui::TextUnformatted(binLabel);
+        ImGui::PopStyleColor();
+        ImGui::SameLine();
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.42f, 0.42f, 0.54f, 1.00f));
+        ImGui::Text("(%d entries across %d tkmods)", totalEntries, (int)sources.size());
+        ImGui::PopStyleColor();
+        if (exportFilename && exportFn)
+        {
+            const float exportBtnW = 70.0f;
+            ImGui::SameLine(ImGui::GetContentRegionAvail().x - exportBtnW + ImGui::GetCursorPosX());
+            ImGui::PushID(binLabel);
+            if (ImGui::Button("Export##ov", ImVec2(exportBtnW, 0)))
+            {
+                std::string p = OpenTsvSaveDialog(exportFilename);
+                if (!p.empty() && !sources.empty() && sources[0].bin)
+                    exportFn(*sources[0].bin, p);
+            }
+            ImGui::PopID();
+        }
+        ImGui::Separator();
+    };
+
+    BinType type = sources[0].bin->type;
+
+    switch (type)
+    {
+    // -------------------------------------------------------------------------
+    case BinType::CustomizeItemCommonList:
+    {
+        struct Item { int si; const CustomizeItemCommonEntry* e; };
+        std::vector<Item> items;
+        for (int si = 0; si < (int)sources.size(); ++si)
+            for (auto& e : sources[si].bin->commonEntries)
+                items.push_back({si, &e});
+        std::sort(items.begin(), items.end(), [](const Item& a, const Item& b){ return a.e->item_id < b.e->item_id; });
+
+        RenderSectionHeader("customize_item_common_list.bin", (int)items.size(), L"customize_item_common_list.tsv",
+            [](const ContentsBinData& b, const std::string& p){ ExportCommonListTsv(b.commonEntries, p); });
+
+        if (ImGui::BeginTable("##ov_common", 1 + 26, kOvTF, ImVec2(0.0f, 0.0f)))
+        {
+            ImGui::TableSetupScrollFreeze(1, 1);
+            ImGui::TableSetupColumn("tkmod", ImGuiTableColumnFlags_WidthFixed, kTkmodW);
+            for (int c = 0; c < 26; ++c)
+                ImGui::TableSetupColumn(FieldNames::CommonItem[c], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kCommon[c]);
+            ImGui::TableHeadersRow();
+
+            ImGuiListClipper clipper;
+            clipper.Begin((int)items.size());
+            while (clipper.Step())
+            for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i)
+            {
+                const int si = items[i].si; const auto* e = items[i].e;
+                ImGui::TableNextRow();
+                ImGui::PushID(i);
+                RenderTkmodCell(si);
+                ImGui::TableSetColumnIndex(1);  ImGui::Text("%u", e->item_id);
+                ImGui::TableSetColumnIndex(2);  ImGui::Text("%d", e->item_no);
+                ImGui::TableSetColumnIndex(3);  ImGui::TextUnformatted(e->item_code);
+                ImGui::TableSetColumnIndex(4);  ImGui::TextUnformatted(fmtHash(e->hash_0, charItems).c_str());
+                ImGui::TableSetColumnIndex(5);  ImGui::TextUnformatted(fmtHash(e->hash_1, typeItems).c_str());
+                ImGui::TableSetColumnIndex(6);  ImGui::TextUnformatted(e->text_key);
+                ImGui::TableSetColumnIndex(7);  ImGui::TextUnformatted(e->package_id);
+                ImGui::TableSetColumnIndex(8);  ImGui::TextUnformatted(e->package_sub_id);
+                ImGui::TableSetColumnIndex(9);  ImGui::Text("%u", e->unk_8);
+                ImGui::TableSetColumnIndex(10); ImGui::Text("%d", e->shop_sort_id);
+                ImGui::TableSetColumnIndex(11); ImGui::TextUnformatted(e->is_enabled ? "true" : "false");
+                ImGui::TableSetColumnIndex(12); ImGui::Text("%u", e->unk_11);
+                ImGui::TableSetColumnIndex(13); ImGui::Text("%d", e->price);
+                ImGui::TableSetColumnIndex(14); ImGui::TextUnformatted(e->unk_13 ? "true" : "false");
+                ImGui::TableSetColumnIndex(15); ImGui::Text("%d", e->category_no);
+                ImGui::TableSetColumnIndex(16); ImGui::Text("%u", e->hash_2);
+                ImGui::TableSetColumnIndex(17); ImGui::TextUnformatted(e->unk_16 ? "true" : "false");
+                ImGui::TableSetColumnIndex(18); ImGui::Text("%u", e->unk_17);
+                ImGui::TableSetColumnIndex(19); ImGui::Text("%u", e->hash_3);
+                ImGui::TableSetColumnIndex(20); ImGui::Text("%u", e->unk_19);
+                ImGui::TableSetColumnIndex(21); ImGui::Text("%u", e->unk_20);
+                ImGui::TableSetColumnIndex(22); ImGui::Text("%u", e->unk_21);
+                ImGui::TableSetColumnIndex(23); ImGui::Text("%u", e->unk_22);
+                ImGui::TableSetColumnIndex(24); ImGui::Text("%u", e->hash_4);
+                ImGui::TableSetColumnIndex(25); ImGui::Text("%d", e->rarity);
+                ImGui::TableSetColumnIndex(26); ImGui::Text("%d", e->sort_group);
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
+        }
+        break;
+    }
+    // -------------------------------------------------------------------------
+    case BinType::CustomizeItemUniqueList:
+    {
+        struct Item { int si; const CustomizeItemUniqueEntry* e; };
+        std::vector<Item> items;
+        for (int si = 0; si < (int)sources.size(); ++si)
+            for (auto& e : sources[si].bin->customizeItemUniqueEntries)
+                items.push_back({si, &e});
+        std::sort(items.begin(), items.end(), [](const Item& a, const Item& b){ return a.e->char_item_id < b.e->char_item_id; });
+
+        RenderSectionHeader("customize_item_unique_list.bin", (int)items.size(), L"customize_item_unique_list.tsv",
+            [](const ContentsBinData& b, const std::string& p){ ExportUniqueListTsv(b.customizeItemUniqueEntries, p); });
+
+        if (ImGui::BeginTable("##ov_unique", 1 + 22, kOvTF, ImVec2(0.0f, 0.0f)))
+        {
+            ImGui::TableSetupScrollFreeze(1, 1);
+            ImGui::TableSetupColumn("tkmod", ImGuiTableColumnFlags_WidthFixed, kTkmodW);
+            for (int c = 0; c < 22; ++c)
+                ImGui::TableSetupColumn(FieldNames::CustomizeItemUnique[c], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kUnique[c]);
+            ImGui::TableHeadersRow();
+
+            ImGuiListClipper clipper;
+            clipper.Begin((int)items.size());
+            while (clipper.Step())
+            for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i)
+            {
+                const int si = items[i].si; const auto* e = items[i].e;
+                ImGui::TableNextRow();
+                ImGui::PushID(i);
+                RenderTkmodCell(si);
+                ImGui::TableSetColumnIndex(1);  ImGui::Text("%u", e->char_item_id);
+                ImGui::TableSetColumnIndex(2);  ImGui::TextUnformatted(e->asset_name);
+                ImGui::TableSetColumnIndex(3);  ImGui::TextUnformatted(fmtHash(e->character_hash, charItems).c_str());
+                ImGui::TableSetColumnIndex(4);  ImGui::TextUnformatted(fmtHash(e->hash_1, typeItems).c_str());
+                ImGui::TableSetColumnIndex(5);  ImGui::TextUnformatted(e->text_key);
+                ImGui::TableSetColumnIndex(6);  ImGui::TextUnformatted(e->extra_text_key_1);
+                ImGui::TableSetColumnIndex(7);  ImGui::TextUnformatted(e->extra_text_key_2);
+                ImGui::TableSetColumnIndex(8);  ImGui::Text("%u", e->flag_7);
+                ImGui::TableSetColumnIndex(9);  ImGui::Text("%u", e->unk_8);
+                ImGui::TableSetColumnIndex(10); ImGui::TextUnformatted(e->flag_9 ? "true" : "false");
+                ImGui::TableSetColumnIndex(11); ImGui::Text("%u", e->unk_10);
+                ImGui::TableSetColumnIndex(12); ImGui::Text("%u", e->price);
+                ImGui::TableSetColumnIndex(13); ImGui::Text("%u", e->unk_12);
+                ImGui::TableSetColumnIndex(14); ImGui::Text("%u", e->unk_13);
+                ImGui::TableSetColumnIndex(15); ImGui::Text("%u", e->hash_2);
+                ImGui::TableSetColumnIndex(16); ImGui::TextUnformatted(e->flag_15 ? "true" : "false");
+                ImGui::TableSetColumnIndex(17); ImGui::Text("%u", e->unk_16);
+                ImGui::TableSetColumnIndex(18); ImGui::Text("%u", e->hash_3);
+                ImGui::TableSetColumnIndex(19); ImGui::Text("%u", e->unk_18);
+                ImGui::TableSetColumnIndex(20); ImGui::Text("%u", e->unk_19);
+                ImGui::TableSetColumnIndex(21); ImGui::Text("%u", e->unk_20);
+                ImGui::TableSetColumnIndex(22); ImGui::Text("%u", e->unk_21);
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
+        }
+        break;
+    }
+    // -------------------------------------------------------------------------
+    case BinType::CharacterList:
+    {
+        struct Item { int si; const CharacterEntry* e; };
+        std::vector<Item> items;
+        for (int si = 0; si < (int)sources.size(); ++si)
+            for (auto& e : sources[si].bin->characterEntries)
+                items.push_back({si, &e});
+
+        RenderSectionHeader("character_list.bin", (int)items.size(), L"character_list.tsv",
+            [](const ContentsBinData& b, const std::string& p){ ExportCharacterListTsv(b.characterEntries, p); });
+
+        if (ImGui::BeginTable("##ov_char", 1 + 15, kOvTF, ImVec2(0.0f, 0.0f)))
+        {
+            ImGui::TableSetupScrollFreeze(1, 1);
+            ImGui::TableSetupColumn("tkmod", ImGuiTableColumnFlags_WidthFixed, kTkmodW);
+            for (int c = 0; c < 15; ++c)
+                ImGui::TableSetupColumn(FieldNames::Character[c], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kCharacter[c]);
+            ImGui::TableHeadersRow();
+
+            for (int i = 0; i < (int)items.size(); ++i)
+            {
+                const int si = items[i].si; const auto* e = items[i].e;
+                ImGui::TableNextRow();
+                ImGui::PushID(i);
+                RenderTkmodCell(si);
+                ImGui::TableSetColumnIndex(1);  ImGui::TextUnformatted(e->character_code);
+                ImGui::TableSetColumnIndex(2);  ImGui::Text("%u", e->name_hash);
+                ImGui::TableSetColumnIndex(3);  ImGui::TextUnformatted(e->is_enabled ? "true" : "false");
+                ImGui::TableSetColumnIndex(4);  ImGui::TextUnformatted(e->is_selectable ? "true" : "false");
+                ImGui::TableSetColumnIndex(5);  ImGui::TextUnformatted(e->group);
+                ImGui::TableSetColumnIndex(6);  ImGui::Text("%.4g", e->camera_offset);
+                ImGui::TableSetColumnIndex(7);  ImGui::TextUnformatted(e->is_playable ? "true" : "false");
+                ImGui::TableSetColumnIndex(8);  ImGui::Text("%u", e->sort_order);
+                ImGui::TableSetColumnIndex(9);  ImGui::TextUnformatted(e->full_name_key);
+                ImGui::TableSetColumnIndex(10); ImGui::TextUnformatted(e->short_name_jp_key);
+                ImGui::TableSetColumnIndex(11); ImGui::TextUnformatted(e->short_name_key);
+                ImGui::TableSetColumnIndex(12); ImGui::TextUnformatted(e->origin_key);
+                ImGui::TableSetColumnIndex(13); ImGui::TextUnformatted(e->fighting_style_key);
+                ImGui::TableSetColumnIndex(14); ImGui::TextUnformatted(e->height_key);
+                ImGui::TableSetColumnIndex(15); ImGui::TextUnformatted(e->weight_key);
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
+        }
+        break;
+    }
+    // -------------------------------------------------------------------------
+    case BinType::AreaList:
+    {
+        struct Item { int si; const AreaEntry* e; };
+        std::vector<Item> items;
+        for (int si = 0; si < (int)sources.size(); ++si)
+            for (auto& e : sources[si].bin->areaEntries)
+                items.push_back({si, &e});
+
+        RenderSectionHeader("area_list.bin", (int)items.size(), L"area_list.tsv",
+            [](const ContentsBinData& b, const std::string& p){ ExportAreaListTsv(b.areaEntries, p); });
+
+        if (ImGui::BeginTable("##ov_area", 1 + 2, kOvTF, ImVec2(0.0f, 0.0f)))
+        {
+            ImGui::TableSetupScrollFreeze(1, 1);
+            ImGui::TableSetupColumn("tkmod", ImGuiTableColumnFlags_WidthFixed, kTkmodW);
+            for (int c = 0; c < 2; ++c)
+                ImGui::TableSetupColumn(FieldNames::AreaEntry[c], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kArea[c]);
+            ImGui::TableHeadersRow();
+
+            for (int i = 0; i < (int)items.size(); ++i)
+            {
+                const int si = items[i].si; const auto* e = items[i].e;
+                ImGui::TableNextRow();
+                ImGui::PushID(i);
+                RenderTkmodCell(si);
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%u", e->area_hash);
+                ImGui::TableSetColumnIndex(2); ImGui::TextUnformatted(e->area_code);
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
+        }
+        break;
+    }
+    // -------------------------------------------------------------------------
+    case BinType::BattleSubtitleInfoList:
+    {
+        struct Item { int si; const BattleSubtitleInfoEntry* e; };
+        std::vector<Item> items;
+        for (int si = 0; si < (int)sources.size(); ++si)
+            for (auto& e : sources[si].bin->battleSubtitleEntries)
+                items.push_back({si, &e});
+
+        RenderSectionHeader("battle_subtitle_info_list.bin", (int)items.size(), L"battle_subtitle_info.tsv",
+            [](const ContentsBinData& b, const std::string& p){ ExportBattleSubtitleTsv(b.battleSubtitleEntries, p); });
+
+        if (ImGui::BeginTable("##ov_bsub", 1 + 2, kOvTF, ImVec2(0.0f, 0.0f)))
+        {
+            ImGui::TableSetupScrollFreeze(1, 1);
+            ImGui::TableSetupColumn("tkmod", ImGuiTableColumnFlags_WidthFixed, kTkmodW);
+            for (int c = 0; c < 2; ++c)
+                ImGui::TableSetupColumn(FieldNames::BattleSubtitleInfo[c], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBattleSubtitle[c]);
+            ImGui::TableHeadersRow();
+
+            for (int i = 0; i < (int)items.size(); ++i)
+            {
+                const int si = items[i].si; const auto* e = items[i].e;
+                ImGui::TableNextRow();
+                ImGui::PushID(i);
+                RenderTkmodCell(si);
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%u", e->subtitle_hash);
+                ImGui::TableSetColumnIndex(2); ImGui::Text("%u", e->subtitle_type);
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
+        }
+        break;
+    }
+    // -------------------------------------------------------------------------
+    case BinType::FateDramaPlayerStartList:
+    {
+        struct Item { int si; const FateDramaPlayerStartEntry* e; };
+        std::vector<Item> items;
+        for (int si = 0; si < (int)sources.size(); ++si)
+            for (auto& e : sources[si].bin->fateDramaPlayerStartEntries)
+                items.push_back({si, &e});
+
+        RenderSectionHeader("fate_drama_player_start_list.bin", (int)items.size(), L"fate_drama_player_start_list.tsv",
+            [](const ContentsBinData& b, const std::string& p){ ExportFateDramaPlayerStartTsv(b.fateDramaPlayerStartEntries, p); });
+
+        if (ImGui::BeginTable("##ov_fdps", 1 + 5, kOvTF, ImVec2(0.0f, 0.0f)))
+        {
+            ImGui::TableSetupScrollFreeze(1, 1);
+            ImGui::TableSetupColumn("tkmod", ImGuiTableColumnFlags_WidthFixed, kTkmodW);
+            for (int c = 0; c < 5; ++c)
+                ImGui::TableSetupColumn(FieldNames::FateDramaPlayerStart[c], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kFateDramaPlayerStart[c]);
+            ImGui::TableHeadersRow();
+
+            for (int i = 0; i < (int)items.size(); ++i)
+            {
+                const int si = items[i].si; const auto* e = items[i].e;
+                ImGui::TableNextRow();
+                ImGui::PushID(i);
+                RenderTkmodCell(si);
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%u", e->character1_hash);
+                ImGui::TableSetColumnIndex(2); ImGui::Text("%u", e->character2_hash);
+                ImGui::TableSetColumnIndex(3); ImGui::Text("%u", e->value_0);
+                ImGui::TableSetColumnIndex(4); ImGui::Text("%u", e->hash_2);
+                ImGui::TableSetColumnIndex(5); ImGui::TextUnformatted(e->value_4 ? "true" : "false");
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
+        }
+        break;
+    }
+    // -------------------------------------------------------------------------
+    case BinType::JukeboxList:
+    {
+        struct Item { int si; const JukeboxEntry* e; };
+        std::vector<Item> items;
+        for (int si = 0; si < (int)sources.size(); ++si)
+            for (auto& e : sources[si].bin->jukeboxEntries)
+                items.push_back({si, &e});
+
+        RenderSectionHeader("jukebox_list.bin", (int)items.size(), L"jukebox_list.tsv",
+            [](const ContentsBinData& b, const std::string& p){ ExportJukeboxListTsv(b.jukeboxEntries, p); });
+
+        if (ImGui::BeginTable("##ov_juke", 1 + 9, kOvTF, ImVec2(0.0f, 0.0f)))
+        {
+            ImGui::TableSetupScrollFreeze(1, 1);
+            ImGui::TableSetupColumn("tkmod", ImGuiTableColumnFlags_WidthFixed, kTkmodW);
+            for (int c = 0; c < 9; ++c)
+                ImGui::TableSetupColumn(FieldNames::JukeboxEntry[c], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kJukebox[c]);
+            ImGui::TableHeadersRow();
+
+            for (int i = 0; i < (int)items.size(); ++i)
+            {
+                const int si = items[i].si; const auto* e = items[i].e;
+                ImGui::TableNextRow();
+                ImGui::PushID(i);
+                RenderTkmodCell(si);
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%u", e->bgm_hash);
+                ImGui::TableSetColumnIndex(2); ImGui::Text("%u", e->series_hash);
+                ImGui::TableSetColumnIndex(3); ImGui::Text("%u", e->unk_2);
+                ImGui::TableSetColumnIndex(4); ImGui::TextUnformatted(e->cue_name);
+                ImGui::TableSetColumnIndex(5); ImGui::TextUnformatted(e->arrangement);
+                ImGui::TableSetColumnIndex(6); ImGui::TextUnformatted(e->alt_cue_name_1);
+                ImGui::TableSetColumnIndex(7); ImGui::TextUnformatted(e->alt_cue_name_2);
+                ImGui::TableSetColumnIndex(8); ImGui::TextUnformatted(e->alt_cue_name_3);
+                ImGui::TableSetColumnIndex(9); ImGui::TextUnformatted(e->display_text_key);
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
+        }
+        break;
+    }
+    // -------------------------------------------------------------------------
+    case BinType::SeriesList:
+    {
+        struct Item { int si; const SeriesEntry* e; };
+        std::vector<Item> items;
+        for (int si = 0; si < (int)sources.size(); ++si)
+            for (auto& e : sources[si].bin->seriesEntries)
+                items.push_back({si, &e});
+
+        RenderSectionHeader("series_list.bin", (int)items.size(), L"series_list.tsv",
+            [](const ContentsBinData& b, const std::string& p){ ExportSeriesListTsv(b.seriesEntries, p); });
+
+        if (ImGui::BeginTable("##ov_series", 1 + 5, kOvTF, ImVec2(0.0f, 0.0f)))
+        {
+            ImGui::TableSetupScrollFreeze(1, 1);
+            ImGui::TableSetupColumn("tkmod", ImGuiTableColumnFlags_WidthFixed, kTkmodW);
+            for (int c = 0; c < 5; ++c)
+                ImGui::TableSetupColumn(FieldNames::SeriesEntry[c], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kSeries[c]);
+            ImGui::TableHeadersRow();
+
+            for (int i = 0; i < (int)items.size(); ++i)
+            {
+                const int si = items[i].si; const auto* e = items[i].e;
+                ImGui::TableNextRow();
+                ImGui::PushID(i);
+                RenderTkmodCell(si);
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%u", e->series_hash);
+                ImGui::TableSetColumnIndex(2); ImGui::TextUnformatted(e->jacket_text_key);
+                ImGui::TableSetColumnIndex(3); ImGui::TextUnformatted(e->jacket_icon_key);
+                ImGui::TableSetColumnIndex(4); ImGui::TextUnformatted(e->logo_text_key);
+                ImGui::TableSetColumnIndex(5); ImGui::TextUnformatted(e->logo_icon_key);
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
+        }
+        break;
+    }
+    // -------------------------------------------------------------------------
+    case BinType::TamMissionList:
+    {
+        // Show 8 fields: ids 0,2,3,4,5,6,7,8
+        struct Item { int si; const TamMissionEntry* e; };
+        std::vector<Item> items;
+        for (int si = 0; si < (int)sources.size(); ++si)
+            for (auto& e : sources[si].bin->tamMissionEntries)
+                items.push_back({si, &e});
+
+        RenderSectionHeader("tam_mission_list.bin", (int)items.size(), L"tam_mission_list.tsv",
+            [](const ContentsBinData& b, const std::string& p){ ExportTamMissionListTsv(b.tamMissionEntries, p); });
+
+        // Column headers: TamMissionEntry[0], [2..8]
+        const char* headers[8] = {
+            FieldNames::TamMissionEntry[0], FieldNames::TamMissionEntry[2],
+            FieldNames::TamMissionEntry[3], FieldNames::TamMissionEntry[4],
+            FieldNames::TamMissionEntry[5], FieldNames::TamMissionEntry[6],
+            FieldNames::TamMissionEntry[7], FieldNames::TamMissionEntry[8]
+        };
+
+        if (ImGui::BeginTable("##ov_tam", 1 + 8, kOvTF, ImVec2(0.0f, 0.0f)))
+        {
+            ImGui::TableSetupScrollFreeze(1, 1);
+            ImGui::TableSetupColumn("tkmod", ImGuiTableColumnFlags_WidthFixed, kTkmodW);
+            for (int c = 0; c < 8; ++c)
+                ImGui::TableSetupColumn(headers[c], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kTamMission[c]);
+            ImGui::TableHeadersRow();
+
+            for (int i = 0; i < (int)items.size(); ++i)
+            {
+                const int si = items[i].si; const auto* e = items[i].e;
+                ImGui::TableNextRow();
+                ImGui::PushID(i);
+                RenderTkmodCell(si);
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%u", e->mission_id);
+                ImGui::TableSetColumnIndex(2); ImGui::Text("%u", e->value_2);
+                ImGui::TableSetColumnIndex(3); ImGui::TextUnformatted(e->location);
+                ImGui::TableSetColumnIndex(4); ImGui::Text("%u", e->hash_0);
+                ImGui::TableSetColumnIndex(5); ImGui::Text("%u", e->hash_1);
+                ImGui::TableSetColumnIndex(6); ImGui::Text("%u", e->hash_2);
+                ImGui::TableSetColumnIndex(7); ImGui::Text("%u", e->hash_3);
+                ImGui::TableSetColumnIndex(8); ImGui::Text("%u", e->hash_4);
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
+        }
+        break;
+    }
+    // -------------------------------------------------------------------------
+    case BinType::DramaPlayerStartList:
+    {
+        // Show 8 fields: ids 0,2,3,4,6,7,8,10
+        struct Item { int si; const DramaPlayerStartEntry* e; };
+        std::vector<Item> items;
+        for (int si = 0; si < (int)sources.size(); ++si)
+            for (auto& e : sources[si].bin->dramaPlayerStartEntries)
+                items.push_back({si, &e});
+
+        RenderSectionHeader("drama_player_start_list.bin", (int)items.size(), L"drama_player_start_list.tsv",
+            [](const ContentsBinData& b, const std::string& p){ ExportDramaPlayerStartListTsv(b.dramaPlayerStartEntries, p); });
+
+        const char* headers[8] = {
+            FieldNames::DramaPlayerStart[0], FieldNames::DramaPlayerStart[2],
+            FieldNames::DramaPlayerStart[3], FieldNames::DramaPlayerStart[4],
+            FieldNames::DramaPlayerStart[6], FieldNames::DramaPlayerStart[7],
+            FieldNames::DramaPlayerStart[8], FieldNames::DramaPlayerStart[10]
+        };
+
+        if (ImGui::BeginTable("##ov_drama", 1 + 8, kOvTF, ImVec2(0.0f, 0.0f)))
+        {
+            ImGui::TableSetupScrollFreeze(1, 1);
+            ImGui::TableSetupColumn("tkmod", ImGuiTableColumnFlags_WidthFixed, kTkmodW);
+            for (int c = 0; c < 8; ++c)
+                ImGui::TableSetupColumn(headers[c], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kDramaPlayerStart[c]);
+            ImGui::TableHeadersRow();
+
+            for (int i = 0; i < (int)items.size(); ++i)
+            {
+                const int si = items[i].si; const auto* e = items[i].e;
+                ImGui::TableNextRow();
+                ImGui::PushID(i);
+                RenderTkmodCell(si);
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%u", e->character_hash);
+                ImGui::TableSetColumnIndex(2); ImGui::Text("%u", e->index);
+                ImGui::TableSetColumnIndex(3); ImGui::Text("%u", e->scene_hash);
+                ImGui::TableSetColumnIndex(4); ImGui::Text("%u", e->config_hash);
+                ImGui::TableSetColumnIndex(5); ImGui::Text("%.4g", e->pos_x);
+                ImGui::TableSetColumnIndex(6); ImGui::Text("%.4g", e->pos_y);
+                ImGui::TableSetColumnIndex(7); ImGui::Text("%u", e->state_hash);
+                ImGui::TableSetColumnIndex(8); ImGui::Text("%.4g", e->scale);
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
+        }
+        break;
+    }
+    // -------------------------------------------------------------------------
+    case BinType::StageList:
+    {
+        struct Item { int si; const StageEntry* e; };
+        std::vector<Item> items;
+        for (int si = 0; si < (int)sources.size(); ++si)
+            for (auto& e : sources[si].bin->stageEntries)
+                items.push_back({si, &e});
+
+        RenderSectionHeader("stage_list.bin", (int)items.size(), L"stage_list.tsv",
+            [](const ContentsBinData& b, const std::string& p){ ExportStageListTsv(b.stageEntries, p); });
+
+        if (ImGui::BeginTable("##ov_stage", 1 + 37, kOvTF, ImVec2(0.0f, 0.0f)))
+        {
+            ImGui::TableSetupScrollFreeze(1, 1);
+            ImGui::TableSetupColumn("tkmod", ImGuiTableColumnFlags_WidthFixed, kTkmodW);
+            for (int c = 0; c < 37; ++c)
+                ImGui::TableSetupColumn(FieldNames::StageEntry[c], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kStage[c]);
+            ImGui::TableHeadersRow();
+
+            ImGuiListClipper clipper;
+            clipper.Begin((int)items.size());
+            while (clipper.Step())
+            for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i)
+            {
+                const int si = items[i].si; const auto* e = items[i].e;
+                ImGui::TableNextRow();
+                ImGui::PushID(i);
+                RenderTkmodCell(si);
+                ImGui::TableSetColumnIndex(1);  ImGui::TextUnformatted(e->stage_code);
+                ImGui::TableSetColumnIndex(2);  ImGui::Text("%u", e->stage_hash);
+                ImGui::TableSetColumnIndex(3);  ImGui::TextUnformatted(e->is_selectable ? "true" : "false");
+                ImGui::TableSetColumnIndex(4);  ImGui::Text("%.4g", e->camera_offset);
+                ImGui::TableSetColumnIndex(5);  ImGui::Text("%u", e->parent_stage_index);
+                ImGui::TableSetColumnIndex(6);  ImGui::Text("%u", e->variant_hash);
+                ImGui::TableSetColumnIndex(7);  ImGui::TextUnformatted(e->has_weather ? "true" : "false");
+                ImGui::TableSetColumnIndex(8);  ImGui::TextUnformatted(e->is_active ? "true" : "false");
+                ImGui::TableSetColumnIndex(9);  ImGui::TextUnformatted(e->flag_interlocked ? "true" : "false");
+                ImGui::TableSetColumnIndex(10); ImGui::TextUnformatted(e->flag_ocean ? "true" : "false");
+                ImGui::TableSetColumnIndex(11); ImGui::TextUnformatted(e->flag_10 ? "true" : "false");
+                ImGui::TableSetColumnIndex(12); ImGui::TextUnformatted(e->flag_infinite ? "true" : "false");
+                ImGui::TableSetColumnIndex(13); ImGui::TextUnformatted(e->flag_battle ? "true" : "false");
+                ImGui::TableSetColumnIndex(14); ImGui::TextUnformatted(e->flag_13 ? "true" : "false");
+                ImGui::TableSetColumnIndex(15); ImGui::TextUnformatted(e->flag_balcony ? "true" : "false");
+                ImGui::TableSetColumnIndex(16); ImGui::TextUnformatted(e->flag_15 ? "true" : "false");
+                ImGui::TableSetColumnIndex(17); ImGui::TextUnformatted(e->reserved_16 ? "true" : "false");
+                ImGui::TableSetColumnIndex(18); ImGui::TextUnformatted(e->is_online_enabled ? "true" : "false");
+                ImGui::TableSetColumnIndex(19); ImGui::TextUnformatted(e->is_ranked_enabled ? "true" : "false");
+                ImGui::TableSetColumnIndex(20); ImGui::TextUnformatted(e->reserved_19 ? "true" : "false");
+                ImGui::TableSetColumnIndex(21); ImGui::TextUnformatted(e->reserved_20 ? "true" : "false");
+                ImGui::TableSetColumnIndex(22); ImGui::Text("%u", e->arena_width);
+                ImGui::TableSetColumnIndex(23); ImGui::Text("%u", e->arena_depth);
+                ImGui::TableSetColumnIndex(24); ImGui::Text("%u", e->reserved_23);
+                ImGui::TableSetColumnIndex(25); ImGui::Text("%u", e->arena_param);
+                ImGui::TableSetColumnIndex(26); ImGui::Text("%u", e->extra_width);
+                ImGui::TableSetColumnIndex(27); ImGui::TextUnformatted(e->extra_group);
+                ImGui::TableSetColumnIndex(28); ImGui::Text("%u", e->extra_depth);
+                ImGui::TableSetColumnIndex(29); ImGui::TextUnformatted(e->group_id);
+                ImGui::TableSetColumnIndex(30); ImGui::TextUnformatted(e->stage_name_key);
+                ImGui::TableSetColumnIndex(31); ImGui::TextUnformatted(e->level_name);
+                ImGui::TableSetColumnIndex(32); ImGui::TextUnformatted(e->sound_bank);
+                ImGui::TableSetColumnIndex(33); ImGui::Text("%u", e->wall_distance_a);
+                ImGui::TableSetColumnIndex(34); ImGui::Text("%u", e->wall_distance_b);
+                ImGui::TableSetColumnIndex(35); ImGui::Text("%u", e->stage_mode);
+                ImGui::TableSetColumnIndex(36); ImGui::Text("%u", e->reserved_35);
+                ImGui::TableSetColumnIndex(37); ImGui::TextUnformatted(e->is_default_variant ? "true" : "false");
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
+        }
+        break;
+    }
+    // -------------------------------------------------------------------------
+    case BinType::BallPropertyList:
+    {
+        // Show 9 fields: ids 0,1,2,8,9,10,11,12,13
+        struct Item { int si; const BallPropertyEntry* e; };
+        std::vector<Item> items;
+        for (int si = 0; si < (int)sources.size(); ++si)
+            for (auto& e : sources[si].bin->ballPropertyEntries)
+                items.push_back({si, &e});
+
+        RenderSectionHeader("ball_property_list.bin", (int)items.size(), L"ball_property_list.tsv",
+            [](const ContentsBinData& b, const std::string& p){ ExportBallPropertyListTsv(b.ballPropertyEntries, p); });
+
+        const char* headers[9] = {
+            FieldNames::BallPropertyEntry[0], FieldNames::BallPropertyEntry[1],
+            FieldNames::BallPropertyEntry[2], FieldNames::BallPropertyEntry[8],
+            FieldNames::BallPropertyEntry[9], FieldNames::BallPropertyEntry[10],
+            FieldNames::BallPropertyEntry[11], FieldNames::BallPropertyEntry[12],
+            FieldNames::BallPropertyEntry[13]
+        };
+
+        if (ImGui::BeginTable("##ov_ballprop", 1 + 9, kOvTF, ImVec2(0.0f, 0.0f)))
+        {
+            ImGui::TableSetupScrollFreeze(1, 1);
+            ImGui::TableSetupColumn("tkmod", ImGuiTableColumnFlags_WidthFixed, kTkmodW);
+            for (int c = 0; c < 9; ++c)
+                ImGui::TableSetupColumn(headers[c], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBallProperty[c]);
+            ImGui::TableHeadersRow();
+
+            for (int i = 0; i < (int)items.size(); ++i)
+            {
+                const int si = items[i].si; const auto* e = items[i].e;
+                ImGui::TableNextRow();
+                ImGui::PushID(i);
+                RenderTkmodCell(si);
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%u", e->ball_hash);
+                ImGui::TableSetColumnIndex(2); ImGui::TextUnformatted(e->ball_code);
+                ImGui::TableSetColumnIndex(3); ImGui::TextUnformatted(e->effect_name);
+                ImGui::TableSetColumnIndex(4); ImGui::Text("%u", e->item_no);
+                ImGui::TableSetColumnIndex(5); ImGui::Text("%u", e->rarity);
+                ImGui::TableSetColumnIndex(6); ImGui::Text("%.4g", e->value_10);
+                ImGui::TableSetColumnIndex(7); ImGui::Text("%.4g", e->value_11);
+                ImGui::TableSetColumnIndex(8); ImGui::Text("%.4g", e->value_12);
+                ImGui::TableSetColumnIndex(9); ImGui::Text("%.4g", e->value_13);
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
+        }
+        break;
+    }
+    // -------------------------------------------------------------------------
+    case BinType::BodyCylinderDataList:
+    {
+        // Show 10 fields: ids 0,1,2,3,8,9,10,15,16,17
+        struct Item { int si; const BodyCylinderDataEntry* e; };
+        std::vector<Item> items;
+        for (int si = 0; si < (int)sources.size(); ++si)
+            for (auto& e : sources[si].bin->bodyCylinderDataEntries)
+                items.push_back({si, &e});
+
+        RenderSectionHeader("body_cylinder_data_list.bin", (int)items.size());
+
+        const char* headers[10] = {
+            FieldNames::BodyCylinderDataEntry[0],  FieldNames::BodyCylinderDataEntry[1],
+            FieldNames::BodyCylinderDataEntry[2],  FieldNames::BodyCylinderDataEntry[3],
+            FieldNames::BodyCylinderDataEntry[8],  FieldNames::BodyCylinderDataEntry[9],
+            FieldNames::BodyCylinderDataEntry[10], FieldNames::BodyCylinderDataEntry[15],
+            FieldNames::BodyCylinderDataEntry[16], FieldNames::BodyCylinderDataEntry[17]
+        };
+
+        if (ImGui::BeginTable("##ov_bodycyl", 1 + 10, kOvTF, ImVec2(0.0f, 0.0f)))
+        {
+            ImGui::TableSetupScrollFreeze(1, 1);
+            ImGui::TableSetupColumn("tkmod", ImGuiTableColumnFlags_WidthFixed, kTkmodW);
+            for (int c = 0; c < 10; ++c)
+                ImGui::TableSetupColumn(headers[c], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBodyCylinder[c]);
+            ImGui::TableHeadersRow();
+
+            for (int i = 0; i < (int)items.size(); ++i)
+            {
+                const int si = items[i].si; const auto* e = items[i].e;
+                ImGui::TableNextRow();
+                ImGui::PushID(i);
+                RenderTkmodCell(si);
+                ImGui::TableSetColumnIndex(1);  ImGui::Text("%u", e->character_hash);
+                ImGui::TableSetColumnIndex(2);  ImGui::Text("%.4g", e->cyl0_radius);
+                ImGui::TableSetColumnIndex(3);  ImGui::Text("%.4g", e->cyl0_height);
+                ImGui::TableSetColumnIndex(4);  ImGui::Text("%.4g", e->cyl0_offset_y);
+                ImGui::TableSetColumnIndex(5);  ImGui::Text("%.4g", e->cyl1_radius);
+                ImGui::TableSetColumnIndex(6);  ImGui::Text("%.4g", e->cyl1_height);
+                ImGui::TableSetColumnIndex(7);  ImGui::Text("%.4g", e->cyl1_offset_y);
+                ImGui::TableSetColumnIndex(8);  ImGui::Text("%.4g", e->cyl2_radius);
+                ImGui::TableSetColumnIndex(9);  ImGui::Text("%.4g", e->cyl2_height);
+                ImGui::TableSetColumnIndex(10); ImGui::Text("%.4g", e->cyl2_offset_y);
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
+        }
+        break;
+    }
+    // -------------------------------------------------------------------------
+    case BinType::CharacterSelectList:
+    {
+        // Sub-table 1: character_entries
+        {
+            struct Item { int si; const CharacterSelectHashEntry* e; };
+            std::vector<Item> items;
+            for (int si = 0; si < (int)sources.size(); ++si)
+                for (auto& e : sources[si].bin->characterSelectHashEntries)
+                    items.push_back({si, &e});
+
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.82f, 1.00f, 1.00f));
+            ImGui::TextUnformatted("character_select_list.bin");
+            ImGui::PopStyleColor();
+            ImGui::SameLine();
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.42f, 0.42f, 0.54f, 1.00f));
+            ImGui::Text("(%d tkmods)", (int)sources.size());
+            ImGui::PopStyleColor();
+            ImGui::Separator();
+
+            ImGui::TextDisabled("character_entries");
+            if (ImGui::BeginTable("##ov_cshash", 1 + 1, kOvTF, ImVec2(0.0f, 0.0f)))
+            {
+                ImGui::TableSetupScrollFreeze(1, 1);
+                ImGui::TableSetupColumn("tkmod", ImGuiTableColumnFlags_WidthFixed, kTkmodW);
+                ImGui::TableSetupColumn(FieldNames::CharacterSelectHash[0], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kCharSelectHash[0]);
+                ImGui::TableHeadersRow();
+
+                for (int i = 0; i < (int)items.size(); ++i)
+                {
+                    const int si = items[i].si; const auto* e = items[i].e;
+                    ImGui::TableNextRow();
+                    ImGui::PushID(i);
+                    RenderTkmodCell(si);
+                    ImGui::TableSetColumnIndex(1); ImGui::Text("%u", e->character_hash);
+                    ImGui::PopID();
+                }
+                ImGui::EndTable();
+            }
+        }
+
+        ImGui::Spacing(); ImGui::Spacing();
+
+        // Sub-table 2: param_entries
+        {
+            struct Item { int si; const CharacterSelectParamEntry* e; };
+            std::vector<Item> items;
+            for (int si = 0; si < (int)sources.size(); ++si)
+                for (auto& e : sources[si].bin->characterSelectParamEntries)
+                    items.push_back({si, &e});
+
+            ImGui::TextDisabled("param_entries");
+            if (ImGui::BeginTable("##ov_csparam", 1 + 2, kOvTF, ImVec2(0.0f, 0.0f)))
+            {
+                ImGui::TableSetupScrollFreeze(1, 1);
+                ImGui::TableSetupColumn("tkmod", ImGuiTableColumnFlags_WidthFixed, kTkmodW);
+                for (int c = 0; c < 2; ++c)
+                    ImGui::TableSetupColumn(FieldNames::CharacterSelectParam[c], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kCharSelectParam[c]);
+                ImGui::TableHeadersRow();
+
+                for (int i = 0; i < (int)items.size(); ++i)
+                {
+                    const int si = items[i].si; const auto* e = items[i].e;
+                    ImGui::TableNextRow();
+                    ImGui::PushID(i);
+                    RenderTkmodCell(si);
+                    ImGui::TableSetColumnIndex(1); ImGui::Text("%u", e->game_version);
+                    ImGui::TableSetColumnIndex(2); ImGui::Text("%u", e->value_1);
+                    ImGui::PopID();
+                }
+                ImGui::EndTable();
+            }
+        }
+        break;
+    }
+    // -------------------------------------------------------------------------
+    case BinType::CustomizeItemProhibitDramaList:
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.82f, 1.00f, 1.00f));
+        ImGui::TextUnformatted("customize_item_prohibit_drama_list.bin");
+        ImGui::PopStyleColor();
+        ImGui::SameLine();
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.42f, 0.42f, 0.54f, 1.00f));
+        ImGui::Text("(%d tkmods)", (int)sources.size());
+        ImGui::PopStyleColor();
+        ImGui::Separator();
+
+        // Group 0
+        {
+            struct Item { int si; const CustomizeItemProhibitDramaEntry* e; };
+            std::vector<Item> items;
+            for (int si = 0; si < (int)sources.size(); ++si)
+                for (auto& e : sources[si].bin->prohibitDramaGroup0)
+                    items.push_back({si, &e});
+
+            ImGui::TextDisabled("group_0 entries");
+            if (ImGui::BeginTable("##ov_prohibit0", 1 + 2, kOvTF, ImVec2(0.0f, 0.0f)))
+            {
+                ImGui::TableSetupScrollFreeze(1, 1);
+                ImGui::TableSetupColumn("tkmod", ImGuiTableColumnFlags_WidthFixed, kTkmodW);
+                for (int c = 0; c < 2; ++c)
+                    ImGui::TableSetupColumn(FieldNames::CustomizeItemProhibitDrama[c], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kProhibitDrama[c]);
+                ImGui::TableHeadersRow();
+
+                for (int i = 0; i < (int)items.size(); ++i)
+                {
+                    const int si = items[i].si; const auto* e = items[i].e;
+                    ImGui::TableNextRow();
+                    ImGui::PushID(i);
+                    RenderTkmodCell(si);
+                    ImGui::TableSetColumnIndex(1); ImGui::Text("%d", e->value_0);
+                    ImGui::TableSetColumnIndex(2); ImGui::Text("%d", e->value_1);
+                    ImGui::PopID();
+                }
+                ImGui::EndTable();
+            }
+        }
+
+        ImGui::Spacing(); ImGui::Spacing();
+
+        // Group 1
+        {
+            struct Item { int si; const CustomizeItemProhibitDramaEntry* e; };
+            std::vector<Item> items;
+            for (int si = 0; si < (int)sources.size(); ++si)
+                for (auto& e : sources[si].bin->prohibitDramaGroup1)
+                    items.push_back({si, &e});
+
+            ImGui::TextDisabled("group_1 entries");
+            if (ImGui::BeginTable("##ov_prohibit1", 1 + 2, kOvTF, ImVec2(0.0f, 0.0f)))
+            {
+                ImGui::TableSetupScrollFreeze(1, 1);
+                ImGui::TableSetupColumn("tkmod", ImGuiTableColumnFlags_WidthFixed, kTkmodW);
+                for (int c = 0; c < 2; ++c)
+                    ImGui::TableSetupColumn(FieldNames::CustomizeItemProhibitDrama[c], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kProhibitDrama[c]);
+                ImGui::TableHeadersRow();
+
+                for (int i = 0; i < (int)items.size(); ++i)
+                {
+                    const int si = items[i].si; const auto* e = items[i].e;
+                    ImGui::TableNextRow();
+                    ImGui::PushID(i);
+                    RenderTkmodCell(si);
+                    ImGui::TableSetColumnIndex(1); ImGui::Text("%d", e->value_0);
+                    ImGui::TableSetColumnIndex(2); ImGui::Text("%d", e->value_1);
+                    ImGui::PopID();
+                }
+                ImGui::EndTable();
+            }
+        }
+        break;
+    }
+    // -------------------------------------------------------------------------
+    case BinType::BattleMotionList:
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.82f, 1.00f, 1.00f));
+        ImGui::TextUnformatted("battle_motion_list.bin");
+        ImGui::PopStyleColor();
+        ImGui::SameLine();
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.42f, 0.42f, 0.54f, 1.00f));
+        ImGui::Text("(%d tkmods)", (int)sources.size());
+        ImGui::PopStyleColor();
+        ImGui::Separator();
+
+        // Main entries
+        {
+            struct Item { int si; const BattleMotionEntry* e; };
+            std::vector<Item> items;
+            for (int si = 0; si < (int)sources.size(); ++si)
+                for (auto& e : sources[si].bin->battleMotionEntries)
+                    items.push_back({si, &e});
+
+            ImGui::TextDisabled("battle_motion entries");
+            if (ImGui::BeginTable("##ov_bmotion", 1 + 3, kOvTF, ImVec2(0.0f, 0.0f)))
+            {
+                ImGui::TableSetupScrollFreeze(1, 1);
+                ImGui::TableSetupColumn("tkmod", ImGuiTableColumnFlags_WidthFixed, kTkmodW);
+                for (int c = 0; c < 3; ++c)
+                    ImGui::TableSetupColumn(FieldNames::BattleMotionEntry[c], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBattleMotion[c]);
+                ImGui::TableHeadersRow();
+
+                for (int i = 0; i < (int)items.size(); ++i)
+                {
+                    const int si = items[i].si; const auto* e = items[i].e;
+                    ImGui::TableNextRow();
+                    ImGui::PushID(i);
+                    RenderTkmodCell(si);
+                    ImGui::TableSetColumnIndex(1); ImGui::Text("%u", (uint32_t)e->motion_id);
+                    ImGui::TableSetColumnIndex(2); ImGui::Text("%u", e->value_1);
+                    ImGui::TableSetColumnIndex(3); ImGui::Text("%u", e->value_2);
+                    ImGui::PopID();
+                }
+                ImGui::EndTable();
+            }
+        }
+
+        ImGui::Spacing(); ImGui::Spacing();
+
+        // Alt entries
+        {
+            struct Item { int si; const BattleMotionEntry* e; };
+            std::vector<Item> items;
+            for (int si = 0; si < (int)sources.size(); ++si)
+                for (auto& e : sources[si].bin->battleMotionEntriesAlt)
+                    items.push_back({si, &e});
+
+            ImGui::TextDisabled("battle_motion_alt entries");
+            if (ImGui::BeginTable("##ov_bmotionalt", 1 + 3, kOvTF, ImVec2(0.0f, 0.0f)))
+            {
+                ImGui::TableSetupScrollFreeze(1, 1);
+                ImGui::TableSetupColumn("tkmod", ImGuiTableColumnFlags_WidthFixed, kTkmodW);
+                for (int c = 0; c < 3; ++c)
+                    ImGui::TableSetupColumn(FieldNames::BattleMotionEntry[c], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBattleMotion[c]);
+                ImGui::TableHeadersRow();
+
+                for (int i = 0; i < (int)items.size(); ++i)
+                {
+                    const int si = items[i].si; const auto* e = items[i].e;
+                    ImGui::TableNextRow();
+                    ImGui::PushID(i);
+                    RenderTkmodCell(si);
+                    ImGui::TableSetColumnIndex(1); ImGui::Text("%u", (uint32_t)e->motion_id);
+                    ImGui::TableSetColumnIndex(2); ImGui::Text("%u", e->value_1);
+                    ImGui::TableSetColumnIndex(3); ImGui::Text("%u", e->value_2);
+                    ImGui::PopID();
+                }
+                ImGui::EndTable();
+            }
+        }
+        break;
+    }
+    // -------------------------------------------------------------------------
+    case BinType::ArcadeCpuList:
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.82f, 1.00f, 1.00f));
+        ImGui::TextUnformatted("arcade_cpu_list.bin");
+        ImGui::PopStyleColor();
+        ImGui::SameLine();
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.42f, 0.42f, 0.54f, 1.00f));
+        ImGui::Text("(%d tkmods)", (int)sources.size());
+        ImGui::PopStyleColor();
+        ImGui::Separator();
+
+        // Character entries
+        {
+            struct Item { int si; const ArcadeCpuCharacterEntry* e; };
+            std::vector<Item> items;
+            for (int si = 0; si < (int)sources.size(); ++si)
+                for (auto& e : sources[si].bin->arcadeCpuCharacterEntries)
+                    items.push_back({si, &e});
+
+            ImGui::TextDisabled("character entries");
+            if (ImGui::BeginTable("##ov_acpuchar", 1 + 7, kOvTF, ImVec2(0.0f, 0.0f)))
+            {
+                ImGui::TableSetupScrollFreeze(1, 1);
+                ImGui::TableSetupColumn("tkmod", ImGuiTableColumnFlags_WidthFixed, kTkmodW);
+                for (int c = 0; c < 7; ++c)
+                    ImGui::TableSetupColumn(FieldNames::ArcadeCpuCharacter[c], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kArcadeCpuCharacter[c]);
+                ImGui::TableHeadersRow();
+
+                for (int i = 0; i < (int)items.size(); ++i)
+                {
+                    const int si = items[i].si; const auto* e = items[i].e;
+                    ImGui::TableNextRow();
+                    ImGui::PushID(i);
+                    RenderTkmodCell(si);
+                    ImGui::TableSetColumnIndex(1); ImGui::Text("%u", e->character_hash);
+                    ImGui::TableSetColumnIndex(2); ImGui::Text("%u", e->ai_level);
+                    ImGui::TableSetColumnIndex(3); ImGui::Text("%.4g", e->float_1);
+                    ImGui::TableSetColumnIndex(4); ImGui::Text("%u", e->uint_2);
+                    ImGui::TableSetColumnIndex(5); ImGui::Text("%.4g", e->float_2);
+                    ImGui::TableSetColumnIndex(6); ImGui::Text("%u", e->uint_3);
+                    ImGui::TableSetColumnIndex(7); ImGui::Text("%.4g", e->float_3);
+                    ImGui::PopID();
+                }
+                ImGui::EndTable();
+            }
+        }
+
+        ImGui::Spacing(); ImGui::Spacing();
+
+        // Hash group A
+        {
+            struct Item { int si; const ArcadeCpuHashEntry* e; };
+            std::vector<Item> items;
+            for (int si = 0; si < (int)sources.size(); ++si)
+                for (auto& e : sources[si].bin->arcadeCpuHashGroupA)
+                    items.push_back({si, &e});
+
+            ImGui::TextDisabled("hash_group_a");
+            if (ImGui::BeginTable("##ov_acpuha", 1 + 1, kOvTF, ImVec2(0.0f, 0.0f)))
+            {
+                ImGui::TableSetupScrollFreeze(1, 1);
+                ImGui::TableSetupColumn("tkmod", ImGuiTableColumnFlags_WidthFixed, kTkmodW);
+                ImGui::TableSetupColumn(FieldNames::ArcadeCpuHash[0], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kArcadeCpuHash[0]);
+                ImGui::TableHeadersRow();
+
+                for (int i = 0; i < (int)items.size(); ++i)
+                {
+                    const int si = items[i].si; const auto* e = items[i].e;
+                    ImGui::TableNextRow();
+                    ImGui::PushID(i);
+                    RenderTkmodCell(si);
+                    ImGui::TableSetColumnIndex(1); ImGui::Text("%u", e->value_hash);
+                    ImGui::PopID();
+                }
+                ImGui::EndTable();
+            }
+        }
+
+        ImGui::Spacing(); ImGui::Spacing();
+
+        // Hash group B
+        {
+            struct Item { int si; const ArcadeCpuHashEntry* e; };
+            std::vector<Item> items;
+            for (int si = 0; si < (int)sources.size(); ++si)
+                for (auto& e : sources[si].bin->arcadeCpuHashGroupB)
+                    items.push_back({si, &e});
+
+            ImGui::TextDisabled("hash_group_b");
+            if (ImGui::BeginTable("##ov_acpuhb", 1 + 1, kOvTF, ImVec2(0.0f, 0.0f)))
+            {
+                ImGui::TableSetupScrollFreeze(1, 1);
+                ImGui::TableSetupColumn("tkmod", ImGuiTableColumnFlags_WidthFixed, kTkmodW);
+                ImGui::TableSetupColumn(FieldNames::ArcadeCpuHash[0], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kArcadeCpuHash[0]);
+                ImGui::TableHeadersRow();
+
+                for (int i = 0; i < (int)items.size(); ++i)
+                {
+                    const int si = items[i].si; const auto* e = items[i].e;
+                    ImGui::TableNextRow();
+                    ImGui::PushID(i);
+                    RenderTkmodCell(si);
+                    ImGui::TableSetColumnIndex(1); ImGui::Text("%u", e->value_hash);
+                    ImGui::PopID();
+                }
+                ImGui::EndTable();
+            }
+        }
+
+        ImGui::Spacing(); ImGui::Spacing();
+
+        // Rule entries
+        {
+            struct Item { int si; const ArcadeCpuRuleEntry* e; };
+            std::vector<Item> items;
+            for (int si = 0; si < (int)sources.size(); ++si)
+                for (auto& e : sources[si].bin->arcadeCpuRuleEntries)
+                    items.push_back({si, &e});
+
+            ImGui::TextDisabled("rule entries");
+            if (ImGui::BeginTable("##ov_acpurule", 1 + 4, kOvTF, ImVec2(0.0f, 0.0f)))
+            {
+                ImGui::TableSetupScrollFreeze(1, 1);
+                ImGui::TableSetupColumn("tkmod", ImGuiTableColumnFlags_WidthFixed, kTkmodW);
+                for (int c = 0; c < 4; ++c)
+                    ImGui::TableSetupColumn(FieldNames::ArcadeCpuRule[c], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kArcadeCpuRule[c]);
+                ImGui::TableHeadersRow();
+
+                for (int i = 0; i < (int)items.size(); ++i)
+                {
+                    const int si = items[i].si; const auto* e = items[i].e;
+                    ImGui::TableNextRow();
+                    ImGui::PushID(i);
+                    RenderTkmodCell(si);
+                    ImGui::TableSetColumnIndex(1); ImGui::Text("%u", (uint32_t)e->flag_0);
+                    ImGui::TableSetColumnIndex(2); ImGui::Text("%u", (uint32_t)e->flag_1);
+                    ImGui::TableSetColumnIndex(3); ImGui::Text("%u", e->value_2);
+                    ImGui::TableSetColumnIndex(4); ImGui::Text("%u", e->value_3);
+                    ImGui::PopID();
+                }
+                ImGui::EndTable();
+            }
+        }
+        break;
+    }
+    // -------------------------------------------------------------------------
+    case BinType::BallRecommendList:
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.82f, 1.00f, 1.00f));
+        ImGui::TextUnformatted("ball_recommend_list.bin");
+        ImGui::PopStyleColor();
+        ImGui::SameLine();
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.42f, 0.42f, 0.54f, 1.00f));
+        ImGui::Text("(%d tkmods)", (int)sources.size());
+        ImGui::PopStyleColor();
+        ImGui::Separator();
+
+        auto RenderBallRecommendGroup = [&](const char* label, const char* tableId,
+            std::vector<std::pair<int, const BallRecommendEntry*>>& items)
+        {
+            ImGui::TextDisabled("%s", label);
+            if (ImGui::BeginTable(tableId, 1 + 5, kOvTF, ImVec2(0.0f, 0.0f)))
+            {
+                ImGui::TableSetupScrollFreeze(1, 1);
+                ImGui::TableSetupColumn("tkmod", ImGuiTableColumnFlags_WidthFixed, kTkmodW);
+                for (int c = 0; c < 5; ++c)
+                    ImGui::TableSetupColumn(FieldNames::BallRecommendEntry[c], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBallRecommend[c]);
+                ImGui::TableHeadersRow();
+
+                for (int i = 0; i < (int)items.size(); ++i)
+                {
+                    const int si = items[i].first; const auto* e = items[i].second;
+                    ImGui::TableNextRow();
+                    ImGui::PushID(i);
+                    RenderTkmodCell(si);
+                    ImGui::TableSetColumnIndex(1); ImGui::Text("%u", e->character_hash);
+                    ImGui::TableSetColumnIndex(2); ImGui::TextUnformatted(e->move_name_key);
+                    ImGui::TableSetColumnIndex(3); ImGui::TextUnformatted(e->command_text_key);
+                    ImGui::TableSetColumnIndex(4); ImGui::Text("%u", e->unk_3);
+                    ImGui::TableSetColumnIndex(5); ImGui::Text("%u", e->unk_4);
+                    ImGui::PopID();
+                }
+                ImGui::EndTable();
+            }
+        };
+
+        {
+            std::vector<std::pair<int, const BallRecommendEntry*>> items;
+            for (int si = 0; si < (int)sources.size(); ++si)
+                for (auto& e : sources[si].bin->ballRecommendGroup0)
+                    items.push_back({si, &e});
+            RenderBallRecommendGroup("group_0", "##ov_brec0", items);
+        }
+
+        ImGui::Spacing(); ImGui::Spacing();
+
+        {
+            std::vector<std::pair<int, const BallRecommendEntry*>> items;
+            for (int si = 0; si < (int)sources.size(); ++si)
+                for (auto& e : sources[si].bin->ballRecommendGroup1)
+                    items.push_back({si, &e});
+            RenderBallRecommendGroup("group_1", "##ov_brec1", items);
+        }
+
+        ImGui::Spacing(); ImGui::Spacing();
+
+        {
+            std::vector<std::pair<int, const BallRecommendEntry*>> items;
+            for (int si = 0; si < (int)sources.size(); ++si)
+                for (auto& e : sources[si].bin->ballRecommendGroup2)
+                    items.push_back({si, &e});
+            RenderBallRecommendGroup("group_2", "##ov_brec2", items);
+        }
+        break;
+    }
+    // -------------------------------------------------------------------------
+    case BinType::BallSettingList:
+    {
+        RenderSectionHeader("ball_setting_list.bin", (int)sources.size());
+        ImGui::TextDisabled("BallSettingList contains a single data table per file. Open in the editor to view and edit.");
+        break;
+    }
+    // -------------------------------------------------------------------------
+    case BinType::BattleCommonList:
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.82f, 1.00f, 1.00f));
+        ImGui::TextUnformatted("battle_common_list.bin");
+        ImGui::PopStyleColor();
+        ImGui::SameLine();
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.42f, 0.42f, 0.54f, 1.00f));
+        ImGui::Text("(%d tkmods)", (int)sources.size());
+        ImGui::PopStyleColor();
+        ImGui::Separator();
+
+        // single_value_entries
+        {
+            struct Item { int si; const BattleCommonSingleValueEntry* e; };
+            std::vector<Item> items;
+            for (int si = 0; si < (int)sources.size(); ++si)
+                for (auto& e : sources[si].bin->battleCommonSingleValueEntries)
+                    items.push_back({si, &e});
+
+            ImGui::TextDisabled("single_value_entries");
+            if (ImGui::BeginTable("##ov_bcsv", 1 + 1, kOvTF, ImVec2(0.0f, 0.0f)))
+            {
+                ImGui::TableSetupScrollFreeze(1, 1);
+                ImGui::TableSetupColumn("tkmod", ImGuiTableColumnFlags_WidthFixed, kTkmodW);
+                ImGui::TableSetupColumn("value", ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBattleCommonGeneric);
+                ImGui::TableHeadersRow();
+
+                for (int i = 0; i < (int)items.size(); ++i)
+                {
+                    const int si = items[i].si; const auto* e = items[i].e;
+                    ImGui::TableNextRow();
+                    ImGui::PushID(i);
+                    RenderTkmodCell(si);
+                    ImGui::TableSetColumnIndex(1); ImGui::Text("%u", e->value);
+                    ImGui::PopID();
+                }
+                ImGui::EndTable();
+            }
+        }
+
+        ImGui::Spacing(); ImGui::Spacing();
+
+        // character_scale_entries
+        {
+            struct Item { int si; const BattleCommonCharacterScaleEntry* e; };
+            std::vector<Item> items;
+            for (int si = 0; si < (int)sources.size(); ++si)
+                for (auto& e : sources[si].bin->battleCommonCharacterScaleEntries)
+                    items.push_back({si, &e});
+
+            ImGui::TextDisabled("character_scale_entries");
+            if (ImGui::BeginTable("##ov_bccs", 1 + 8, kOvTF, ImVec2(0.0f, 0.0f)))
+            {
+                ImGui::TableSetupScrollFreeze(1, 1);
+                ImGui::TableSetupColumn("tkmod", ImGuiTableColumnFlags_WidthFixed, kTkmodW);
+                ImGui::TableSetupColumn("hash_0", ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBattleCommonCharacterScale0);
+                for (int c = 1; c < 8; ++c)
+                {
+                    char colName[16]; snprintf(colName, sizeof(colName), "value_%d", c);
+                    ImGui::TableSetupColumn(colName, ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBattleCommonCharacterScaleRest);
+                }
+                ImGui::TableHeadersRow();
+
+                for (int i = 0; i < (int)items.size(); ++i)
+                {
+                    const int si = items[i].si; const auto* e = items[i].e;
+                    ImGui::TableNextRow();
+                    ImGui::PushID(i);
+                    RenderTkmodCell(si);
+                    ImGui::TableSetColumnIndex(1); ImGui::Text("%u", e->hash_0);
+                    ImGui::TableSetColumnIndex(2); ImGui::Text("%.4g", e->value_1);
+                    ImGui::TableSetColumnIndex(3); ImGui::Text("%.4g", e->value_2);
+                    ImGui::TableSetColumnIndex(4); ImGui::Text("%.4g", e->value_3);
+                    ImGui::TableSetColumnIndex(5); ImGui::Text("%.4g", e->value_4);
+                    ImGui::TableSetColumnIndex(6); ImGui::Text("%.4g", e->value_5);
+                    ImGui::TableSetColumnIndex(7); ImGui::Text("%.4g", e->value_6);
+                    ImGui::TableSetColumnIndex(8); ImGui::Text("%.4g", e->value_7);
+                    ImGui::PopID();
+                }
+                ImGui::EndTable();
+            }
+        }
+
+        ImGui::Spacing(); ImGui::Spacing();
+
+        // pair_entries
+        {
+            struct Item { int si; const BattleCommonPairEntry* e; };
+            std::vector<Item> items;
+            for (int si = 0; si < (int)sources.size(); ++si)
+                for (auto& e : sources[si].bin->battleCommonPairEntries)
+                    items.push_back({si, &e});
+
+            ImGui::TextDisabled("pair_entries");
+            if (ImGui::BeginTable("##ov_bcpair", 1 + 3, kOvTF, ImVec2(0.0f, 0.0f)))
+            {
+                ImGui::TableSetupScrollFreeze(1, 1);
+                ImGui::TableSetupColumn("tkmod", ImGuiTableColumnFlags_WidthFixed, kTkmodW);
+                ImGui::TableSetupColumn("value_0", ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBattleCommonGeneric);
+                ImGui::TableSetupColumn("value_1", ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBattleCommonGeneric);
+                ImGui::TableSetupColumn("value_2", ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBattleCommonGeneric);
+                ImGui::TableHeadersRow();
+
+                for (int i = 0; i < (int)items.size(); ++i)
+                {
+                    const int si = items[i].si; const auto* e = items[i].e;
+                    ImGui::TableNextRow();
+                    ImGui::PushID(i);
+                    RenderTkmodCell(si);
+                    ImGui::TableSetColumnIndex(1); ImGui::Text("%u", e->value_0);
+                    ImGui::TableSetColumnIndex(2); ImGui::Text("%u", e->value_1);
+                    ImGui::TableSetColumnIndex(3); ImGui::Text("%u", e->value_2);
+                    ImGui::PopID();
+                }
+                ImGui::EndTable();
+            }
+        }
+
+        ImGui::Spacing(); ImGui::Spacing();
+
+        // misc_entries
+        {
+            struct Item { int si; const BattleCommonMiscEntry* e; };
+            std::vector<Item> items;
+            for (int si = 0; si < (int)sources.size(); ++si)
+                for (auto& e : sources[si].bin->battleCommonMiscEntries)
+                    items.push_back({si, &e});
+
+            ImGui::TextDisabled("misc_entries");
+            if (ImGui::BeginTable("##ov_bcmisc", 1 + 3, kOvTF, ImVec2(0.0f, 0.0f)))
+            {
+                ImGui::TableSetupScrollFreeze(1, 1);
+                ImGui::TableSetupColumn("tkmod", ImGuiTableColumnFlags_WidthFixed, kTkmodW);
+                ImGui::TableSetupColumn("value_0", ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBattleCommonGeneric);
+                ImGui::TableSetupColumn("value_1", ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBattleCommonGeneric);
+                ImGui::TableSetupColumn("value_2", ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBattleCommonGeneric);
+                ImGui::TableHeadersRow();
+
+                for (int i = 0; i < (int)items.size(); ++i)
+                {
+                    const int si = items[i].si; const auto* e = items[i].e;
+                    ImGui::TableNextRow();
+                    ImGui::PushID(i);
+                    RenderTkmodCell(si);
+                    ImGui::TableSetColumnIndex(1); ImGui::Text("%.4g", e->value_0);
+                    ImGui::TableSetColumnIndex(2); ImGui::Text("%.4g", e->value_1);
+                    ImGui::TableSetColumnIndex(3); ImGui::Text("%.4g", e->value_2);
+                    ImGui::PopID();
+                }
+                ImGui::EndTable();
+            }
+        }
+        break;
+    }
+    // -------------------------------------------------------------------------
+    case BinType::BattleCpuList:
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.82f, 1.00f, 1.00f));
+        ImGui::TextUnformatted("battle_cpu_list.bin");
+        ImGui::PopStyleColor();
+        ImGui::SameLine();
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.42f, 0.42f, 0.54f, 1.00f));
+        ImGui::Text("(%d tkmods)", (int)sources.size());
+        ImGui::PopStyleColor();
+        ImGui::Separator();
+
+        // rank_entries
+        {
+            struct Item { int si; const BattleCpuRankEntry* e; };
+            std::vector<Item> items;
+            for (int si = 0; si < (int)sources.size(); ++si)
+                for (auto& e : sources[si].bin->battleCpuRankEntries)
+                    items.push_back({si, &e});
+
+            ImGui::TextDisabled("rank_entries");
+            if (ImGui::BeginTable("##ov_bcpurank", 1 + 48, kOvTF, ImVec2(0.0f, 0.0f)))
+            {
+                ImGui::TableSetupScrollFreeze(1, 1);
+                ImGui::TableSetupColumn("tkmod", ImGuiTableColumnFlags_WidthFixed, kTkmodW);
+                for (int c = 0; c < 47; ++c)
+                    ImGui::TableSetupColumn(FieldNames::BattleCpuRank[c], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBattleCpuRankGeneric);
+                ImGui::TableSetupColumn(FieldNames::BattleCpuRank[47], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBattleCpuRank47);
+                ImGui::TableHeadersRow();
+
+                for (int i = 0; i < (int)items.size(); ++i)
+                {
+                    const int si = items[i].si; const auto* e = items[i].e;
+                    ImGui::TableNextRow();
+                    ImGui::PushID(i);
+                    RenderTkmodCell(si);
+                    for (int c = 0; c < 47; ++c)
+                    {
+                        ImGui::TableSetColumnIndex(1 + c);
+                        ImGui::Text("%u", e->values[c]);
+                    }
+                    ImGui::TableSetColumnIndex(48); ImGui::TextUnformatted(e->rank_label);
+                    ImGui::PopID();
+                }
+                ImGui::EndTable();
+            }
+        }
+
+        ImGui::Spacing(); ImGui::Spacing();
+
+        // step_entries
+        {
+            struct Item { int si; const BattleCpuStepEntry* e; };
+            std::vector<Item> items;
+            for (int si = 0; si < (int)sources.size(); ++si)
+                for (auto& e : sources[si].bin->battleCpuStepEntries)
+                    items.push_back({si, &e});
+
+            ImGui::TextDisabled("step_entries");
+            if (ImGui::BeginTable("##ov_bcpustep", 1 + 4, kOvTF, ImVec2(0.0f, 0.0f)))
+            {
+                ImGui::TableSetupScrollFreeze(1, 1);
+                ImGui::TableSetupColumn("tkmod", ImGuiTableColumnFlags_WidthFixed, kTkmodW);
+                for (int c = 0; c < 4; ++c)
+                    ImGui::TableSetupColumn(FieldNames::BattleCpuStep[c], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kBattleCpuStepGeneric);
+                ImGui::TableHeadersRow();
+
+                for (int i = 0; i < (int)items.size(); ++i)
+                {
+                    const int si = items[i].si; const auto* e = items[i].e;
+                    ImGui::TableNextRow();
+                    ImGui::PushID(i);
+                    RenderTkmodCell(si);
+                    ImGui::TableSetColumnIndex(1); ImGui::Text("%u", e->value_0);
+                    ImGui::TableSetColumnIndex(2); ImGui::Text("%u", e->value_1);
+                    ImGui::TableSetColumnIndex(3); ImGui::Text("%u", e->value_2);
+                    ImGui::TableSetColumnIndex(4); ImGui::Text("%u", e->value_3);
+                    ImGui::PopID();
+                }
+                ImGui::EndTable();
+            }
+        }
+        break;
+    }
+    // -------------------------------------------------------------------------
+    case BinType::RankList:
+    {
+        // Collect all rank items from all sources and all groups
+        struct Item { int si; uint32_t group_id; const RankItem* e; };
+        std::vector<Item> items;
+        for (int si = 0; si < (int)sources.size(); ++si)
+            for (auto& g : sources[si].bin->rankGroups)
+                for (auto& e : g.entries)
+                    items.push_back({si, g.group_id, &e});
+
+        RenderSectionHeader("rank_list.bin", (int)items.size());
+
+        if (ImGui::BeginTable("##ov_rank", 1 + 1 + 4, kOvTF, ImVec2(0.0f, 0.0f)))
+        {
+            ImGui::TableSetupScrollFreeze(1, 1);
+            ImGui::TableSetupColumn("tkmod", ImGuiTableColumnFlags_WidthFixed, kTkmodW);
+            ImGui::TableSetupColumn("group_id", ImGuiTableColumnFlags_WidthFixed, 80.0f);
+            ImGui::TableSetupColumn(FieldNames::RankItem[0], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRankItem[0]);
+            ImGui::TableSetupColumn(FieldNames::RankItem[1], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRankItem[1]);
+            ImGui::TableSetupColumn(FieldNames::RankItem[2], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRankItem[2]);
+            ImGui::TableSetupColumn(FieldNames::RankItem[3], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kRankItem[3]);
+            ImGui::TableHeadersRow();
+
+            for (int i = 0; i < (int)items.size(); ++i)
+            {
+                const int si = items[i].si; const uint32_t gid = items[i].group_id; const auto* e = items[i].e;
+                ImGui::TableNextRow();
+                ImGui::PushID(i);
+                RenderTkmodCell(si);
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%u", gid);
+                ImGui::TableSetColumnIndex(2); ImGui::Text("%u", e->hash);
+                ImGui::TableSetColumnIndex(3); ImGui::TextUnformatted(e->text_key);
+                ImGui::TableSetColumnIndex(4); ImGui::TextUnformatted(e->name);
+                ImGui::TableSetColumnIndex(5); ImGui::Text("%u", e->rank);
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
+        }
+        break;
+    }
+    // -------------------------------------------------------------------------
+    case BinType::AssistInputList:
+    {
+        struct Item { int si; const AssistInputEntry* e; };
+        std::vector<Item> items;
+        for (int si = 0; si < (int)sources.size(); ++si)
+            for (auto& e : sources[si].bin->assistInputEntries)
+                items.push_back({si, &e});
+
+        RenderSectionHeader("assist_input_list.bin", (int)items.size());
+
+        if (ImGui::BeginTable("##ov_assist", 1 + 59, kOvTF, ImVec2(0.0f, 0.0f)))
+        {
+            ImGui::TableSetupScrollFreeze(1, 1);
+            ImGui::TableSetupColumn("tkmod", ImGuiTableColumnFlags_WidthFixed, kTkmodW);
+            ImGui::TableSetupColumn(FieldNames::AssistInputEntry[0], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kAssistInputEntry0);
+            for (int c = 1; c < 59; ++c)
+                ImGui::TableSetupColumn(FieldNames::AssistInputEntry[c], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kAssistInputValue);
+            ImGui::TableHeadersRow();
+
+            ImGuiListClipper clipper;
+            clipper.Begin((int)items.size());
+            while (clipper.Step())
+            for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i)
+            {
+                const int si = items[i].si; const auto* e = items[i].e;
+                ImGui::TableNextRow();
+                ImGui::PushID(i);
+                RenderTkmodCell(si);
+                ImGui::TableSetColumnIndex(1); ImGui::Text("%u", e->character_hash);
+                for (int c = 0; c < 58; ++c)
+                {
+                    ImGui::TableSetColumnIndex(2 + c);
+                    ImGui::Text("%d", e->values[c]);
+                }
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
+        }
+        break;
+    }
+    // -------------------------------------------------------------------------
+    case BinType::CustomizePanelList:
+    {
+        struct Item { int si; const CustomizePanelEntry* e; };
+        std::vector<Item> items;
+        for (int si = 0; si < (int)sources.size(); ++si)
+            for (auto& e : sources[si].bin->customizePanelEntries)
+                items.push_back({si, &e});
+
+        RenderSectionHeader("customize_panel_list.bin", (int)items.size());
+
+        // Widths: ids 5,6,7,8 = kCustomizePanelString, others = kCustomizePanelDefault
+        const float panelWidths[11] = {
+            ColumnWidths::kCustomizePanelDefault, ColumnWidths::kCustomizePanelDefault,
+            ColumnWidths::kCustomizePanelDefault, ColumnWidths::kCustomizePanelDefault,
+            ColumnWidths::kCustomizePanelDefault, ColumnWidths::kCustomizePanelString,
+            ColumnWidths::kCustomizePanelString,  ColumnWidths::kCustomizePanelString,
+            ColumnWidths::kCustomizePanelString,  ColumnWidths::kCustomizePanelDefault,
+            ColumnWidths::kCustomizePanelDefault,
+        };
+
+        if (ImGui::BeginTable("##ov_panel", 1 + 11, kOvTF, ImVec2(0.0f, 0.0f)))
+        {
+            ImGui::TableSetupScrollFreeze(1, 1);
+            ImGui::TableSetupColumn("tkmod", ImGuiTableColumnFlags_WidthFixed, kTkmodW);
+            for (int c = 0; c < 11; ++c)
+                ImGui::TableSetupColumn(FieldNames::CustomizePanelEntry[c], ImGuiTableColumnFlags_WidthFixed, panelWidths[c]);
+            ImGui::TableHeadersRow();
+
+            for (int i = 0; i < (int)items.size(); ++i)
+            {
+                const int si = items[i].si; const auto* e = items[i].e;
+                ImGui::TableNextRow();
+                ImGui::PushID(i);
+                RenderTkmodCell(si);
+                ImGui::TableSetColumnIndex(1);  ImGui::Text("%u", e->panel_hash);
+                ImGui::TableSetColumnIndex(2);  ImGui::Text("%u", e->panel_id);
+                ImGui::TableSetColumnIndex(3);  ImGui::Text("%u", e->price);
+                ImGui::TableSetColumnIndex(4);  ImGui::Text("%u", e->category);
+                ImGui::TableSetColumnIndex(5);  ImGui::Text("%u", e->sort_id);
+                ImGui::TableSetColumnIndex(6);  ImGui::TextUnformatted(e->text_key);
+                ImGui::TableSetColumnIndex(7);  ImGui::TextUnformatted(e->texture_1);
+                ImGui::TableSetColumnIndex(8);  ImGui::TextUnformatted(e->texture_2);
+                ImGui::TableSetColumnIndex(9);  ImGui::TextUnformatted(e->texture_3);
+                ImGui::TableSetColumnIndex(10); ImGui::TextUnformatted(e->flag_9 ? "true" : "false");
+                ImGui::TableSetColumnIndex(11); ImGui::Text("%u", e->hash_10);
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
+        }
+        break;
+    }
+    // -------------------------------------------------------------------------
+    case BinType::CustomizeItemException:
+    {
+        struct Item { int si; const CustomizeItemExceptionEntry* e; };
+        std::vector<Item> items;
+        for (int si = 0; si < (int)sources.size(); ++si)
+            for (auto& e : sources[si].bin->exceptionEntries)
+                items.push_back({si, &e});
+
+        RenderSectionHeader("customize_item_exception", (int)items.size());
+
+        // Build item_id → label map from all sources' common+unique entries
+        std::unordered_map<uint32_t, std::string> idLabelMap;
+        for (int si = 0; si < (int)sources.size(); ++si)
+        {
+            if (!sources[si].modData) continue;
+            for (const auto& bin2 : sources[si].modData->contents)
+            {
+                for (const auto& ce : bin2.commonEntries)
+                {
+                    if (idLabelMap.count(ce.item_id)) continue;
+                    char buf[320];
+                    if (ce.item_code[0])
+                        snprintf(buf, sizeof(buf), "%s (%u)", ce.item_code, ce.item_id);
+                    else
+                        snprintf(buf, sizeof(buf), "%u", ce.item_id);
+                    idLabelMap[ce.item_id] = buf;
+                }
+                for (const auto& ue : bin2.customizeItemUniqueEntries)
+                {
+                    if (idLabelMap.count(ue.char_item_id)) continue;
+                    char buf[320];
+                    if (ue.asset_name[0])
+                        snprintf(buf, sizeof(buf), "%s (%u)", ue.asset_name, ue.char_item_id);
+                    else
+                        snprintf(buf, sizeof(buf), "%u", ue.char_item_id);
+                    idLabelMap[ue.char_item_id] = buf;
+                }
+            }
+        }
+
+        constexpr ImGuiTableFlags kExTF =
+            ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersInnerH |
+            ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
+            ImGuiTableFlags_SizingStretchProp;
+
+        if (ImGui::BeginTable("##ov_except", 3, kExTF, ImGui::GetContentRegionAvail()))
+        {
+            ImGui::TableSetupScrollFreeze(0, 1);
+            ImGui::TableSetupColumn("tkmod",          ImGuiTableColumnFlags_WidthFixed,   kTkmodW);
+            ImGui::TableSetupColumn("Item ID",        ImGuiTableColumnFlags_WidthStretch, 3.0f);
+            ImGui::TableSetupColumn("Exception Type", ImGuiTableColumnFlags_WidthFixed,   120.0f);
+            ImGui::TableHeadersRow();
+
+            for (int i = 0; i < (int)items.size(); ++i)
+            {
+                const int si = items[i].si; const auto* e = items[i].e;
+                ImGui::TableNextRow();
+                ImGui::PushID(i);
+                RenderTkmodCell(si);
+
+                // Item ID — show "AssetName (id)" label if known
+                ImGui::TableSetColumnIndex(1);
+                {
+                    auto it = idLabelMap.find(e->item_id);
+                    if (it != idLabelMap.end())
+                        ImGui::TextUnformatted(it->second.c_str());
+                    else
+                        ImGui::Text("%u", e->item_id);
+                }
+
+                // Exception Type — show name from k_ExcTypes
+                ImGui::TableSetColumnIndex(2);
+                {
+                    const char* typeName = "Unknown";
+                    for (const auto& t : k_ExcTypes)
+                        if (t.value == e->exception_type) { typeName = t.name; break; }
+                    ImGui::TextUnformatted(typeName);
+                }
+
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
+        }
+        break;
+    }
+    // -------------------------------------------------------------------------
+    case BinType::CustomizeItemExclusiveList:
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.82f, 1.00f, 1.00f));
+        ImGui::TextUnformatted("customize_item_exclusive_list.bin");
+        ImGui::PopStyleColor();
+        ImGui::SameLine();
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.42f, 0.42f, 0.54f, 1.00f));
+        ImGui::Text("(%d tkmods)", (int)sources.size());
+        ImGui::PopStyleColor();
+        ImGui::Separator();
+
+        // Helper for rule-type sub-tables (4 columns)
+        auto RenderExclusiveRuleTable = [&](const char* label, const char* tableId,
+            const wchar_t* tsvName,
+            std::vector<std::pair<int, const CustomizeExclusiveRuleEntry*>>& items,
+            const char* const* hdrs)
+        {
+            ImGui::TextDisabled("%s", label);
+            ImGui::SameLine();
+            ImGui::PushID(tableId);
+            if (ImGui::SmallButton("Export"))
+            {
+                std::string path = OpenTsvSaveDialog(tsvName);
+                if (!path.empty())
+                {
+                    FILE* fout = nullptr;
+                    fopen_s(&fout, path.c_str(), "wb");
+                    if (fout)
+                    {
+                        for (const auto& it : items)
+                            fprintf(fout, "%s\t%u\t%u\t%u\t%u\n",
+                                sources[it.first].filename,
+                                it.second->item_id, it.second->hash,
+                                it.second->link_type, it.second->ref_item_id);
+                        fclose(fout);
+                    }
+                }
+            }
+            ImGui::PopID();
+            if (ImGui::BeginTable(tableId, 1 + 4, kOvTF, ImVec2(0.0f, 0.0f)))
+            {
+                ImGui::TableSetupScrollFreeze(1, 1);
+                ImGui::TableSetupColumn("tkmod", ImGuiTableColumnFlags_WidthFixed, kTkmodW);
+                for (int c = 0; c < 4; ++c)
+                    ImGui::TableSetupColumn(hdrs[c], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kExclusiveRule[c]);
+                ImGui::TableHeadersRow();
+
+                for (int i = 0; i < (int)items.size(); ++i)
+                {
+                    const int si = items[i].first; const auto* e = items[i].second;
+                    ImGui::TableNextRow();
+                    ImGui::PushID(i);
+                    RenderTkmodCell(si);
+                    ImGui::TableSetColumnIndex(1); ImGui::Text("%u", e->item_id);
+                    ImGui::TableSetColumnIndex(2); ImGui::Text("%u", e->hash);
+                    ImGui::TableSetColumnIndex(3); ImGui::Text("%u", e->link_type);
+                    ImGui::TableSetColumnIndex(4); ImGui::Text("%u", e->ref_item_id);
+                    ImGui::PopID();
+                }
+                ImGui::EndTable();
+            }
+        };
+
+        auto RenderExclusivePairTable = [&](const char* label, const char* tableId,
+            const wchar_t* tsvName,
+            std::vector<std::pair<int, const CustomizeExclusivePairEntry*>>& items,
+            const char* const* hdrs)
+        {
+            ImGui::TextDisabled("%s", label);
+            ImGui::SameLine();
+            ImGui::PushID(tableId);
+            if (ImGui::SmallButton("Export"))
+            {
+                std::string path = OpenTsvSaveDialog(tsvName);
+                if (!path.empty())
+                {
+                    FILE* fout = nullptr;
+                    fopen_s(&fout, path.c_str(), "wb");
+                    if (fout)
+                    {
+                        for (const auto& it : items)
+                            fprintf(fout, "%s\t%u\t%u\t%u\n",
+                                sources[it.first].filename,
+                                it.second->item_id_a, it.second->item_id_b,
+                                it.second->flag);
+                        fclose(fout);
+                    }
+                }
+            }
+            ImGui::PopID();
+            if (ImGui::BeginTable(tableId, 1 + 3, kOvTF, ImVec2(0.0f, 0.0f)))
+            {
+                ImGui::TableSetupScrollFreeze(1, 1);
+                ImGui::TableSetupColumn("tkmod", ImGuiTableColumnFlags_WidthFixed, kTkmodW);
+                for (int c = 0; c < 3; ++c)
+                    ImGui::TableSetupColumn(hdrs[c], ImGuiTableColumnFlags_WidthFixed, ColumnWidths::kExclusivePair[c]);
+                ImGui::TableHeadersRow();
+
+                for (int i = 0; i < (int)items.size(); ++i)
+                {
+                    const int si = items[i].first; const auto* e = items[i].second;
+                    ImGui::TableNextRow();
+                    ImGui::PushID(i);
+                    RenderTkmodCell(si);
+                    ImGui::TableSetColumnIndex(1); ImGui::Text("%u", e->item_id_a);
+                    ImGui::TableSetColumnIndex(2); ImGui::Text("%u", e->item_id_b);
+                    ImGui::TableSetColumnIndex(3); ImGui::Text("%u", e->flag);
+                    ImGui::PopID();
+                }
+                ImGui::EndTable();
+            }
+        };
+
+        // rule_entries
+        {
+            std::vector<std::pair<int, const CustomizeExclusiveRuleEntry*>> items;
+            for (int si = 0; si < (int)sources.size(); ++si)
+                for (auto& e : sources[si].bin->exclusiveRuleEntries)
+                    items.push_back({si, &e});
+            RenderExclusiveRuleTable("rule_entries", "##ov_exrule", L"rule_entries.tsv", items, FieldNames::ExclusiveRule);
+        }
+
+        ImGui::Spacing(); ImGui::Spacing();
+
+        // pair_entries
+        {
+            std::vector<std::pair<int, const CustomizeExclusivePairEntry*>> items;
+            for (int si = 0; si < (int)sources.size(); ++si)
+                for (auto& e : sources[si].bin->exclusivePairEntries)
+                    items.push_back({si, &e});
+            RenderExclusivePairTable("pair_entries", "##ov_expair", L"pair_entries.tsv", items, FieldNames::ExclusivePair);
+        }
+
+        ImGui::Spacing(); ImGui::Spacing();
+
+        // group_rule_entries
+        {
+            std::vector<std::pair<int, const CustomizeExclusiveRuleEntry*>> items;
+            for (int si = 0; si < (int)sources.size(); ++si)
+                for (auto& e : sources[si].bin->exclusiveGroupRuleEntries)
+                    items.push_back({si, &e});
+            RenderExclusiveRuleTable("group_rule_entries", "##ov_exgrule", L"group_rule_entries.tsv", items, FieldNames::ExclusiveGroupRule);
+        }
+
+        ImGui::Spacing(); ImGui::Spacing();
+
+        // group_pair_entries
+        {
+            std::vector<std::pair<int, const CustomizeExclusivePairEntry*>> items;
+            for (int si = 0; si < (int)sources.size(); ++si)
+                for (auto& e : sources[si].bin->exclusiveGroupPairEntries)
+                    items.push_back({si, &e});
+            RenderExclusivePairTable("group_pair_entries", "##ov_exgpair", L"group_pair_entries.tsv", items, FieldNames::ExclusiveGroupPair);
+        }
+
+        ImGui::Spacing(); ImGui::Spacing();
+
+        // set_rule_entries
+        {
+            std::vector<std::pair<int, const CustomizeExclusiveRuleEntry*>> items;
+            for (int si = 0; si < (int)sources.size(); ++si)
+                for (auto& e : sources[si].bin->exclusiveSetRuleEntries)
+                    items.push_back({si, &e});
+            RenderExclusiveRuleTable("set_rule_entries", "##ov_exsetrule", L"set_rule_entries.tsv", items, FieldNames::ExclusiveSetRule);
+        }
+        break;
+    }
+    // -------------------------------------------------------------------------
+    default:
+        ImGui::TextDisabled("No merged overview available for this bin type.");
+        break;
+    }
+}
+
+// -----------------------------------------------------------------------------
+//  Read-only bin preview (used by TkmodManagerView)
+// -----------------------------------------------------------------------------
+
+void FbsDataView::RenderBinReadOnly(ContentsBinData& bin)
+{
+    const bool savedRO = m_renderReadOnly;
+    m_renderReadOnly = true;
+    ImGui::SetCursorPos(ImVec2(10.0f, 6.0f));
+    switch (bin.type)
+    {
+    case BinType::CustomizeItemCommonList:
+        RenderCustomizeItemCommonEditor(bin);
+        break;
+    case BinType::CharacterList:
+        RenderCharacterListEditor(bin);
+        break;
+    case BinType::CustomizeItemExclusiveList:
+        RenderCustomizeItemExclusiveListEditor(bin);
+        break;
+    case BinType::AreaList:
+        RenderAreaListEditor(bin);
+        break;
+    case BinType::BattleSubtitleInfoList:
+        RenderBattleSubtitleInfoEditor(bin);
+        break;
+    case BinType::FateDramaPlayerStartList:
+        RenderFateDramaPlayerStartListEditor(bin);
+        break;
+    case BinType::JukeboxList:
+        RenderJukeboxListEditor(bin);
+        break;
+    case BinType::SeriesList:
+        RenderSeriesListEditor(bin);
+        break;
+    case BinType::TamMissionList:
+        RenderTamMissionListEditor(bin);
+        break;
+    case BinType::DramaPlayerStartList:
+        RenderDramaPlayerStartListEditor(bin);
+        break;
+    case BinType::StageList:
+        RenderStageListEditor(bin);
+        break;
+    case BinType::BallPropertyList:
+        RenderBallPropertyListEditor(bin);
+        break;
+    case BinType::BodyCylinderDataList:
+        RenderBodyCylinderDataListEditor(bin);
+        break;
+    case BinType::CustomizeItemUniqueList:
+        RenderCustomizeItemUniqueListEditor(bin);
+        break;
+    case BinType::CharacterSelectList:
+        RenderCharacterSelectListEditor(bin);
+        break;
+    case BinType::CustomizeItemProhibitDramaList:
+        RenderCustomizeItemProhibitDramaListEditor(bin);
+        break;
+    case BinType::BattleMotionList:
+        RenderBattleMotionListEditor(bin);
+        break;
+    case BinType::ArcadeCpuList:
+        RenderArcadeCpuListEditor(bin);
+        break;
+    case BinType::BallRecommendList:
+        RenderBallRecommendListEditor(bin);
+        break;
+    case BinType::BallSettingList:
+        RenderBallSettingListEditor(bin);
+        break;
+    case BinType::BattleCommonList:
+        RenderBattleCommonListEditor(bin);
+        break;
+    case BinType::BattleCpuList:
+        RenderBattleCpuListEditor(bin);
+        break;
+    case BinType::RankList:
+        RenderRankListEditor(bin);
+        break;
+    case BinType::AssistInputList:
+        RenderAssistInputListEditor(bin);
+        break;
+    case BinType::CustomizePanelList:
+        RenderCustomizePanelListEditor(bin);
+        break;
+    case BinType::CustomizeItemException:
+        RenderCustomizeItemExceptionEditor(bin);
+        break;
+    default:
+        ImGui::TextDisabled("No editor available for this bin type.");
+        break;
+    }
+    m_renderReadOnly = savedRO;
 }
 
 // -----------------------------------------------------------------------------
@@ -4704,7 +8214,10 @@ void FbsDataView::RenderSaveConfirmPopup()
 
     if (ImGui::Button("Confirm", ImVec2(100.0f, 0.f))) {
         ImGui::CloseCurrentPopup();
-        DoSave();
+        if (m_pendingDoSaveAs)
+            DoSaveAs();
+        else
+            DoSave();
     }
     ImGui::SameLine(0, 8.0f);
     if (ImGui::Button("Cancel", ImVec2(100.0f, 0.f)))

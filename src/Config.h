@@ -1,8 +1,9 @@
-﻿#pragma once
+#pragma once
 #include <string>
 
 struct AppConfig {
-    std::string gameRootDir;   // TEKKEN 8 game installation root (e.g. ...\TEKKEN 8)
+    std::string gameRootDir;        // TEKKEN 8 game installation root (e.g. ...\TEKKEN 8)
+    std::string tkmodManagerDir;    // directory scanned by the Manage tkmods window
 
     // Returns the full moveset output directory derived from gameRootDir.
     std::string MovesetDir() const {
