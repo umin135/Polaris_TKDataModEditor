@@ -6330,6 +6330,26 @@ void FbsDataView::RenderCustomizeItemExceptionEditor(ContentsBinData& bin)
 //  Merged overview table (used by TkmodManagerView)
 // -----------------------------------------------------------------------------
 
+// Concatenates one bin-member vector across every overview source, then runs the
+// single-bin TSV exporter once on the merged result. Lets the merged overview's
+// Export button write every tkmod's rows, not just the first source's.
+template <class Entry>
+static void ExportMergedOverviewTsv(
+    const std::vector<FbsDataView::BinViewSource>& sources,
+    const std::vector<Entry> ContentsBinData::* member,
+    void (*exportFn)(const std::vector<Entry>&, const std::string&),
+    const std::string& path)
+{
+    std::vector<Entry> merged;
+    for (const auto& s : sources)
+    {
+        if (!s.bin) continue;
+        const std::vector<Entry>& v = s.bin->*member;
+        merged.insert(merged.end(), v.begin(), v.end());
+    }
+    exportFn(merged, path);
+}
+
 void FbsDataView::RenderBinMergedOverview(
     const std::vector<BinViewSource>& sources,
     const std::function<void(const std::string&)>& openCb)
@@ -6361,10 +6381,11 @@ void FbsDataView::RenderBinMergedOverview(
     };
 
     // Helper: section header with optional Export button.
-    // exportFilename: suggested filename for the save dialog; exportFn: called with the first source's bin path string.
+    // exportFilename: suggested filename for the save dialog; exportFn: called with the
+    // chosen save path and is expected to merge/export rows across all sources itself.
     auto RenderSectionHeader = [&](const char* binLabel, int totalEntries,
         const wchar_t* exportFilename = nullptr,
-        std::function<void(const ContentsBinData&, const std::string&)> exportFn = nullptr)
+        std::function<void(const std::string&)> exportFn = nullptr)
     {
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.82f, 1.00f, 1.00f));
         ImGui::TextUnformatted(binLabel);
@@ -6381,8 +6402,8 @@ void FbsDataView::RenderBinMergedOverview(
             if (ImGui::Button("Export##ov", ImVec2(exportBtnW, 0)))
             {
                 std::string p = OpenTsvSaveDialog(exportFilename);
-                if (!p.empty() && !sources.empty() && sources[0].bin)
-                    exportFn(*sources[0].bin, p);
+                if (!p.empty())
+                    exportFn(p);
             }
             ImGui::PopID();
         }
@@ -6404,7 +6425,7 @@ void FbsDataView::RenderBinMergedOverview(
         std::sort(items.begin(), items.end(), [](const Item& a, const Item& b){ return a.e->item_id < b.e->item_id; });
 
         RenderSectionHeader("customize_item_common_list.bin", (int)items.size(), L"customize_item_common_list.tsv",
-            [](const ContentsBinData& b, const std::string& p){ ExportCommonListTsv(b.commonEntries, p); });
+            [&](const std::string& p){ ExportMergedOverviewTsv(sources, &ContentsBinData::commonEntries, &ExportCommonListTsv, p); });
 
         if (ImGui::BeginTable("##ov_common", 1 + 26, kOvTF, ImVec2(0.0f, 0.0f)))
         {
@@ -6466,7 +6487,7 @@ void FbsDataView::RenderBinMergedOverview(
         std::sort(items.begin(), items.end(), [](const Item& a, const Item& b){ return a.e->char_item_id < b.e->char_item_id; });
 
         RenderSectionHeader("customize_item_unique_list.bin", (int)items.size(), L"customize_item_unique_list.tsv",
-            [](const ContentsBinData& b, const std::string& p){ ExportUniqueListTsv(b.customizeItemUniqueEntries, p); });
+            [&](const std::string& p){ ExportMergedOverviewTsv(sources, &ContentsBinData::customizeItemUniqueEntries, &ExportUniqueListTsv, p); });
 
         if (ImGui::BeginTable("##ov_unique", 1 + 22, kOvTF, ImVec2(0.0f, 0.0f)))
         {
@@ -6523,7 +6544,7 @@ void FbsDataView::RenderBinMergedOverview(
                 items.push_back({si, &e});
 
         RenderSectionHeader("character_list.bin", (int)items.size(), L"character_list.tsv",
-            [](const ContentsBinData& b, const std::string& p){ ExportCharacterListTsv(b.characterEntries, p); });
+            [&](const std::string& p){ ExportMergedOverviewTsv(sources, &ContentsBinData::characterEntries, &ExportCharacterListTsv, p); });
 
         if (ImGui::BeginTable("##ov_char", 1 + 15, kOvTF, ImVec2(0.0f, 0.0f)))
         {
@@ -6570,7 +6591,7 @@ void FbsDataView::RenderBinMergedOverview(
                 items.push_back({si, &e});
 
         RenderSectionHeader("area_list.bin", (int)items.size(), L"area_list.tsv",
-            [](const ContentsBinData& b, const std::string& p){ ExportAreaListTsv(b.areaEntries, p); });
+            [&](const std::string& p){ ExportMergedOverviewTsv(sources, &ContentsBinData::areaEntries, &ExportAreaListTsv, p); });
 
         if (ImGui::BeginTable("##ov_area", 1 + 2, kOvTF, ImVec2(0.0f, 0.0f)))
         {
@@ -6604,7 +6625,7 @@ void FbsDataView::RenderBinMergedOverview(
                 items.push_back({si, &e});
 
         RenderSectionHeader("battle_subtitle_info_list.bin", (int)items.size(), L"battle_subtitle_info.tsv",
-            [](const ContentsBinData& b, const std::string& p){ ExportBattleSubtitleTsv(b.battleSubtitleEntries, p); });
+            [&](const std::string& p){ ExportMergedOverviewTsv(sources, &ContentsBinData::battleSubtitleEntries, &ExportBattleSubtitleTsv, p); });
 
         if (ImGui::BeginTable("##ov_bsub", 1 + 2, kOvTF, ImVec2(0.0f, 0.0f)))
         {
@@ -6638,7 +6659,7 @@ void FbsDataView::RenderBinMergedOverview(
                 items.push_back({si, &e});
 
         RenderSectionHeader("fate_drama_player_start_list.bin", (int)items.size(), L"fate_drama_player_start_list.tsv",
-            [](const ContentsBinData& b, const std::string& p){ ExportFateDramaPlayerStartTsv(b.fateDramaPlayerStartEntries, p); });
+            [&](const std::string& p){ ExportMergedOverviewTsv(sources, &ContentsBinData::fateDramaPlayerStartEntries, &ExportFateDramaPlayerStartTsv, p); });
 
         if (ImGui::BeginTable("##ov_fdps", 1 + 5, kOvTF, ImVec2(0.0f, 0.0f)))
         {
@@ -6675,7 +6696,7 @@ void FbsDataView::RenderBinMergedOverview(
                 items.push_back({si, &e});
 
         RenderSectionHeader("jukebox_list.bin", (int)items.size(), L"jukebox_list.tsv",
-            [](const ContentsBinData& b, const std::string& p){ ExportJukeboxListTsv(b.jukeboxEntries, p); });
+            [&](const std::string& p){ ExportMergedOverviewTsv(sources, &ContentsBinData::jukeboxEntries, &ExportJukeboxListTsv, p); });
 
         if (ImGui::BeginTable("##ov_juke", 1 + 9, kOvTF, ImVec2(0.0f, 0.0f)))
         {
@@ -6716,7 +6737,7 @@ void FbsDataView::RenderBinMergedOverview(
                 items.push_back({si, &e});
 
         RenderSectionHeader("series_list.bin", (int)items.size(), L"series_list.tsv",
-            [](const ContentsBinData& b, const std::string& p){ ExportSeriesListTsv(b.seriesEntries, p); });
+            [&](const std::string& p){ ExportMergedOverviewTsv(sources, &ContentsBinData::seriesEntries, &ExportSeriesListTsv, p); });
 
         if (ImGui::BeginTable("##ov_series", 1 + 5, kOvTF, ImVec2(0.0f, 0.0f)))
         {
@@ -6754,7 +6775,7 @@ void FbsDataView::RenderBinMergedOverview(
                 items.push_back({si, &e});
 
         RenderSectionHeader("tam_mission_list.bin", (int)items.size(), L"tam_mission_list.tsv",
-            [](const ContentsBinData& b, const std::string& p){ ExportTamMissionListTsv(b.tamMissionEntries, p); });
+            [&](const std::string& p){ ExportMergedOverviewTsv(sources, &ContentsBinData::tamMissionEntries, &ExportTamMissionListTsv, p); });
 
         // Column headers: TamMissionEntry[0], [2..8]
         const char* headers[8] = {
@@ -6803,7 +6824,7 @@ void FbsDataView::RenderBinMergedOverview(
                 items.push_back({si, &e});
 
         RenderSectionHeader("drama_player_start_list.bin", (int)items.size(), L"drama_player_start_list.tsv",
-            [](const ContentsBinData& b, const std::string& p){ ExportDramaPlayerStartListTsv(b.dramaPlayerStartEntries, p); });
+            [&](const std::string& p){ ExportMergedOverviewTsv(sources, &ContentsBinData::dramaPlayerStartEntries, &ExportDramaPlayerStartListTsv, p); });
 
         const char* headers[8] = {
             FieldNames::DramaPlayerStart[0], FieldNames::DramaPlayerStart[2],
@@ -6850,7 +6871,7 @@ void FbsDataView::RenderBinMergedOverview(
                 items.push_back({si, &e});
 
         RenderSectionHeader("stage_list.bin", (int)items.size(), L"stage_list.tsv",
-            [](const ContentsBinData& b, const std::string& p){ ExportStageListTsv(b.stageEntries, p); });
+            [&](const std::string& p){ ExportMergedOverviewTsv(sources, &ContentsBinData::stageEntries, &ExportStageListTsv, p); });
 
         if (ImGui::BeginTable("##ov_stage", 1 + 37, kOvTF, ImVec2(0.0f, 0.0f)))
         {
@@ -6923,7 +6944,7 @@ void FbsDataView::RenderBinMergedOverview(
                 items.push_back({si, &e});
 
         RenderSectionHeader("ball_property_list.bin", (int)items.size(), L"ball_property_list.tsv",
-            [](const ContentsBinData& b, const std::string& p){ ExportBallPropertyListTsv(b.ballPropertyEntries, p); });
+            [&](const std::string& p){ ExportMergedOverviewTsv(sources, &ContentsBinData::ballPropertyEntries, &ExportBallPropertyListTsv, p); });
 
         const char* headers[9] = {
             FieldNames::BallPropertyEntry[0], FieldNames::BallPropertyEntry[1],
