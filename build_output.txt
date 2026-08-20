@@ -1,0 +1,112 @@
+msbuild 버전 17.14.40+3e7442088(.NET Framework용)
+빌드 시작: 2026-08-20 오후 12:19:20
+
+     1>1 노드의 "a:\Z_GitProjects\Polaris_TKDataEditor\PolarisTKDataEditor.sln" 프로젝트(Build 대상)입니다.
+     1>ValidateSolutionConfiguration:
+         솔루션 구성 "Release|x64"을(를) 빌드하고 있습니다.
+     1>"a:\Z_GitProjects\Polaris_TKDataEditor\PolarisTKDataEditor.sln"(1) 프로젝트가 1 노드에서 "a:\Z_GitProjects\Polaris_TKDataEditor\PolarisTKDataEditor.vcxproj"(2)을(를) 빌드하고 있습니다(기본 대상).
+     2>PrepareForBuild:
+         구조적 출력을 사용할 수 있습니다. 컴파일러 진단의 서식은 오류 계층 구조를 반영합니다. 자세한 내용은 https://aka.ms/cpp/structured-output을 참조하세요.
+       InitializeBuildStatus:
+         "AlwaysCreate"이(가) 지정되었기 때문에 "PolarisT.b2f3bdf9\x64\Release\PolarisT.b2f3bdf9.tlog\unsuccessfulbuild"을(를) 만들고 있습니다.
+         "PolarisT.b2f3bdf9\x64\Release\PolarisT.b2f3bdf9.tlog\unsuccessfulbuild"에 연결(touching)하고 있습니다.
+       PreBuildEvent:
+         echo Skipping pack_meshes.py step
+         :VCEnd
+         Skipping pack_meshes.py step
+       VcpkgTripletSelection:
+         Using triplet "x64-windows" from "C:\vcpkg\installed\x64-windows\"
+         Using normalized configuration "Release"
+       ClCompile:
+         모든 출력이 최신 상태입니다.
+       ResourceCompile:
+         C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x86\rc.exe /D _UNICODE /D UNICODE /l"0x0409" /I"C:\vcpkg\installed\x64-windows\include" /nologo /fo"PolarisT.b2f3bdf9\x64\Release\resource.res" resource.rc 
+       Link:
+         A:\Program Files\Visual Studio\2022\Community\VC\Tools\MSVC\14.38.33130\bin\HostX86\x64\link.exe /ERRORREPORT:QUEUE /OUT:"a:\Z_GitProjects\Polaris_TKDataEditor\x64\Release\PolarisTKDataEditor.exe" /NOLOGO /LIBPATH:"C:\vcpkg\installed\x64-windows\lib" /LIBPATH:"C:\vcpkg\installed\x64-windows\lib\manual-link" "a:\Z_GitProjects\Polaris_TKDataEditor\third-party\zstd\libzstd_static.lib" kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib "C:\vcpkg\installed\x64-windows\lib\*.lib" /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"a:\Z_GitProjects\Polaris_TKDataEditor\x64\Release\PolarisTKDataEditor.pdb" /SUBSYSTEM:WINDOWS /OPT:REF /OPT:ICF /LTCG:incremental /LTCGOUT:"PolarisT.b2f3bdf9\x64\Release\PolarisTKDataEditor.iobj" /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:"a:\Z_GitProjects\Polaris_TKDataEditor\x64\Release\PolarisTKDataEditor.lib" /MACHINE:X64 PolarisT.b2f3bdf9\x64\Release\resource.res
+         PolarisT.b2f3bdf9\x64\Release\GameStatic.obj
+         PolarisT.b2f3bdf9\x64\Release\FbsDataDict.obj
+         PolarisT.b2f3bdf9\x64\Release\FbsDataDictUpdater.obj
+         PolarisT.b2f3bdf9\x64\Release\KamuiDictUpdater.obj
+         PolarisT.b2f3bdf9\x64\Release\AppUpdater.obj
+         PolarisT.b2f3bdf9\x64\Release\MovesetDataDictUpdater.obj
+         PolarisT.b2f3bdf9\x64\Release\main.obj
+         PolarisT.b2f3bdf9\x64\Release\App.obj
+         PolarisT.b2f3bdf9\x64\Release\Config.obj
+         PolarisT.b2f3bdf9\x64\Release\FbsDataView.obj
+         PolarisT.b2f3bdf9\x64\Release\TkmodManagerView.obj
+         PolarisT.b2f3bdf9\x64\Release\TkmodIO.obj
+         PolarisT.b2f3bdf9\x64\Release\MovesetView.obj
+         PolarisT.b2f3bdf9\x64\Release\MotbinData.obj
+         PolarisT.b2f3bdf9\x64\Release\MovesetEditorWindow.obj
+         PolarisT.b2f3bdf9\x64\Release\AnmbinData.obj
+         PolarisT.b2f3bdf9\x64\Release\MovesetDataDict.obj
+         PolarisT.b2f3bdf9\x64\Release\AnimNameDB.obj
+         PolarisT.b2f3bdf9\x64\Release\AnmbinRebuild.obj
+         PolarisT.b2f3bdf9\x64\Release\AnimationManagerWindow.obj
+         PolarisT.b2f3bdf9\x64\Release\PanmParser.obj
+         PolarisT.b2f3bdf9\x64\Release\PreviewMesh.obj
+         PolarisT.b2f3bdf9\x64\Release\PreviewRenderer.obj
+         PolarisT.b2f3bdf9\x64\Release\GameLiveEdit.obj
+         PolarisT.b2f3bdf9\x64\Release\LabelDB.obj
+         PolarisT.b2f3bdf9\x64\Release\MotbinSerialize.obj
+         PolarisT.b2f3bdf9\x64\Release\GameProcess.obj
+         PolarisT.b2f3bdf9\x64\Release\MovesetExtractor.obj
+         PolarisT.b2f3bdf9\x64\Release\AnmbinExtractor.obj
+         PolarisT.b2f3bdf9\x64\Release\TkdataExtractor.obj
+         PolarisT.b2f3bdf9\x64\Release\ExtractorView.obj
+         PolarisT.b2f3bdf9\x64\Release\FbsBinaryIO.obj
+         PolarisT.b2f3bdf9\x64\Release\FbsDevView.obj
+         PolarisT.b2f3bdf9\x64\Release\MotbinDiffView.obj
+         PolarisT.b2f3bdf9\x64\Release\imgui.obj
+         PolarisT.b2f3bdf9\x64\Release\imgui_draw.obj
+         PolarisT.b2f3bdf9\x64\Release\imgui_tables.obj
+         PolarisT.b2f3bdf9\x64\Release\imgui_widgets.obj
+         PolarisT.b2f3bdf9\x64\Release\imgui_impl_win32.obj
+         PolarisT.b2f3bdf9\x64\Release\imgui_impl_dx11.obj
+         코드를 생성하고 있습니다.
+         0 of 17681 functions ( 0.0%) were compiled, the rest were copied from previous compilation.
+           0 functions were new in current compilation
+           0 functions had inline decision re-evaluated but remain unchanged
+         코드를 생성했습니다.
+         PolarisTKDataEditor.vcxproj -> a:\Z_GitProjects\Polaris_TKDataEditor\x64\Release\PolarisTKDataEditor.exe
+       AppLocalFromInstalled:
+         pwsh.exe -ExecutionPolicy Bypass -noprofile -File "C:\vcpkg\scripts\buildsystems\msbuild\applocal.ps1" "a:\Z_GitProjects\Polaris_TKDataEditor\x64\Release\PolarisTKDataEditor.exe" "C:\vcpkg\installed\x64-windows\bin" "PolarisT.b2f3bdf9\x64\Release\PolarisT.b2f3bdf9.tlog\PolarisTKDataEditor.write.1u.tlog" "PolarisT.b2f3bdf9\x64\Release\vcpkg.applocal.log"
+         'pwsh.exe'은(는) 내부 또는 외부 명령, 실행할 수 있는 프로그램, 또는
+         배치 파일이 아닙니다.
+         "pwsh.exe -ExecutionPolicy Bypass -noprofile -File "C:\vcpkg\scripts\buildsystems\msbuild\applocal.ps1" "a:\Z_GitProjects\Polaris_TKDataEditor\x64\Release\PolarisTKDataEditor.exe" "C:\vcpkg\installed\x64-windows\bin" "PolarisT.b2f3bdf9\x64\Release\PolarisT.b2f3bdf9.tlog\PolarisTKDataEditor.write.1u.tlog" "PolarisT.b2f3bdf9\x64\Release\vcpkg.applocal.log"" 명령이 종료되었습니다(코드: 9009).
+         "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe" -ExecutionPolicy Bypass -noprofile -File "C:\vcpkg\scripts\buildsystems\msbuild\applocal.ps1" "a:\Z_GitProjects\Polaris_TKDataEditor\x64\Release\PolarisTKDataEditor.exe" "C:\vcpkg\installed\x64-windows\bin" "PolarisT.b2f3bdf9\x64\Release\PolarisT.b2f3bdf9.tlog\PolarisTKDataEditor.write.1u.tlog" "PolarisT.b2f3bdf9\x64\Release\vcpkg.applocal.log"
+       PostBuildEvent:
+         if not exist "a:\Z_GitProjects\Polaris_TKDataEditor\x64\Release\res\kamui-hashes\" mkdir "a:\Z_GitProjects\Polaris_TKDataEditor\x64\Release\res\kamui-hashes\"
+         xcopy /Y /Q "a:\Z_GitProjects\Polaris_TKDataEditor\data\kamui-hashes\version.json" "a:\Z_GitProjects\Polaris_TKDataEditor\x64\Release\res\kamui-hashes\"
+         xcopy /Y /Q "a:\Z_GitProjects\Polaris_TKDataEditor\data\kamui-hashes\data.json"    "a:\Z_GitProjects\Polaris_TKDataEditor\x64\Release\res\kamui-hashes\"
+         if not exist "a:\Z_GitProjects\Polaris_TKDataEditor\x64\Release\res\MovesetDatas\" mkdir "a:\Z_GitProjects\Polaris_TKDataEditor\x64\Release\res\MovesetDatas\"
+         xcopy /Y /Q "a:\Z_GitProjects\Polaris_TKDataEditor\data\MovesetDatas\version.json" "a:\Z_GitProjects\Polaris_TKDataEditor\x64\Release\res\MovesetDatas\"
+         xcopy /Y /Q "a:\Z_GitProjects\Polaris_TKDataEditor\data\MovesetDatas\data.json"    "a:\Z_GitProjects\Polaris_TKDataEditor\x64\Release\res\MovesetDatas\"
+         if not exist "a:\Z_GitProjects\Polaris_TKDataEditor\x64\Release\res\fbsdatas\" mkdir "a:\Z_GitProjects\Polaris_TKDataEditor\x64\Release\res\fbsdatas\"
+         xcopy /Y /Q "a:\Z_GitProjects\Polaris_TKDataEditor\data\fbsdatas\version.json"     "a:\Z_GitProjects\Polaris_TKDataEditor\x64\Release\res\fbsdatas\"
+         xcopy /Y /Q "a:\Z_GitProjects\Polaris_TKDataEditor\data\fbsdatas\data.json"        "a:\Z_GitProjects\Polaris_TKDataEditor\x64\Release\res\fbsdatas\"
+         xcopy /Y /Q "a:\Z_GitProjects\Polaris_TKDataEditor\data\app-version\version.json"  "a:\Z_GitProjects\Polaris_TKDataEditor\x64\Release\res\"
+         if "Release|x64"=="Release|x64" xcopy /Y /Q "a:\Z_GitProjects\Polaris_TKDataEditor\x64\Release\PolarisTKDataEditor.exe" "a:\Z_GitProjects\Polaris_TKDataEditor\_Release\"
+         if "Release|x64"=="Release|x64" xcopy /Y /E /Q "a:\Z_GitProjects\Polaris_TKDataEditor\x64\Release\res\" "a:\Z_GitProjects\Polaris_TKDataEditor\_Release\res\"
+         :VCEnd
+         1개 파일이 복사되었습니다.
+         1개 파일이 복사되었습니다.
+         1개 파일이 복사되었습니다.
+         1개 파일이 복사되었습니다.
+         1개 파일이 복사되었습니다.
+         1개 파일이 복사되었습니다.
+         1개 파일이 복사되었습니다.
+         1개 파일이 복사되었습니다.
+         9개 파일이 복사되었습니다.
+       FinalizeBuildStatus:
+         "PolarisT.b2f3bdf9\x64\Release\PolarisT.b2f3bdf9.tlog\unsuccessfulbuild" 파일을 삭제하고 있습니다.
+         "PolarisT.b2f3bdf9\x64\Release\PolarisT.b2f3bdf9.tlog\PolarisTKDataEditor.lastbuildstate"에 연결(touching)하고 있습니다.
+     2>"a:\Z_GitProjects\Polaris_TKDataEditor\PolarisTKDataEditor.vcxproj" 프로젝트를 빌드했습니다(기본 대상).
+     1>"a:\Z_GitProjects\Polaris_TKDataEditor\PolarisTKDataEditor.sln" 프로젝트를 빌드했습니다(Build 대상).
+
+빌드했습니다.
+    경고 0개
+    오류 0개
+
+경과 시간: 00:00:08.63
+BUILD EXIT CODE: 0 

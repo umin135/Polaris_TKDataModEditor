@@ -42,6 +42,7 @@
     { "id": 39,  "name": "ARMOR_KING",      "code": "knk" },
     { "id": 40,  "name": "MIARY",           "code": "wkz" },
     { "id": 41,  "name": "KUNIMITSU",       "code": "ker" },
+    { "id": 42,  "name": "BOB",             "code": "usi" },
     { "id": 116, "name": "DUMMY",           "code": "dek" },
     { "id": 117, "name": "ANGEL_JIN",       "code": "xxa" },
     { "id": 118, "name": "T.DEVIL_KAZUYA",  "code": "xxb" },
