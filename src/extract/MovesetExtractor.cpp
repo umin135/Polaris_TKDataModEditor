@@ -49,7 +49,7 @@ static void WriteIni(const std::string& folder, uint32_t charaId, const std::str
 static constexpr uintptr_t kP1AddrModuleOffset = 0x9B87FD0; // fallback; dynamically resolved via AOB at Connect()
 static constexpr uintptr_t kP1SlotBase         = 0x30;       // add to first deref -> slot ptr array
 // slot ptr: P1 = +0x00, P2 = +0x08 (playerId * 8)
-static constexpr uintptr_t kMotbinOffset        = 0x38D8;    // playerAddr + this -> motbin ptr (8B)
+static constexpr uintptr_t kMotbinOffset        = 0x38D8;    // playerAddr + this -> motbin ptr (8B); fallback, resolved via AOB at Connect()
 static constexpr uintptr_t kCharaIdOffset       = 0x168;     // playerAddr + this -> uint32 chara id
 
 // AOB pattern for P1 base pointer (RIP-relative MOV; same as GameLiveEdit kPatternP1).
@@ -60,6 +60,21 @@ static constexpr const char* kPatternP1 =
     "66 41 89 9E 88 00 00 00 "
     "E8 ?? ?? ?? ?? "
     "41 88 86 8A 00 00 00";
+
+// AOB pattern for the motbin offset (same as GameLiveEdit kPatternMotbin).
+// The 4-byte value at match+3 is the playerAddr->motbin struct offset itself.
+// Extracting it dynamically keeps extraction working when a game update shifts
+// the player struct (e.g. 0x38D8 -> 0x39E8), just like the P1 pointer scan.
+static constexpr const char* kPatternMotbin =
+    "48 89 91 ?? ?? ?? 00 "
+    "4C 8B D9 "
+    "48 89 91 ?? ?? ?? 00 "
+    "48 8B DA "
+    "48 89 91 ?? ?? ?? 00 "
+    "48 89 91 ?? ?? ?? 00 "
+    "0F B7 02 "
+    "89 81 ?? ?? ?? 00 "
+    "B8 01 80 00 80";
 
 // -------------------------------------------------------------
 //  motbin header layout (t8_offsetTable, offsets 0x168-0x2B0)
@@ -206,6 +221,17 @@ bool MovesetExtractor::Connect()
                 static_cast<intptr_t>(match + 7) + disp32) - base;
     }
 
+    // Resolve motbin struct offset via AOB scan; fall back to compile-time constant.
+    // The 4-byte value at match+3 is the offset itself (not RIP-relative).
+    m_motbinOffset = 0;
+    uintptr_t motMatch = AobScan(m_proc, kPatternMotbin, base + 0x1800000, base + 0x2800000);
+    if (motMatch)
+    {
+        uint32_t off = 0;
+        if (ReadGameValue(m_proc, motMatch + 3, off))
+            m_motbinOffset = off;
+    }
+
     m_statusMsg = "Connected to game.";
     return true;
 }
@@ -246,8 +272,11 @@ bool MovesetExtractor::ReadSlot(int slotIndex, PlayerSlotInfo& slot)
 
     slot.playerAddr = playerAddr;
 
-    // motbin pointer: playerAddr + 0x38C8 -> ptr -> motbin base
-    uintptr_t motbinPtrAddr = playerAddr + kMotbinOffset;
+    // motbin pointer: playerAddr + motbinOffset -> ptr -> motbin base
+    // Offset is AOB-scanned at Connect() (self-heals across game updates); the
+    // hardcoded constant is only a fallback when the scan fails.
+    uintptr_t motbinOffset  = m_motbinOffset ? m_motbinOffset : kMotbinOffset;
+    uintptr_t motbinPtrAddr = playerAddr + motbinOffset;
     uintptr_t motbinAddr = 0;
     if (!ReadGamePointer(m_proc, motbinPtrAddr, motbinAddr) || motbinAddr == 0)
         return false;

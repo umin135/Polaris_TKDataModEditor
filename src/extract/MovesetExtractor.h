@@ -76,4 +76,5 @@ private:
     PlayerSlotInfo  m_slots[2];
     std::string     m_statusMsg;
     uintptr_t       m_p1BaseOffset = 0; // resolved by AOB scan at Connect(); 0 = use fallback constant
+    uintptr_t       m_motbinOffset = 0; // resolved by AOB scan at Connect(); 0 = use fallback constant
 };
