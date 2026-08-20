@@ -29,9 +29,12 @@ static constexpr const char* kPatternMotbin =
     "89 81 ?? ?? ?? 00 "
     "B8 01 80 00 80";
 
-// Fixed offsets that don't change between game versions
+// Motbin-relative offsets (inside the moveset blob; stable across game versions)
 static constexpr uintptr_t kMovelistOffset   = 0x230;
 static constexpr uintptr_t kMoveSize         = 0x448;
+// Player-struct-relative offsets. Verified against the live 2026-08 build: these
+// three are UNCHANGED (0x27A0 is still the live next_move field; 0x37A0 is a dead
+// mirror). curr_move id at 0x550, frame timer at 0x390.
 static constexpr uintptr_t kCurrMoveOffset   = 0x550;
 static constexpr uintptr_t kNextMoveOffset   = 0x27A0;
 static constexpr uintptr_t kFrameTimerOffset = 0x390;
