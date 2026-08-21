@@ -32,11 +32,11 @@ static constexpr const char* kPatternMotbin =
 // Motbin-relative offsets (inside the moveset blob; stable across game versions)
 static constexpr uintptr_t kMovelistOffset   = 0x230;
 static constexpr uintptr_t kMoveSize         = 0x448;
-// Player-struct-relative offsets. Verified against the live 2026-08 build: these
-// three are UNCHANGED (0x27A0 is still the live next_move field; 0x37A0 is a dead
-// mirror). curr_move id at 0x550, frame timer at 0x390.
+// Player-struct-relative offsets, version-pinned (see OldTool2 game_addresses.txt).
+// 2026-08 game update moved ONLY next_move: 0x27A0 -> 0x2870. curr_move (0x550) and
+// frame_timer (0x390) were unchanged (curr_move read confirmed by GetPlayerMoveId).
 static constexpr uintptr_t kCurrMoveOffset   = 0x550;
-static constexpr uintptr_t kNextMoveOffset   = 0x27A0;
+static constexpr uintptr_t kNextMoveOffset   = 0x2870;
 static constexpr uintptr_t kFrameTimerOffset = 0x390;
 
 // Cached scan results (0 = not yet resolved)

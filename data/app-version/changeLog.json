@@ -4,5 +4,6 @@
   "51": {"Log": "Customization large-scale fallback update\n- Loader now shows the other party the state where only category items containing Modded Items have been replaced with default items.\n- Thanks to this, desync no longer occurs due to Kunimitsu's mask.\n- An exception list has been added to the Editor. You can pass exceptions to the Loader through this.\n- Please check the Discord Server for more details.\n"},
   "52": {"Log": "Moveset Update\n- Fixed about cancel pointers"},
   "60": {"Log": "# Fbsdata\n- TKmod saving method improvement\n- Added tkmod Overview feature\n- Added tsv export/import for other list\n# Moveset Update\n- Added Open Moveset Directory Button"},
-  "61": {"Log": "# Fbsdata\n- Bob Dropdown menu added\n# Moveset Update\n- Bob Update Support"}
+  "61": {"Log": "# Fbsdata\n- Bob Dropdown menu added\n# Moveset Update\n- Bob Update Support"},
+  "62": {"Log": "# Moveset Update\n- Bob Update minor fix(Play Move)"}
 }
