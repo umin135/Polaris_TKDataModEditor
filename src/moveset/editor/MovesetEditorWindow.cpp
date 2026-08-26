@@ -3994,7 +3994,8 @@ void MovesetEditorWindow::RenderSubWin_Pushbacks()
                 m_pushbackWin.pushbackSel = (int)ipos;
                 m_dirty = true;
             } else if (pbAct == ListAction::Duplicate && hasPbSel) {
-                pb.push_back(pb[m_pushbackWin.pushbackSel]);
+                ParsedPushback copy = pb[m_pushbackWin.pushbackSel];   // copy before push_back (may realloc)
+                pb.push_back(copy);
                 m_dirty = true;
             } else if (pbAct == ListAction::Remove && hasPbSel) {
                 uint32_t pos = (uint32_t)m_pushbackWin.pushbackSel;
@@ -4064,7 +4065,8 @@ void MovesetEditorWindow::RenderSubWin_Pushbacks()
             m_pushbackWin.extraSel = (int)ipos;
             m_dirty = true;
         } else if (peAct == ListAction::Duplicate && hasPeSel) {
-            pe.push_back(pe[m_pushbackWin.extraSel]);
+            ParsedPushbackExtra copy = pe[m_pushbackWin.extraSel];   // copy before push_back (may realloc)
+            pe.push_back(copy);
             m_dirty = true;
         } else if (peAct == ListAction::Remove && hasPeSel) {
             uint32_t pos = (uint32_t)m_pushbackWin.extraSel;
@@ -5264,6 +5266,19 @@ void MovesetEditorWindow::RenderSubWin_Projectiles()
 //  Right : inputs table for selected sequence (command hex64, inline editable)
 // -------------------------------------------------------------
 
+// After inserting one input at inputBlock[ipos], bump input_start_idx of every
+// OTHER sequence at/after ipos. The sequence that received the insert (owner) is
+// skipped: it manages its own start_idx at the call site, so shifting it here would
+// desync the pointer from its own inputs (past crash: adding to a new list).
+static void ShiftInputStartRefs(MotbinData& d, const ParsedInputSequence& owner, uint32_t ipos)
+{
+    for (auto& sq : d.inputSequenceBlock) {
+        if (&sq == &owner) continue;
+        if (sq.input_start_idx != 0xFFFFFFFF && sq.input_start_idx >= ipos)
+            sq.input_start_idx++;
+    }
+}
+
 void MovesetEditorWindow::RenderSubWin_InputSequences()
 {
     if (!m_inputSeqWin.open) return;
@@ -5298,7 +5313,22 @@ void MovesetEditorWindow::RenderSubWin_InputSequences()
                 m_inputSeqWin.sel.outer = (int)ipos; m_inputSeqWin.sel.inner = 0;
                 m_dirty = true;
             } else if (act == ListAction::Duplicate && hasSel) {
-                seqs.push_back(seqs[m_inputSeqWin.sel.outer]);
+                // Deep-copy: the sequence header only stores start_idx/amount into the
+                // shared inputBlock. Copying the header alone makes the duplicate share
+                // the ORIGINAL's inputs, so editing one edits both. Append fresh copies
+                // of the inputs and point the new sequence at them.
+                ParsedInputSequence ns = seqs[m_inputSeqWin.sel.outer];
+                if (ns.input_start_idx != 0xFFFFFFFF && ns.input_amount > 0) {
+                    const uint32_t srcStart = ns.input_start_idx;
+                    const uint32_t newStart = (uint32_t)inps.size();
+                    inps.reserve(inps.size() + ns.input_amount);
+                    for (uint32_t i = 0; i < ns.input_amount && (srcStart + i) < inps.size(); ++i) {
+                        ParsedInput tmp = inps[srcStart + i];   // copy before push_back (may realloc)
+                        inps.push_back(tmp);
+                    }
+                    ns.input_start_idx = newStart;
+                }
+                seqs.push_back(ns);
                 m_dirty = true;
             } else if (act == ListAction::Remove && hasSel) {
                 seqs.erase(seqs.begin() + m_inputSeqWin.sel.outer);
@@ -5356,19 +5386,25 @@ void MovesetEditorWindow::RenderSubWin_InputSequences()
         bool hasInpSel = (m_inputSeqWin.sel.inner >= 0 && s.input_start_idx != 0xFFFFFFFF &&
                           (uint32_t)m_inputSeqWin.sel.inner < s.input_amount);
         if (inpAct == ListAction::Insert) {
-            uint32_t ipos = (s.input_start_idx != 0xFFFFFFFF)
-                ? s.input_start_idx + (hasInpSel ? (uint32_t)m_inputSeqWin.sel.inner + 1 : s.input_amount)
-                : (uint32_t)inps.size();
-            if (s.input_start_idx == 0xFFFFFFFF) s.input_start_idx = ipos;
+            const bool wasEmpty = (s.input_start_idx == 0xFFFFFFFF);
+            uint32_t ipos = wasEmpty
+                ? (uint32_t)inps.size()
+                : s.input_start_idx + (hasInpSel ? (uint32_t)m_inputSeqWin.sel.inner + 1 : s.input_amount);
             inps.insert(inps.begin() + ipos, ParsedInput{});
-            FixupRef_Input(m_data, ipos, true);
+            // Shift start indices of OTHER sequences at/after the insert point.
+            // The sequence receiving the input must NOT be shifted (it either keeps
+            // pointing at its range, or gets input_start_idx set below); a generic
+            // fixup would wrongly bump its own start and desync it from its inputs.
+            ShiftInputStartRefs(m_data, s, ipos);
+            if (wasEmpty) s.input_start_idx = ipos;
             s.input_amount++; m_dirty = true;
             if (hasInpSel) m_inputSeqWin.sel.inner++;
         } else if (inpAct == ListAction::Duplicate && hasInpSel) {
             uint32_t absSrc = s.input_start_idx + (uint32_t)m_inputSeqWin.sel.inner;
             uint32_t ipos = s.input_start_idx + s.input_amount;
-            inps.insert(inps.begin() + ipos, inps[absSrc]);
-            FixupRef_Input(m_data, ipos, true);
+            ParsedInput copy = inps[absSrc];   // copy before insert; insert may reallocate inps
+            inps.insert(inps.begin() + ipos, copy);
+            ShiftInputStartRefs(m_data, s, ipos);
             s.input_amount++; m_dirty = true;
         } else if (inpAct == ListAction::Remove && hasInpSel) {
             uint32_t absPos = s.input_start_idx + (uint32_t)m_inputSeqWin.sel.inner;
