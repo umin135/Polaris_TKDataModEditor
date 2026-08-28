@@ -381,61 +381,76 @@ void AnimationManagerWindow::DoAdd(int cat)
         case 1:  filter = "Hand Animation (*.anmhd)\0*.anmhd\0All files (*.*)\0*.*\0\0";   break;
         default: filter = "All files (*.*)\0*.*\0\0"; break;
     }
-    char filePath[MAX_PATH] = {};
+    // Multi-select buffer: on multi-selection the API fills it as
+    // "dir\0file1\0file2\0...\0\0"; on single selection it's the full path.
+    std::vector<char> fileBuf(64 * 1024, '\0');
     OPENFILENAMEA ofn = {};
     ofn.lStructSize = sizeof(ofn);
     ofn.hwndOwner   = NULL;
     ofn.lpstrFilter = filter;
-    ofn.lpstrFile   = filePath;
-    ofn.nMaxFile    = MAX_PATH;
-    ofn.Flags       = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+    ofn.lpstrFile   = fileBuf.data();
+    ofn.nMaxFile    = (DWORD)fileBuf.size();
+    ofn.Flags       = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_ALLOWMULTISELECT | OFN_EXPLORER;
     if (!GetOpenFileNameA(&ofn)) return; // cancelled
 
-    // Read file bytes
-    FILE* f = nullptr;
-    if (fopen_s(&f, filePath, "rb") != 0 || !f)
-    { m_statusMsg = "Cannot open file"; m_statusOk = false; return; }
-    fseek(f, 0, SEEK_END);
-    long sz = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    if (sz <= 0) { fclose(f); m_statusMsg = "Empty file"; m_statusOk = false; return; }
-    std::vector<uint8_t> panmBytes(static_cast<size_t>(sz));
-    fread(panmBytes.data(), 1, panmBytes.size(), f);
-    fclose(f);
-
-    // Extract stem name from filename
-    std::string stem = filePath;
+    // Parse selection into a list of full paths.
+    std::vector<std::string> paths;
     {
-        size_t p = stem.rfind('\\');
-        if (p == std::string::npos) p = stem.rfind('/');
-        if (p != std::string::npos) stem = stem.substr(p + 1);
-        size_t d = stem.rfind('.');
-        if (d != std::string::npos) stem = stem.substr(0, d);
-    }
-
-    uint32_t crc32 = 0;
-    std::string err;
-    bool ok = AddAnimToAnmbin(m_folderPath, *m_animNameDB, *m_moves, cat, panmBytes, crc32, err);
-
-    if (ok)
-    {
-        if (m_onAnimAdded) m_onAnimAdded(cat, stem, crc32);
-        char msg[128];
-        snprintf(msg, sizeof(msg), "Added: %s  (0x%08X)", stem.c_str(), crc32);
-        m_statusMsg = msg;
-        m_statusOk  = true;
-        ForceReload();
-        // Navigate to the newly added entry (last in pool after reload).
-        TryLoad();
-        int newIdx = (int)m_anmbin.pool[cat].size() - 1;
-        if (newIdx >= 0) {
-            m_selRow[cat] = newIdx;
-            m_scrollPending[cat] = true;
+        const char* p = fileBuf.data();
+        std::string dir = p;               // first string: dir (multi) or full path (single)
+        p += dir.size() + 1;
+        if (*p == '\0') {
+            paths.push_back(dir);          // single selection
+        } else {
+            for (; *p; p += strlen(p) + 1) {
+                std::string full = dir;
+                if (!full.empty() && full.back() != '\\' && full.back() != '/') full += '\\';
+                full += p;
+                paths.push_back(full);
+            }
         }
-        m_pendingTab = cat;
+    }
+    if (paths.empty()) return;
 
-        // For Hand animations, auto-assign the first free hand key index.
+    int addedCount = 0, failCount = 0, lastHandKey = -1;
+    std::string lastStem, firstErr;
+    uint32_t lastCrc = 0;
+
+    for (const std::string& filePath : paths)
+    {
+        // Read file bytes
+        FILE* f = nullptr;
+        if (fopen_s(&f, filePath.c_str(), "rb") != 0 || !f)
+        { ++failCount; if (firstErr.empty()) firstErr = "Cannot open file"; continue; }
+        fseek(f, 0, SEEK_END);
+        long sz = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        if (sz <= 0) { fclose(f); ++failCount; if (firstErr.empty()) firstErr = "Empty file"; continue; }
+        std::vector<uint8_t> panmBytes(static_cast<size_t>(sz));
+        fread(panmBytes.data(), 1, panmBytes.size(), f);
+        fclose(f);
+
+        // Extract stem name from filename
+        std::string stem = filePath;
+        {
+            size_t p = stem.find_last_of("\\/");
+            if (p != std::string::npos) stem = stem.substr(p + 1);
+            size_t d = stem.rfind('.');
+            if (d != std::string::npos) stem = stem.substr(0, d);
+        }
+
+        uint32_t crc32 = 0;
+        std::string err;
+        if (!AddAnimToAnmbin(m_folderPath, *m_animNameDB, *m_moves, cat, panmBytes, crc32, err))
+        { ++failCount; if (firstErr.empty()) firstErr = err; continue; }
+
+        if (m_onAnimAdded) m_onAnimAdded(cat, stem, crc32);
+        ++addedCount; lastStem = stem; lastCrc = crc32;
+
+        // For Hand animations, auto-assign the first free hand key index. Reload
+        // first so the free-key search reflects keys assigned earlier in this loop.
         if (cat == 1) {
+            ForceReload(); TryLoad();
             const auto& ml = m_anmbin.moveList[1];
             int freeIdx = -1;
             for (int k = 0; k < (int)ml.size(); ++k)
@@ -444,24 +459,41 @@ void AnimationManagerWindow::DoAdd(int cat)
 
             std::string assignErr;
             if (AssignHandKeyInAnmbin(m_folderPath, freeIdx, crc32, assignErr))
-            {
-                snprintf(msg, sizeof(msg), "Added: %s  (0x%08X)  → Hand Key #%d",
-                         stem.c_str(), crc32, freeIdx);
-                ForceReload();
-            }
-            else
-            {
-                snprintf(msg, sizeof(msg), "Added: %s  — key assign failed: %s",
-                         stem.c_str(), assignErr.c_str());
-            }
-            m_statusMsg = msg;
+                lastHandKey = freeIdx;
+            else if (firstErr.empty())
+                firstErr = "key assign failed: " + assignErr;
         }
     }
-    else
-    {
-        m_statusMsg = "Add failed: " + err;
-        m_statusOk  = false;
+
+    // Reload once and navigate to the last added entry.
+    ForceReload();
+    TryLoad();
+    if (addedCount > 0) {
+        int newIdx = (int)m_anmbin.pool[cat].size() - 1;
+        if (newIdx >= 0) { m_selRow[cat] = newIdx; m_scrollPending[cat] = true; }
+        m_pendingTab = cat;
     }
+
+    char msg[192];
+    if (addedCount == 0) {
+        snprintf(msg, sizeof(msg), "Add failed: %s", firstErr.c_str());
+        m_statusOk = false;
+    } else if (addedCount == 1 && failCount == 0) {
+        if (cat == 1 && lastHandKey >= 0)
+            snprintf(msg, sizeof(msg), "Added: %s  (0x%08X)  \xE2\x86\x92 Hand Key #%d",
+                     lastStem.c_str(), lastCrc, lastHandKey);
+        else
+            snprintf(msg, sizeof(msg), "Added: %s  (0x%08X)", lastStem.c_str(), lastCrc);
+        m_statusOk = true;
+    } else {
+        if (failCount > 0)
+            snprintf(msg, sizeof(msg), "Added %d animations  (%d failed: %s)",
+                     addedCount, failCount, firstErr.c_str());
+        else
+            snprintf(msg, sizeof(msg), "Added %d animations", addedCount);
+        m_statusOk = true;
+    }
+    m_statusMsg = msg;
 }
 
 // -------------------------------------------------------------

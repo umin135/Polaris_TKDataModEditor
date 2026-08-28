@@ -6,5 +6,6 @@
   "60": {"Log": "# Fbsdata\n- TKmod saving method improvement\n- Added tkmod Overview feature\n- Added tsv export/import for other list\n# Moveset Update\n- Added Open Moveset Directory Button"},
   "61": {"Log": "# Fbsdata\n- Bob Dropdown menu added\n# Moveset Update\n- Bob Update Support"},
   "62": {"Log": "# Moveset Update\n- Bob Update minor fix(Play Move)"},
-  "64": {"Log": "# Moveset Update\n- Stabilized input sequence and push-back data editing."}
+  "64": {"Log": "# Moveset Update\n- Stabilized input sequence and push-back data editing."},
+  "65": {"Log": "# Moveset Update\n- Added Multi Animation Import"}
 }
