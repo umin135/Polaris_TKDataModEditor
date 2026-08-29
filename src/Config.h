@@ -5,6 +5,11 @@ struct AppConfig {
     std::string gameRootDir;        // TEKKEN 8 game installation root (e.g. ...\TEKKEN 8)
     std::string tkmodManagerDir;    // directory scanned by the Manage tkmods window
 
+    // Per-row list edit shortcuts, encoded as chord strings (e.g. "Ctrl+D", "Insert").
+    // Index order matches ListShortcut: 0=Insert 1=Duplicate 2=Remove 3=MoveUp 4=MoveDown.
+    // Empty string means "use built-in default".
+    std::string listKeys[5];
+
     // Returns the full moveset output directory derived from gameRootDir.
     std::string MovesetDir() const {
         if (gameRootDir.empty()) return {};

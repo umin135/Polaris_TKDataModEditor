@@ -372,29 +372,53 @@ void FixupGroupCancelInsert(MotbinData& data, uint32_t insertPos, uint32_t delta
 //  Generic ref-adjust helper.
 //  isInsert=true : refs >= pos get +1
 //  isInsert=false: ref==pos -> 0xFFFFFFFF; refs > pos get -1
+//  keepEqual=true (remove only): ref==pos is KEPT instead of nullified. Used when
+//    removing the first item of a multi-item list -- the list continues at the same
+//    index, so list-start references must survive.
 // -------------------------------------------------------------
-inline void AdjRef(uint32_t& ref, uint32_t pos, bool isInsert) {
+inline void AdjRef(uint32_t& ref, uint32_t pos, bool isInsert, bool keepEqual = false) {
     if (ref == 0xFFFFFFFF) return;
-    if (isInsert) { if (ref >= pos) ++ref; }
-    else          { if (ref == pos) ref = 0xFFFFFFFF; else if (ref > pos) --ref; }
+    if (isInsert) {
+        // keepEqual (insert at a list start): ref==pos stays put so it points at the
+        // newly inserted first item instead of being pushed past it.
+        if (ref > pos) ++ref;
+        else if (ref == pos && !keepEqual) ++ref;
+    }
+    else {
+        if (ref == pos) { if (!keepEqual) ref = 0xFFFFFFFF; }
+        else if (ref > pos) --ref;
+    }
 }
 
 // Unified fixup: call after inserting (isInsert=true) or removing (isInsert=false)
 // a single element at position pos in the named block.
-void FixupRef_Requirement  (MotbinData& d, uint32_t pos, bool isInsert);
-void FixupRef_Cancel       (MotbinData& d, uint32_t pos, bool isInsert);
-void FixupRef_GroupCancel  (MotbinData& d, uint32_t pos, bool isInsert);
+// keepEqual (remove only): preserve refs equal to pos instead of nullifying them --
+// set when removing the first item of a list that still has other items.
+void FixupRef_Requirement  (MotbinData& d, uint32_t pos, bool isInsert, bool keepEqual = false);
+void FixupRef_Cancel       (MotbinData& d, uint32_t pos, bool isInsert, bool keepEqual = false);
+void FixupRef_GroupCancel  (MotbinData& d, uint32_t pos, bool isInsert, bool keepEqual = false);
 void FixupRef_CancelExtra  (MotbinData& d, uint32_t pos, bool isInsert);
-void FixupRef_HitCond      (MotbinData& d, uint32_t pos, bool isInsert);
+void FixupRef_HitCond      (MotbinData& d, uint32_t pos, bool isInsert, bool keepEqual = false);
 void FixupRef_ReactionList (MotbinData& d, uint32_t pos, bool isInsert);
 void FixupRef_Pushback     (MotbinData& d, uint32_t pos, bool isInsert);
 void FixupRef_PushbackExtra(MotbinData& d, uint32_t pos, bool isInsert);
-void FixupRef_ExtraProp    (MotbinData& d, uint32_t pos, bool isInsert);
-void FixupRef_StartProp    (MotbinData& d, uint32_t pos, bool isInsert);
-void FixupRef_EndProp      (MotbinData& d, uint32_t pos, bool isInsert);
-void FixupRef_Voiceclip    (MotbinData& d, uint32_t pos, bool isInsert);
-void FixupRef_ThrowExtra   (MotbinData& d, uint32_t pos, bool isInsert);
+void FixupRef_ExtraProp    (MotbinData& d, uint32_t pos, bool isInsert, bool keepEqual = false);
+void FixupRef_StartProp    (MotbinData& d, uint32_t pos, bool isInsert, bool keepEqual = false);
+void FixupRef_EndProp      (MotbinData& d, uint32_t pos, bool isInsert, bool keepEqual = false);
+void FixupRef_Voiceclip    (MotbinData& d, uint32_t pos, bool isInsert, bool keepEqual = false);
+void FixupRef_ThrowExtra   (MotbinData& d, uint32_t pos, bool isInsert, bool keepEqual = false);
 void FixupRef_Input        (MotbinData& d, uint32_t pos, bool isInsert);
+
+// Swap two references (ref==a -> b and ref==b -> a). Used to reorder a flat,
+// individually-referenced list (reactions/pushbacks/etc.) while keeping references valid.
+inline void SwapRef(uint32_t& ref, uint32_t a, uint32_t b) {
+    if (ref == a) ref = b; else if (ref == b) ref = a;
+}
+void SwapRefs_ReactionList (MotbinData& d, uint32_t a, uint32_t b);
+void SwapRefs_Pushback     (MotbinData& d, uint32_t a, uint32_t b);
+void SwapRefs_PushbackExtra(MotbinData& d, uint32_t a, uint32_t b);
+void SwapRefs_Voiceclip    (MotbinData& d, uint32_t a, uint32_t b);
+void SwapRefs_CancelExtra  (MotbinData& d, uint32_t a, uint32_t b);
 
 // Reference-count helpers: how many dependents point at pos in that block?
 uint32_t CountRefs_Requirement  (const MotbinData& d, uint32_t pos);

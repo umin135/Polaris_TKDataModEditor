@@ -10,6 +10,8 @@
 #include "moveset/labels/FieldTooltips.h"
 #include "moveset/live/GameLiveEdit.h"
 #include "moveset/data/KamuiHash.h"
+#include "moveset/editor/ListKeybinds.h"
+#include "LayoutStore.h"
 #include "imgui/imgui.h"
 #include "imgui/imgui_internal.h"
 #include <cstdio>
@@ -71,26 +73,347 @@ bool hasReq(MotbinData &data, int index, uint32_t reqId)
 //  List-action enum + generic +button popup helper
 // -------------------------------------------------------------
 
-enum class ListAction { None, Insert, Duplicate, Remove };
+enum class ListAction { None, Insert, Duplicate, Remove, MoveUp, MoveDown };
 
-// Renders a "+" button that opens a popup with Insert / Duplicate / Remove items.
-// The popup ID must be unique in the current window context.
-static ListAction RenderListPlusMenu(const char* popupId, const char* typeName)
+struct RowResult { ListAction act = ListAction::None; bool insertAfter = false; };
+
+// Shared height for list rows that carry per-row action buttons. Callers pass this as the
+// Selectable height so the row is exactly as tall as the buttons (prevents the buttons /
+// highlight from bleeding into the rows above and below).
+static float ListRowHeight() { return ImGui::GetTextLineHeight() + 4.0f; }
+
+// Draggable vertical splitter bar. Call on the same line, between the left panel's EndChild
+// and the right panel's BeginChild. Adjusts *leftW by the horizontal drag, clamped so the left
+// panel stays >= minLeft and the remaining space stays >= minRight. Shows a resize cursor and a
+// subtle highlight while hovered/active.
+static void VSplitter(const char* id, float* leftW, float minLeft, float minRight)
 {
-    if (ImGui::Button("+")) ImGui::OpenPopup(popupId);
-    if (!ImGui::BeginPopup(popupId)) return ListAction::None;
+    const float thickness = 6.0f;
+    ImGui::SameLine(0.0f, 0.0f);
+    float availY = ImGui::GetContentRegionAvail().y;
+    ImGui::InvisibleButton(id, ImVec2(thickness, availY > 1.0f ? availY : 1.0f));
+    if (ImGui::IsItemActive())
+        *leftW += ImGui::GetIO().MouseDelta.x;
+    if (ImGui::IsItemHovered() || ImGui::IsItemActive())
+    {
+        ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+        ImU32 col = ImGui::GetColorU32(ImGui::IsItemActive() ? ImGuiCol_SeparatorActive
+                                                             : ImGuiCol_SeparatorHovered);
+        ImGui::GetWindowDrawList()->AddRectFilled(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), col);
+    }
+    // Clamp against the space available on this row (measured before the left panel).
+    float rowW = ImGui::GetContentRegionAvail().x + *leftW + thickness;  // approx total row width
+    float maxLeft = rowW - minRight - thickness;
+    if (*leftW < minLeft) *leftW = minLeft;
+    if (maxLeft > minLeft && *leftW > maxLeft) *leftW = maxLeft;
+    ImGui::SameLine(0.0f, 0.0f);
+}
+
+// Per-row list controls. Call immediately after a row's Selectable (which must use
+// ImGuiSelectableFlags_AllowOverlap), inside PushID(row)/PopID(). Renders:
+//   - a right-click context menu with "Insert Before / Insert After"
+//   - right-aligned action buttons  [ ^ ] [ v ] [ D ] [ X ]  (up / down / duplicate / remove)
+// Boundary flags disable illegal operations. Terminator rows show no buttons.
+// Draws the right-aligned [ ^ ][ v ][ D ][ X ] action buttons on the current line and records
+// the chosen action into `r`. Shared by ListRow (Selectable lists) and ListRowCard (card lists).
+// Must be called with a unique ID scope (either a per-row PushID or a distinct child window),
+// or the button IDs will collide between rows.
+static void ListRowButtons(RowResult& r, bool canUp, bool canDown, bool allowDup, bool allowDel)
+{
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(3.0f, 2.0f));
+    const float  rowH = ListRowHeight();          // buttons exactly fill the row height
+    const ImVec2 bs(rowH + 4.0f, rowH);
+    const float  sp = 2.0f;
+    const float  rmargin = 5.0f;             // gap from the column's right edge
+    const float  total = 4 * bs.x + 3 * sp;
+    ImGui::SameLine();
+    float rightX = ImGui::GetWindowContentRegionMax().x - total - rmargin;
+    ImGui::SetCursorPosX(rightX > 0.0f ? rightX : 0.0f);
+
+    auto slot = [&](const char* glyph, const char* id, bool enabled, ListAction a, const ImVec4* btnCol) {
+        char full[24];
+        if (!enabled) {
+            // Opaque empty button frame (not the translucent BeginDisabled look).
+            ImVec2 p = ImGui::GetCursorScreenPos();
+            ImGui::Dummy(bs);
+            ImU32 c = ImGui::GetColorU32(ImVec4(0.20f, 0.20f, 0.24f, 1.0f));
+            ImGui::GetWindowDrawList()->AddRectFilled(
+                p, ImVec2(p.x + bs.x, p.y + bs.y), c, ImGui::GetStyle().FrameRounding);
+            return;
+        }
+        snprintf(full, sizeof(full), "%s##%s", glyph, id);
+        if (btnCol) {
+            ImGui::PushStyleColor(ImGuiCol_Button,        *btnCol);
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(btnCol->x + 0.2f, btnCol->y + 0.1f, btnCol->z + 0.1f, 1.0f));
+        }
+        if (ImGui::Button(full, bs)) r.act = a;
+        if (btnCol) ImGui::PopStyleColor(2);
+    };
+    const ImVec4 red(0.55f, 0.12f, 0.12f, 1.0f);
+    slot("^", "ru", canUp,    ListAction::MoveUp,    nullptr); ImGui::SameLine(0, sp);
+    slot("v", "rd", canDown,  ListAction::MoveDown,  nullptr); ImGui::SameLine(0, sp);
+    slot("D", "rc", allowDup, ListAction::Duplicate, nullptr); ImGui::SameLine(0, sp);
+    slot("X", "rx", allowDel, ListAction::Remove,    &red);
+    ImGui::PopStyleVar(1);
+}
+
+// Applies a keyboard-shortcut action to `r` when this row is the keyboard target: it is the
+// selected row, its list window is focused (blocks presses from other windows / other programs)
+// AND hovered (disambiguates multiple lists inside one sub-window), and no text field is active.
+// Boundary flags gate the same way as the buttons; a chosen button action takes precedence.
+static void ListRowKeys(RowResult& r, bool isSelected, bool canUp, bool canDown,
+                        bool allowDup, bool allowDel, bool canInsBefore, bool canInsAfter)
+{
+    if (!isSelected || r.act != ListAction::None) return;
+    if (!ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) return;
+    if (!ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows)) return;
+    if (ImGui::GetIO().WantTextInput) return;
+    const ListKeybinds& kb = ListKeybinds::Get();
+    if      (allowDel && kb.Pressed(ListShortcut::Remove))    r.act = ListAction::Remove;
+    else if (allowDup && kb.Pressed(ListShortcut::Duplicate)) r.act = ListAction::Duplicate;
+    else if (canUp    && kb.Pressed(ListShortcut::MoveUp))    r.act = ListAction::MoveUp;
+    else if (canDown  && kb.Pressed(ListShortcut::MoveDown))  r.act = ListAction::MoveDown;
+    else if (kb.Pressed(ListShortcut::Insert)) {
+        if      (canInsAfter)  { r.act = ListAction::Insert; r.insertAfter = true; }
+        else if (canInsBefore) { r.act = ListAction::Insert; r.insertAfter = false; }
+    }
+}
+
+// insertOnly: top-level / master lists don't carry per-row action buttons. Instead the full set
+// of operations lives in the right-click context menu, and these rows take NO keyboard shortcuts
+// (shortcuts are reserved for rows that show buttons). isTerm rows also carry no buttons/keyboard.
+static RowResult ListRow(bool isTerm, bool canUp, bool canDown, bool allowDup, bool allowDel,
+                         bool canInsBefore, bool canInsAfter, bool kbSelected = false,
+                         bool insertOnly = false)
+{
+    RowResult r;
+    if (ImGui::BeginPopupContextItem("##rowctx"))
+    {
+        ImGui::BeginDisabled(!canInsBefore);
+        if (ImGui::MenuItem("Insert Before")) { r.act = ListAction::Insert; r.insertAfter = false; }
+        ImGui::EndDisabled();
+        ImGui::BeginDisabled(!canInsAfter);
+        if (ImGui::MenuItem("Insert After"))  { r.act = ListAction::Insert; r.insertAfter = true; }
+        ImGui::EndDisabled();
+        // Top-level (insert-only) rows expose the remaining operations here (no buttons for them).
+        if (insertOnly && !isTerm)
+        {
+            ImGui::Separator();
+            ImGui::BeginDisabled(!allowDup);
+            if (ImGui::MenuItem("Duplicate")) r.act = ListAction::Duplicate;
+            ImGui::EndDisabled();
+            ImGui::BeginDisabled(!canUp);
+            if (ImGui::MenuItem("Move Up"))   r.act = ListAction::MoveUp;
+            ImGui::EndDisabled();
+            ImGui::BeginDisabled(!canDown);
+            if (ImGui::MenuItem("Move Down")) r.act = ListAction::MoveDown;
+            ImGui::EndDisabled();
+            ImGui::Separator();
+            ImGui::BeginDisabled(!allowDel);
+            if (ImGui::MenuItem("Remove"))    r.act = ListAction::Remove;
+            ImGui::EndDisabled();
+        }
+        ImGui::EndPopup();
+    }
+    if (isTerm || insertOnly)
+        return r;   // no buttons and no keyboard shortcuts for these rows
+    ListRowButtons(r, canUp, canDown, allowDup, allowDel);
+    ListRowKeys(r, kbSelected, canUp, canDown, allowDup, allowDel, canInsBefore, canInsAfter);
+    return r;
+}
+
+// Card-style variant: draws the action buttons on the current line (typically the card's "#N"
+// header row) and attaches a window-scoped right-click "Insert Before / After" menu. Call once
+// inside each card's child window; the distinct child window supplies the ID scope.
+static RowResult ListRowCard(bool canUp, bool canDown, bool allowDup, bool allowDel,
+                             bool canInsBefore, bool canInsAfter, bool kbSelected = false)
+{
+    RowResult r;
+    ListRowButtons(r, canUp, canDown, allowDup, allowDel);
+    if (ImGui::BeginPopupContextWindow("##cardctx"))
+    {
+        ImGui::BeginDisabled(!canInsBefore);
+        if (ImGui::MenuItem("Insert Before")) { r.act = ListAction::Insert; r.insertAfter = false; }
+        ImGui::EndDisabled();
+        ImGui::BeginDisabled(!canInsAfter);
+        if (ImGui::MenuItem("Insert After"))  { r.act = ListAction::Insert; r.insertAfter = true; }
+        ImGui::EndDisabled();
+        ImGui::EndPopup();
+    }
+    ListRowKeys(r, kbSelected, canUp, canDown, allowDup, allowDel, canInsBefore, canInsAfter);
+    return r;
+}
+
+// Swap an inner item with its neighbour within the SAME 2-level list (single step).
+// The list start index is unchanged, so no reference fixup is needed. `gc` includes the
+// [END] terminator (real items are indices 0..gc-2). Returns the new inner index, or -1
+// if the move is out of range (top/bottom of the list, or onto the terminator).
+template<class T>
+static int ReorderInnerSwap(std::vector<T>& blk, uint32_t gf, uint32_t gc, int inner, int dir)
+{
+    int ni = inner + dir;
+    if (ni < 0 || ni >= (int)gc - 1) return -1;   // gc-1 = terminator
+    if ((uint32_t)(gf + inner) >= blk.size() || (uint32_t)(gf + ni) >= blk.size()) return -1;
+    std::swap(blk[gf + inner], blk[gf + (uint32_t)ni]);
+    return ni;
+}
+
+// No-op fixup/count for 2-level lists that no other block references (e.g. parryable moves):
+// reorder / insert / remove need no reference maintenance.
+static void     NoRefFixup(MotbinData&, uint32_t, bool, bool) {}
+static uint32_t NoRefCount(const MotbinData&, uint32_t) { return 0; }
+
+// Applies a deferred per-row action to a 2-level inner list. `innerSel` is the selection
+// index within the list, `gf`/`gc` the list start / count (gc includes the terminator).
+// Insert honours before/after; Duplicate copies after; Remove confirms only when the item
+// is still referenced; Move swaps within the list. Returns true if the block changed this
+// frame (caller should recompute its groups). Removal via the confirm popup returns false
+// (the change happens next frame when the user confirms).
+template<class T>
+static bool ApplyRowAction2Level(
+    MovesetEditorWindow* win, MotbinData& data, bool& dirty, int& innerSel,
+    std::vector<T>& block, uint32_t gf, uint32_t gc,
+    ListAction act, int rowK, bool insAfter,
+    void(*fixup)(MotbinData&, uint32_t, bool, bool),
+    uint32_t(*count)(const MotbinData&, uint32_t),
+    const T& newItem, const char* typeName)
+{
+    uint32_t idx = gf + (uint32_t)rowK;
+    if (act == ListAction::Insert) {
+        uint32_t pos = insAfter ? idx + 1 : idx;
+        block.insert(block.begin() + pos, newItem);
+        fixup(data, pos, true, (pos == gf));
+        innerSel = (int)(pos - gf); dirty = true; return true;
+    }
+    if (act == ListAction::Duplicate) {
+        uint32_t pos = idx + 1;
+        block.insert(block.begin() + pos, block[idx]);
+        fixup(data, pos, true, false);
+        innerSel = (int)(pos - gf); dirty = true; return true;
+    }
+    if (act == ListAction::Remove) {
+        uint32_t cai = idx;
+        bool keepRefs = (cai == gf) && (gc >= 3);
+        uint32_t refs = keepRefs ? 0 : count(data, cai);
+        std::vector<T>* bp = &block; int* sp = &innerSel; bool* dp = &dirty; MotbinData* mp = &data;
+        auto doRem = [bp, sp, dp, mp, cai, keepRefs, fixup]() {
+            fixup(*mp, cai, false, keepRefs);
+            bp->erase(bp->begin() + cai);
+            if (*sp > 0) (*sp)--;
+            *dp = true;
+        };
+        if (refs > 0) {
+            snprintf(win->m_removeConfirm.message, sizeof(win->m_removeConfirm.message),
+                     "%s at index %u is referenced by %u location(s).\nRemove anyway?", typeName, cai, refs);
+            win->m_removeConfirm.onConfirm = doRem;
+            win->m_removeConfirm.callerViewportId = ImGui::GetWindowViewport()->ID;
+            win->m_removeConfirm.pending = true;
+            return false;
+        }
+        doRem(); return true;
+    }
+    if (act == ListAction::MoveUp || act == ListAction::MoveDown) {
+        int ni = ReorderInnerSwap(block, gf, gc, rowK, act == ListAction::MoveUp ? -1 : 1);
+        if (ni >= 0) { innerSel = ni; dirty = true; return true; }
+    }
+    return false;
+}
+
+// Applies a deferred per-row action to a FLAT (single-level, individually-referenced) list.
+// Insert honours before/after; Duplicate copies after; Remove confirms when referenced; Move
+// swaps adjacent items AND swaps their references (swapRefs) so dependents follow. fixup/count/
+// swapRefs may be null for unreferenced lists. Returns true if the block changed this frame.
+template<class T>
+static bool ApplyRowActionFlat(
+    MovesetEditorWindow* win, MotbinData& data, bool& dirty, int& sel,
+    std::vector<T>& block, ListAction act, int rowK, bool insAfter,
+    void(*fixup)(MotbinData&, uint32_t, bool),
+    uint32_t(*count)(const MotbinData&, uint32_t),
+    void(*swapRefs)(MotbinData&, uint32_t, uint32_t),
+    const T& newItem, const char* typeName)
+{
+    int n = (int)block.size();
+    uint32_t idx = (uint32_t)rowK;
+    if (act == ListAction::Insert) {
+        uint32_t pos = insAfter ? idx + 1 : idx;
+        if (pos > (uint32_t)n) pos = (uint32_t)n;
+        block.insert(block.begin() + pos, newItem);
+        if (fixup) fixup(data, pos, true);
+        sel = (int)pos; dirty = true; return true;
+    }
+    if (act == ListAction::Duplicate) {
+        uint32_t pos = idx + 1;
+        block.insert(block.begin() + pos, block[idx]);
+        if (fixup) fixup(data, pos, true);
+        sel = (int)pos; dirty = true; return true;
+    }
+    if (act == ListAction::Remove) {
+        uint32_t cai = idx;
+        uint32_t refs = count ? count(data, cai) : 0;
+        std::vector<T>* bp = &block; int* sp = &sel; bool* dp = &dirty; MotbinData* mp = &data;
+        auto doRem = [bp, sp, dp, mp, cai, fixup]() {
+            if (fixup) fixup(*mp, cai, false);
+            bp->erase(bp->begin() + cai);
+            if (*sp > 0) (*sp)--;
+            *dp = true;
+        };
+        if (refs > 0) {
+            snprintf(win->m_removeConfirm.message, sizeof(win->m_removeConfirm.message),
+                     "%s at index %u is referenced by %u location(s).\nRemove anyway?", typeName, cai, refs);
+            win->m_removeConfirm.onConfirm = doRem;
+            win->m_removeConfirm.callerViewportId = ImGui::GetWindowViewport()->ID;
+            win->m_removeConfirm.pending = true;
+            return false;
+        }
+        doRem(); return true;
+    }
+    if (act == ListAction::MoveUp || act == ListAction::MoveDown) {
+        int ni = rowK + (act == ListAction::MoveUp ? -1 : 1);
+        if (ni < 0 || ni >= n) return false;
+        std::swap(block[rowK], block[ni]);
+        if (swapRefs) swapRefs(data, (uint32_t)rowK, (uint32_t)ni);
+        sel = ni; dirty = true; return true;
+    }
+    return false;
+}
+
+// Right-click context menu for a top-level (outer) 2-level list — replaces the old "+" header
+// button. Offers Insert / Duplicate / Remove of a whole sub-list. Call once per outer row, right
+// after its Selectable, inside PushID(row); the caller selects the right-clicked row so the
+// Duplicate/Remove operate on it. Returns the chosen action (None if the menu wasn't used).
+static ListAction OuterListContextMenu(const char* typeName)
+{
     ListAction act = ListAction::None;
-    char lbl[128];
-    snprintf(lbl, sizeof(lbl), "Insert New %s", typeName);
-    if (ImGui::MenuItem(lbl)) act = ListAction::Insert;
-    snprintf(lbl, sizeof(lbl), "Duplicate Selected %s", typeName);
-    if (ImGui::MenuItem(lbl)) act = ListAction::Duplicate;
-    ImGui::Separator();
-    snprintf(lbl, sizeof(lbl), "Remove Selected %s", typeName);
-    if (ImGui::MenuItem(lbl)) act = ListAction::Remove;
-    ImGui::EndPopup();
+    if (ImGui::BeginPopupContextItem("##outerctx"))
+    {
+        char lbl[128];
+        snprintf(lbl, sizeof(lbl), "Insert New %s", typeName);
+        if (ImGui::MenuItem(lbl)) act = ListAction::Insert;
+        snprintf(lbl, sizeof(lbl), "Duplicate %s", typeName);
+        if (ImGui::MenuItem(lbl)) act = ListAction::Duplicate;
+        ImGui::Separator();
+        snprintf(lbl, sizeof(lbl), "Remove %s", typeName);
+        if (ImGui::MenuItem(lbl)) act = ListAction::Remove;
+        ImGui::EndPopup();
+    }
     return act;
 }
+
+// Background (empty-area) right-click menu for an outer list — lets the user append a new sub-list
+// even when no row exists / is under the cursor. Returns Insert if chosen. `bgId` must be unique.
+static ListAction OuterListBgMenu(const char* bgId, const char* typeName)
+{
+    ListAction act = ListAction::None;
+    if (ImGui::BeginPopupContextWindow(bgId, ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems))
+    {
+        char lbl[128];
+        snprintf(lbl, sizeof(lbl), "Insert New %s", typeName);
+        if (ImGui::MenuItem(lbl)) act = ListAction::Insert;
+        ImGui::EndPopup();
+    }
+    return act;
+}
+
 
 // -------------------------------------------------------------
 //  Construction
@@ -144,9 +467,26 @@ void MovesetEditorWindow::SetD3DContext(ID3D11Device* dev, ID3D11DeviceContext* 
             m_animNameDB.AddEntry(m_data.folderPath, name, crc32);
         });
         m_animMgr->SetOnAnimRemoved([this](uint32_t removedHash) {
+            // Repoint moves that referenced the removed animation to move 0's
+            // animation (a safe, always-present fallback) instead of a broken 0 key.
+            uint32_t fallback = m_data.moves.empty() ? 0u : m_data.moves[0].anim_key;
+            if (fallback == removedHash) fallback = 0u; // move 0 itself used it -> clear
             for (auto& mv : m_data.moves)
-                if (mv.anim_key == removedHash) mv.anim_key = 0;
+                if (mv.anim_key == removedHash) mv.anim_key = fallback;
+            // Drop the removed animation's name so it can't linger and tangle a re-add.
+            m_animNameDB.RemoveKey(m_data.folderPath, removedHash);
+            m_animKeyBufIdx = -1;   // force the move-detail anim field to re-read
             m_dirty = true;
+        });
+        m_animMgr->SetOnAnimRenamed([this](uint32_t key, const std::string& newName) {
+            // Rename keeps the anim_key, so referencing moves stay valid; only the
+            // displayed name changes. Invalidate the cached buffer so it refreshes.
+            std::string oldName = m_animNameDB.AnimKeyToName(key);
+            if (oldName.empty())
+                m_animNameDB.AddEntry(m_data.folderPath, newName, key);
+            else
+                m_animNameDB.Rename(m_data.folderPath, oldName, newName);
+            m_animKeyBufIdx = -1;
         });
         if (dev && ctx)
             m_animMgr->SetD3DContext(dev, ctx);
@@ -156,6 +496,45 @@ void MovesetEditorWindow::SetD3DContext(ID3D11Device* dev, ID3D11DeviceContext* 
 // -------------------------------------------------------------
 //  Main render
 // -------------------------------------------------------------
+
+// Section width accessor: first access seeds the value from the remembered layout (LayoutStore),
+// then the drag-splitter mutates it live; PersistLayout() writes it back each frame.
+float& MovesetEditorWindow::SectionW(const char* key, float defaultW)
+{
+    auto it = m_sectionW.find(key);
+    if (it == m_sectionW.end())
+        it = m_sectionW.emplace(key, LayoutStore::Get().GetSec(key, defaultW)).first;
+    return it->second;
+}
+
+// Push the live section widths and sub-window sizes into LayoutStore (in-memory). The file is
+// written by App on editor close / app exit. Called once per frame at the end of Render().
+void MovesetEditorWindow::PersistLayout()
+{
+    LayoutStore& ls = LayoutStore::Get();
+    for (const auto& kv : m_sectionW)
+        ls.SetSec(kv.first, kv.second);
+
+    static const struct { const char* title; const char* key; } kWins[] = {
+        {"Requirements##blkwin",    "Requirements"},
+        {"Cancels##blkwin",         "Cancels"},
+        {"Hit Conditions##blkwin",  "HitConditions"},
+        {"Reaction Lists##blkwin",  "Reactions"},
+        {"Pushbacks##blkwin",       "Pushbacks"},
+        {"Voiceclips##blkwin",      "Voiceclips"},
+        {"Properties##blkwin",      "Properties"},
+        {"Throws##blkwin",          "Throws"},
+        {"Projectiles##blkwin",     "Projectiles"},
+        {"Input Sequences##blkwin", "InputSequences"},
+        {"Parryable Moves##blkwin", "ParryableMoves"},
+    };
+    for (const auto& w : kWins) {
+        std::string full = WinId(w.title);
+        if (ImGuiWindow* iw = ImGui::FindWindowByName(full.c_str()))
+            if (iw->WasActive && iw->Size.x > 1.0f && iw->Size.y > 1.0f)
+                ls.SetWin(w.key, iw->Size);
+    }
+}
 
 bool MovesetEditorWindow::Render()
 {
@@ -327,6 +706,9 @@ bool MovesetEditorWindow::Render()
     RenderSavePopups();
     RenderCloseConfirmModal();
     RenderRemoveConfirmModal();
+
+    // Capture the live sub-window sizes / section widths into LayoutStore (persisted on close).
+    PersistLayout();
 
     return m_open;
 }
@@ -1468,6 +1850,8 @@ void MovesetEditorWindow::RenderSection_Overview(ParsedMove& m, bool& dirty)
         +[](const ParsedExtraProp& e)->bool{ return e.type == 0 && e.id == 0; });
     const auto spGroups = ComputeOtherPropGroups(m_data.startPropBlock, m_data.requirementBlock);
     const auto npGroups = ComputeOtherPropGroups(m_data.endPropBlock,   m_data.requirementBlock);
+    const auto vcGroups = ComputeGroups(m_data.voiceclipBlock,
+        +[](const ParsedVoiceclip& v)->bool{ return v.val1==0xFFFFFFFFu && v.val2==0xFFFFFFFFu && v.val3==0xFFFFFFFFu; });
 
     // -- Validity flags -------------------------------------------------------
     const uint16_t transU16       = m.transition;
@@ -1491,7 +1875,7 @@ void MovesetEditorWindow::RenderSection_Overview(ParsedMove& m, bool& dirty)
     const bool transValid     = (transResolvedIdx >= 0);
     const bool cancelValid    = (m.cancel_idx        != 0xFFFFFFFF) && (FindGroupOuter(cancelGroups,   m.cancel_idx)        >= 0);
     const bool hitCondValid   = (m.hit_condition_idx != 0xFFFFFFFF) && (FindGroupOuter(hitCondGroups,  m.hit_condition_idx) >= 0);
-    const bool voiceclipValid = (m.voiceclip_idx     != 0xFFFFFFFF) && (m.voiceclip_idx < m_data.voiceclipBlock.size());
+    const bool voiceclipValid = (m.voiceclip_idx     != 0xFFFFFFFF) && (FindGroupOuter(vcGroups, m.voiceclip_idx) >= 0);
     const bool epValid        = (m.extra_prop_idx    != 0xFFFFFFFF) && (FindGroupOuter(epGroups,       m.extra_prop_idx)    >= 0);
     const bool spValid        = (m.start_prop_idx    != 0xFFFFFFFF) && (FindGroupOuter(spGroups,       m.start_prop_idx)    >= 0);
     const bool npValid        = (m.end_prop_idx      != 0xFFFFFFFF) && (FindGroupOuter(npGroups,       m.end_prop_idx)      >= 0);
@@ -1966,10 +2350,15 @@ void MovesetEditorWindow::RenderSection_Overview(ParsedMove& m, bool& dirty)
     }
     if (clickVoiceclip)
     {
-        m_voiceclipWinSel    = (int)m.voiceclip_idx;
+        int gi = FindGroupOuter(vcGroups, m.voiceclip_idx);
+        if (gi >= 0)
+        {
+            m_voiceclipSel.outer       = gi;
+            m_voiceclipSel.inner       = 0;
+            m_voiceclipSel.scrollOuter = true;
+        }
         m_voiceclipWinOpen   = true;
         m_voiceclipWinFocus  = true;
-        m_voiceclipWinScroll = true;
     }
     if (clickExtraProp)
     {
@@ -2285,6 +2674,18 @@ void MovesetEditorWindow::TryInitAnimNameDB()
                 // Genuinely missing entry (custom file not yet in DB): add as fallback.
                 m_animNameDB.AddEntry(m_data.folderPath, name, h);
             }
+
+            // Prune orphaned name entries left in the JSON by removed animations:
+            // keys no longer present in any anmbin pool AND not referenced by any move.
+            // Runs once, when the moveset editor opens. Original-anim names key off the
+            // motbin anim_key (= a move's anim_key), so both pool keys and move keys are valid.
+            std::unordered_set<uint32_t> validKeys;
+            for (int c = 0; c < 6; ++c)
+                for (const auto& e : anmbin.pool[c])
+                    validKeys.insert(static_cast<uint32_t>(e.animKey & 0xFFFFFFFF));
+            for (const auto& mv : m_data.moves)
+                validKeys.insert(mv.anim_key);
+            m_animNameDB.PruneToValidKeys(m_data.folderPath, validKeys);
         }
         return;
     }
@@ -2586,7 +2987,10 @@ void MovesetEditorWindow::RenderSavePopups()
 void MovesetEditorWindow::RenderSubWin_Requirements()
 {
     if (!m_reqWinOpen) return;
-    ImGui::SetNextWindowSize(ImVec2(650.0f, 400.0f), ImGuiCond_FirstUseEver);
+    // Bring-to-front: skip one frame so the window re-appears and ImGui auto-focuses it
+    // (reliable even when it was already open / behind another / in a separate viewport).
+    if (m_reqWinFocus) { m_reqWinFocus = false; return; }
+    ImGui::SetNextWindowSize(LayoutStore::Get().GetWin("Requirements", 650.0f, 400.0f), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin(WinId("Requirements##blkwin").c_str(), &m_reqWinOpen, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking))
     { ImGui::End(); return; }
 
@@ -2594,27 +2998,33 @@ void MovesetEditorWindow::RenderSubWin_Requirements()
     const uint32_t reqEnd = GameStatic::Get().data.reqListEnd;
     auto mkGroups = [&]{ return ComputeGroups(blk, +[](const ParsedRequirement& r)->bool{ return r.req==GameStatic::Get().data.reqListEnd; }); };
     auto groups = mkGroups();
-    static constexpr float kListW = 180.0f;
-
-    // Helper: render right-aligned + button, return its action
-    auto ListHeader = [](const char* popupId, const char* typeName,
-                         const char* label, int count) -> ListAction
-    {
-        float btnW = ImGui::CalcTextSize("+").x + ImGui::GetStyle().FramePadding.x * 2.0f;
-        float rightX = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - btnW;
-        ImGui::TextDisabled("%s (%d)", label, count);
-        ImGui::SameLine(rightX);
-        return RenderListPlusMenu(popupId, typeName);
-    };
+    float& outerW = SectionW("req_outer", 180.0f);
+    float& innerW = SectionW("req_inner", 180.0f);
 
     // ---- Outer list ----
-    ImGui::BeginChild("##req_outer", ImVec2(kListW, 0.0f), true);
+    ImGui::BeginChild("##req_outer", ImVec2(outerW, 0.0f), true);
     {
-        bool hasOuter = (m_reqWinSel.outer < (int)groups.size());
-        ListAction outerAct = ListHeader("##req_om", "Requirement-list",
-                                         "Requirement Lists", (int)groups.size());
-        ImGui::Separator();
+        ImGui::TextDisabled("Requirement Lists (%d)", (int)groups.size());        ImGui::Separator();
 
+        ListAction outerAct = ListAction::None;
+
+        ImGui::BeginChild("##req_outer_sl", ImVec2(0, 0), false);
+        for (int gi = 0; gi < (int)groups.size(); ++gi) {
+            uint32_t items = groups[gi].second;
+            char lbl[48]; snprintf(lbl, sizeof(lbl), "#%u  %u items##rg%d", groups[gi].first, items, gi);
+            ImGui::PushID(gi);
+            bool s = (m_reqWinSel.outer == gi);
+            if (ImGui::Selectable(lbl, s)) { m_reqWinSel.outer = gi; m_reqWinSel.inner = 0; }
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) { m_reqWinSel.outer = gi; m_reqWinSel.inner = 0; }
+            ListAction a = OuterListContextMenu("Requirement-list");
+            if (a != ListAction::None) outerAct = a;
+            if (s && m_reqWinSel.scrollOuter) { ImGui::SetScrollHereY(0.5f); m_reqWinSel.scrollOuter = false; }
+            ImGui::PopID();
+        }
+        { ListAction a = OuterListBgMenu("##req_outer_bg", "Requirement-list"); if (a != ListAction::None) outerAct = a; }
+        ImGui::EndChild();
+
+        bool hasOuter = (m_reqWinSel.outer < (int)groups.size());
         if (outerAct == ListAction::Insert) {
             uint32_t insertPos = hasOuter
                 ? groups[m_reqWinSel.outer].first + groups[m_reqWinSel.outer].second
@@ -2647,109 +3057,74 @@ void MovesetEditorWindow::RenderSubWin_Requirements()
                 m_removeConfirm.onConfirm = doRem; m_removeConfirm.callerViewportId = ImGui::GetWindowViewport()->ID; m_removeConfirm.pending = true;
             } else { doRem(); groups = mkGroups(); }
         }
-
-        ImGui::BeginChild("##req_outer_sl", ImVec2(0, 0), false);
-        for (int gi = 0; gi < (int)groups.size(); ++gi) {
-            uint32_t items = groups[gi].second;
-            char lbl[48]; snprintf(lbl, sizeof(lbl), "#%u  %u items##rg%d", groups[gi].first, items, gi);
-            bool s = (m_reqWinSel.outer == gi);
-            if (ImGui::Selectable(lbl, s)) { m_reqWinSel.outer = gi; m_reqWinSel.inner = 0; }
-            if (s && m_reqWinSel.scrollOuter) { ImGui::SetScrollHereY(0.5f); m_reqWinSel.scrollOuter = false; }
-        }
-        ImGui::EndChild();
     }
-    ImGui::EndChild(); ImGui::SameLine();
+    ImGui::EndChild();
+    VSplitter("##req_sp1", &outerW, 90.0f, 260.0f);
 
     groups = mkGroups();
 
     // ---- Inner list ----
-    ImGui::BeginChild("##req_inner", ImVec2(kListW, 0.0f), true);
+    ImGui::BeginChild("##req_inner", ImVec2(innerW, 0.0f), true);
     {
         bool hasOuter = (m_reqWinSel.outer < (int)groups.size());
-        bool isEndSel = false;
-        uint32_t innerAbsIdx = 0xFFFFFFFF;
-        if (hasOuter) {
-            innerAbsIdx = groups[m_reqWinSel.outer].first + (uint32_t)m_reqWinSel.inner;
-            if (innerAbsIdx < (uint32_t)blk.size())
-                isEndSel = (blk[innerAbsIdx].req == reqEnd);
-        }
 
-        int innerCount = hasOuter ? (int)groups[m_reqWinSel.outer].second : 0;
-        ListAction innerAct = ListHeader("##req_im", "Requirement",
-                                          "Requirements", innerCount);
-        ImGui::Separator();
+        int innerReal = hasOuter ? (int)groups[m_reqWinSel.outer].second - 1 : 0; // exclude [END]
+        ImGui::TextDisabled("Requirements (%d)", innerReal < 0 ? 0 : innerReal);        ImGui::Separator();
 
-        // isOnlyEnd: group has only [END] → allow insert before it
-        bool isOnlyEnd = isEndSel && hasOuter && (groups[m_reqWinSel.outer].second == 1);
-        if (innerAct == ListAction::Insert && isEndSel && !isOnlyEnd) { innerAct = ListAction::None; m_endInsertBlocked = true; m_insertBlockedViewportId = ImGui::GetWindowViewport()->ID; }
-
-        if (hasOuter && innerAct != ListAction::None && innerAbsIdx != 0xFFFFFFFF) {
-            uint32_t gf = groups[m_reqWinSel.outer].first, gc = groups[m_reqWinSel.outer].second;
-            if (innerAct == ListAction::Insert) {
-                uint32_t ipos = isOnlyEnd ? innerAbsIdx : innerAbsIdx + 1;
-                ParsedRequirement nr{}; nr.req = 0;
-                blk.insert(blk.begin() + ipos, nr);
-                FixupRef_Requirement(m_data, ipos, true);
-                if (!isOnlyEnd) m_reqWinSel.inner++;
-                m_dirty = true; groups = mkGroups();
-            } else if (innerAct == ListAction::Duplicate && !isEndSel) {
-                uint32_t ipos = gf + gc - 1; // before [END]
-                blk.insert(blk.begin() + ipos, blk[innerAbsIdx]);
-                FixupRef_Requirement(m_data, ipos, true);
-                m_dirty = true; groups = mkGroups();
-            } else if (innerAct == ListAction::Remove && !isEndSel) {
-                uint32_t cai = innerAbsIdx;
-                auto doRem = [this, cai]() {
-                    FixupRef_Requirement(m_data, cai, false);
-                    m_data.requirementBlock.erase(m_data.requirementBlock.begin() + cai);
-                    if (m_reqWinSel.inner > 0) m_reqWinSel.inner--;
-                    m_dirty = true;
-                };
-                uint32_t refs = CountRefs_Requirement(m_data, cai);
-                if (refs > 0) {
-                    snprintf(m_removeConfirm.message, sizeof(m_removeConfirm.message),
-                        "Requirement at index %u is referenced by %u location(s).\nRemove anyway?", cai, refs);
-                    m_removeConfirm.onConfirm = doRem; m_removeConfirm.callerViewportId = ImGui::GetWindowViewport()->ID; m_removeConfirm.pending = true;
-                } else { doRem(); groups = mkGroups(); }
-            }
-        }
+        // Deferred per-row action (applied after the loop so we don't mutate mid-iteration).
+        ListAction pendAct = ListAction::None; int pendK = -1; bool pendInsAfter = false;
 
         ImGui::BeginChild("##req_inner_sl", ImVec2(0, 0), false);
         hasOuter = (m_reqWinSel.outer < (int)groups.size());
         if (hasOuter) {
             uint32_t start = groups[m_reqWinSel.outer].first;
-            uint32_t count = groups[m_reqWinSel.outer].second;
+            uint32_t count = groups[m_reqWinSel.outer].second;   // includes [END]
             for (uint32_t k = 0; k < count; ++k) {
                 uint32_t idx = start + k;
                 if (idx >= (uint32_t)blk.size()) break;
                 const ParsedRequirement& r = blk[idx];
                 bool isTerm = (r.req == reqEnd);
-                char lbl[192];
-                char reqBuf[32];
-                if (r.req > 0x8000) {
-                    snprintf(reqBuf, sizeof(reqBuf), "0x%.4X", r.req);
-                } else {
-                    snprintf(reqBuf, sizeof(reqBuf), "%u", r.req);
-                }
+                char lbl[192]; char reqBuf[32];
+                if (r.req > 0x8000) snprintf(reqBuf, sizeof(reqBuf), "0x%.4X", r.req);
+                else                snprintf(reqBuf, sizeof(reqBuf), "%u", r.req);
                 if (isTerm) {
                     snprintf(lbl, sizeof(lbl), "#%u  [END]##ri%u", k, idx);
                 } else {
                     const MovesetDataDict::ReqEntry* de = MovesetDataDict::Get().GetReq(r.req);
-                    if (de && !de->condition.empty()) {
+                    if (de && !de->condition.empty())
                         snprintf(lbl, sizeof(lbl), "#%u  %s: %s##ri%u", k, reqBuf, de->condition.c_str(), idx);
-                    } else {
+                    else
                         snprintf(lbl, sizeof(lbl), "#%u  %s##ri%u", k, reqBuf, idx);
-                    }
                 }
+                ImGui::PushID((int)k);
                 if (isTerm) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f,0.5f,0.5f,1.0f));
                 bool sel = (m_reqWinSel.inner == (int)k);
-                if (ImGui::Selectable(lbl, sel)) m_reqWinSel.inner = (int)k;
+                if (ImGui::Selectable(lbl, sel, ImGuiSelectableFlags_AllowOverlap, ImVec2(0, ListRowHeight()))) m_reqWinSel.inner = (int)k;
                 if (isTerm) ImGui::PopStyleColor();
+
+                bool canUp   = !isTerm && k > 0;
+                bool canDown = !isTerm && (int)k < (int)count - 2;   // not the item just before [END]
+                bool canInsB = isTerm ? true : (k > 0);              // front real item: no insert-before
+                bool canInsA = !isTerm;                              // [END]: no insert-after
+                RowResult rr = ListRow(isTerm, canUp, canDown, !isTerm, !isTerm, canInsB, canInsA, sel);
+                if (rr.act != ListAction::None) { pendAct = rr.act; pendK = (int)k; pendInsAfter = rr.insertAfter; }
+                ImGui::PopID();
             }
         }
         ImGui::EndChild();
+
+        // ---- Apply the deferred row action ----
+        if (pendAct != ListAction::None && hasOuter && pendK >= 0) {
+            uint32_t gf = groups[m_reqWinSel.outer].first, gc = groups[m_reqWinSel.outer].second;
+            ParsedRequirement nr{}; nr.req = 0;
+            if (ApplyRowAction2Level(this, m_data, m_dirty, m_reqWinSel.inner, blk, gf, gc,
+                                     pendAct, pendK, pendInsAfter,
+                                     &FixupRef_Requirement, &CountRefs_Requirement, nr, "Requirement"))
+                groups = mkGroups();
+        }
     }
-    ImGui::EndChild(); ImGui::SameLine();
+    ImGui::EndChild();
+    VSplitter("##req_sp2", &innerW, 90.0f, 140.0f);
 
     groups = mkGroups();
 
@@ -2969,7 +3344,7 @@ void MovesetEditorWindow::RenderCancelInnerDetail(
                 return rr.req == GameStatic::Get().data.reqListEnd; });
             int gi = FindGroupOuter(grps, c.req_list_idx);
             if (gi >= 0) { m_reqWinSel.outer = gi; m_reqWinSel.inner = 0; m_reqWinSel.scrollOuter = true; }
-            m_reqWinOpen = true;
+            m_reqWinOpen = true; m_reqWinFocus = true;
         }
 
         // move (uint16_t, navigate — same logic as before)
@@ -3119,21 +3494,9 @@ static void RenderCancelSection(
     const std::vector<std::pair<uint32_t,uint32_t>>& gcGroups,
     MotbinData& data,
     bool& dirty,
-    bool isGroupCancel)
+    bool isGroupCancel,
+    float& outerW, float& innerW)
 {
-    static constexpr float kColW = 180.0f;
-
-    // Right-aligned + button header: "Label (N)  [+]"
-    auto ListHdr = [](const char* popupId, const char* typeName,
-                      const char* label, int count) -> ListAction
-    {
-        float btnW  = ImGui::CalcTextSize("+").x + ImGui::GetStyle().FramePadding.x * 2.0f;
-        float rightX = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - btnW;
-        ImGui::TextDisabled("%s (%d)", label, count);
-        ImGui::SameLine(rightX);
-        return RenderListPlusMenu(popupId, typeName);
-    };
-
     auto recompGroups = [&]() {
         if (isGroupCancel) {
             const uint64_t gcEnd = GameStatic::Get().data.groupCancelEnd;
@@ -3144,14 +3507,31 @@ static void RenderCancelSection(
     };
 
     // ---- Outer panel ----
-    ImGui::BeginChild(outerChildId, ImVec2(kColW, sectionH), true);
+    ImGui::BeginChild(outerChildId, ImVec2(outerW, sectionH), true);
     {
-        bool hasOuter = (sel.outer < (int)groups.size());
-        char outerMenuId[64]; snprintf(outerMenuId, sizeof(outerMenuId), "##cListMenu%s", outerChildId);
-        ListAction outerAct = ListHdr(outerMenuId, isGroupCancel ? "Group-Cancel-list" : "Cancel-list",
-                                      listLabel, (int)groups.size());
-        ImGui::Separator();
+        const char* typeName = isGroupCancel ? "Group-Cancel-list" : "Cancel-list";
+        ImGui::TextDisabled("%s (%d)", listLabel, (int)groups.size());        ImGui::Separator();
 
+        ListAction outerAct = ListAction::None;
+
+        ImGui::BeginChild((std::string(outerChildId) + "_sl").c_str(), ImVec2(0, 0), false);
+        for (int gi = 0; gi < (int)groups.size(); ++gi) {
+            uint32_t items = groups[gi].second;
+            char lbl[48]; snprintf(lbl, sizeof(lbl), "#%u  %u items##g%d", groups[gi].first, items, gi);
+            ImGui::PushID(gi);
+            bool s = (sel.outer == gi);
+            if (ImGui::Selectable(lbl, s)) { sel.outer = gi; sel.inner = 0; }
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) { sel.outer = gi; sel.inner = 0; }
+            ListAction a = OuterListContextMenu(typeName);
+            if (a != ListAction::None) outerAct = a;
+            if (s && sel.scrollOuter) { ImGui::SetScrollHereY(0.5f); sel.scrollOuter = false; }
+            ImGui::PopID();
+        }
+        { char bgId[64]; snprintf(bgId, sizeof(bgId), "%s_bg", outerChildId);
+          ListAction a = OuterListBgMenu(bgId, typeName); if (a != ListAction::None) outerAct = a; }
+        ImGui::EndChild();
+
+        bool hasOuter = (sel.outer < (int)groups.size());
         if (outerAct == ListAction::Insert) {
             uint32_t insertPos = hasOuter
                 ? groups[sel.outer].first + groups[sel.outer].second
@@ -3185,77 +3565,22 @@ static void RenderCancelSection(
                 win->m_removeConfirm.onConfirm = doRem; win->m_removeConfirm.callerViewportId = ImGui::GetWindowViewport()->ID; win->m_removeConfirm.pending = true;
             } else { doRem(); recompGroups(); }
         }
-
-        ImGui::BeginChild((std::string(outerChildId) + "_sl").c_str(), ImVec2(0, 0), false);
-        for (int gi = 0; gi < (int)groups.size(); ++gi) {
-            uint32_t count = groups[gi].second;
-            uint32_t items = count;
-            char lbl[48]; snprintf(lbl, sizeof(lbl), "#%u  %u items##g%d", groups[gi].first, items, gi);
-            bool s = (sel.outer == gi);
-            if (ImGui::Selectable(lbl, s)) { sel.outer = gi; sel.inner = 0; }
-            if (s && sel.scrollOuter) { ImGui::SetScrollHereY(0.5f); sel.scrollOuter = false; }
-        }
-        ImGui::EndChild();
     }
     ImGui::EndChild();
 
     recompGroups();
 
-    ImGui::SameLine();
+    VSplitter("##can_isp1", &outerW, 100.0f, 240.0f);
 
     // ---- Inner panel ----
-    ImGui::BeginChild(innerChildId, ImVec2(kColW, sectionH), true);
+    ImGui::BeginChild(innerChildId, ImVec2(innerW, sectionH), true);
     {
         bool hasOuter = (sel.outer < (int)groups.size());
-        bool isEndSel = false;
-        uint32_t innerAbsIdx = 0xFFFFFFFF;
-        if (hasOuter) {
-            innerAbsIdx = groups[sel.outer].first + (uint32_t)sel.inner;
-            if (innerAbsIdx < (uint32_t)block.size())
-                isEndSel = (block[innerAbsIdx].command == terminatorCmd);
-        }
 
-        int innerCount = hasOuter ? (int)groups[sel.outer].second : 0;
-        char innerMenuId[64]; snprintf(innerMenuId, sizeof(innerMenuId), "##cItemMenu%s", innerChildId);
-        ListAction innerAct = ListHdr(innerMenuId, isGroupCancel ? "Group-Cancel" : "Cancel",
-                                      "Cancels", innerCount);
-        ImGui::Separator();
+        int innerReal = hasOuter ? (int)groups[sel.outer].second - 1 : 0;
+        ImGui::TextDisabled("%s (%d)", isGroupCancel ? "Group-Cancels" : "Cancels", innerReal < 0 ? 0 : innerReal);        ImGui::Separator();
 
-        bool isOnlyEnd = isEndSel && hasOuter && (groups[sel.outer].second == 1);
-        if (innerAct == ListAction::Insert && isEndSel && !isOnlyEnd) { innerAct = ListAction::None; win->m_endInsertBlocked = true; win->m_insertBlockedViewportId = ImGui::GetWindowViewport()->ID; }
-
-        if (hasOuter && innerAct != ListAction::None && innerAbsIdx != 0xFFFFFFFF) {
-            uint32_t gf = groups[sel.outer].first, gc = groups[sel.outer].second;
-            if (innerAct == ListAction::Insert) {
-                uint32_t ipos = isOnlyEnd ? innerAbsIdx : innerAbsIdx + 1;
-                block.insert(block.begin() + ipos, MakeEmptyCancel());
-                if (isGroupCancel) FixupRef_GroupCancel(data, ipos, true);
-                else               FixupRef_Cancel(data, ipos, true);
-                if (!isOnlyEnd) sel.inner++;
-                dirty = true; recompGroups();
-            } else if (innerAct == ListAction::Duplicate && !isEndSel) {
-                uint32_t ipos = gf + gc - 1; // before [END]
-                block.insert(block.begin() + ipos, block[innerAbsIdx]);
-                if (isGroupCancel) FixupRef_GroupCancel(data, ipos, true);
-                else               FixupRef_Cancel(data, ipos, true);
-                dirty = true; recompGroups();
-            } else if (innerAct == ListAction::Remove && !isEndSel) {
-                uint32_t cai = innerAbsIdx;
-                uint32_t refs = isGroupCancel ? CountRefs_GroupCancel(data, cai) : CountRefs_Cancel(data, cai);
-                auto doRem = [&block, &data, &dirty, &sel, isGroupCancel, cai]() {
-                    if (isGroupCancel) FixupRef_GroupCancel(data, cai, false);
-                    else               FixupRef_Cancel(data, cai, false);
-                    block.erase(block.begin() + cai);
-                    if (sel.inner > 0) sel.inner--;
-                    dirty = true;
-                };
-                if (refs > 0) {
-                    snprintf(win->m_removeConfirm.message, sizeof(win->m_removeConfirm.message),
-                        "Cancel at index %u is referenced by %u location(s).\nRemove anyway?", cai, refs);
-                    win->m_removeConfirm.onConfirm = doRem; win->m_removeConfirm.callerViewportId = ImGui::GetWindowViewport()->ID; win->m_removeConfirm.pending = true;
-                } else { doRem(); recompGroups(); }
-            }
-        }
+        ListAction pendAct = ListAction::None; int pendK = -1; bool pendInsAfter = false;
 
         ImGui::BeginChild((std::string(innerChildId) + "_sl").c_str(), ImVec2(0, 0), false);
         hasOuter = (sel.outer < (int)groups.size());
@@ -3278,17 +3603,36 @@ static void RenderCancelSection(
                     std::string moveName = getMoveName(data, c.move_id);
                     snprintf(lbl, sizeof(lbl), "#%u  ->%s (%u)##ci%u", k, moveName.c_str(), c.move_id, idx);
                 }
+                ImGui::PushID((int)k);
                 if (isTerm) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f,0.5f,0.5f,1.0f));
                 bool s = (sel.inner == (int)k);
-                if (ImGui::Selectable(lbl, s)) sel.inner = (int)k;
+                if (ImGui::Selectable(lbl, s, ImGuiSelectableFlags_AllowOverlap, ImVec2(0, ListRowHeight()))) sel.inner = (int)k;
                 if (isTerm) ImGui::PopStyleColor();
+
+                bool canUp   = !isTerm && k > 0;
+                bool canDown = !isTerm && (int)k < (int)count - 2;
+                bool canInsB = isTerm ? true : (k > 0);
+                bool canInsA = !isTerm;
+                RowResult rr = ListRow(isTerm, canUp, canDown, !isTerm, !isTerm, canInsB, canInsA, s);
+                if (rr.act != ListAction::None) { pendAct = rr.act; pendK = (int)k; pendInsAfter = rr.insertAfter; }
+                ImGui::PopID();
             }
         }
         ImGui::EndChild();
+
+        // ---- Apply the deferred row action ----
+        if (pendAct != ListAction::None && hasOuter && pendK >= 0) {
+            uint32_t gf = groups[sel.outer].first, gc = groups[sel.outer].second;
+            auto fixupFn = isGroupCancel ? &FixupRef_GroupCancel : &FixupRef_Cancel;
+            auto countFn = isGroupCancel ? &CountRefs_GroupCancel : &CountRefs_Cancel;
+            if (ApplyRowAction2Level(win, data, dirty, sel.inner, block, gf, gc, pendAct, pendK, pendInsAfter,
+                                     fixupFn, countFn, MakeEmptyCancel(), isGroupCancel ? "Group-Cancel" : "Cancel"))
+                recompGroups();
+        }
     }
     ImGui::EndChild();
 
-    ImGui::SameLine();
+    VSplitter("##can_isp2", &innerW, 100.0f, 150.0f);
     ImGui::BeginChild(detailChildId, ImVec2(0.0f, sectionH), false);
     if (sel.outer < (int)groups.size()) {
         uint32_t start = groups[sel.outer].first;
@@ -3302,12 +3646,11 @@ static void RenderCancelSection(
 void MovesetEditorWindow::RenderSubWin_Cancels()
 {
     if (!m_cancelsWin.open) return;
-    const bool cancelsBringFront = m_cancelsWin.pendingFocus;
-    if (cancelsBringFront) m_cancelsWin.pendingFocus = false;
-    ImGui::SetNextWindowSize(ImVec2(960.0f, 600.0f), ImGuiCond_FirstUseEver);
+    // Bring-to-front: skip one frame so the window re-appears and ImGui auto-focuses it.
+    if (m_cancelsWin.pendingFocus) { m_cancelsWin.pendingFocus = false; return; }
+    ImGui::SetNextWindowSize(LayoutStore::Get().GetWin("Cancels", 960.0f, 600.0f), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin(WinId("Cancels##blkwin").c_str(), &m_cancelsWin.open, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking))
     { ImGui::End(); return; }
-    if (cancelsBringFront) ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());
 
     const uint64_t gcEnd = GameStatic::Get().data.groupCancelEnd;
     auto isCancelTerm      = +[](const ParsedCancel& c)->bool { return c.command == 0x8000; };
@@ -3321,7 +3664,8 @@ void MovesetEditorWindow::RenderSubWin_Cancels()
     static constexpr ImVec4  kTTCol   = {0.40f, 0.75f, 1.00f, 1.00f};
     static constexpr float   kTTH     = 20.0f;
 
-    float leftW = ImGui::GetContentRegionAvail().x - kCexW - ImGui::GetStyle().ItemSpacing.x;
+    float& leftW = SectionW("can_left", 0.0f);
+    if (leftW <= 0.0f) leftW = ImGui::GetContentRegionAvail().x - kCexW - ImGui::GetStyle().ItemSpacing.x;
 
     // Left: tab bar (Cancel List | Group Cancel List)
     ImGui::BeginChild("##canleft", ImVec2(leftW, 0.0f), false);
@@ -3339,7 +3683,8 @@ void MovesetEditorWindow::RenderSubWin_Cancels()
                     m_data.cancelBlock, cancelGroups, m_cancelsWin.cancelSel,
                     "Cancel Lists", 0.0f, 0x8000,
                     this, groupCancelGroups,
-                    m_data, m_dirty, false);
+                    m_data, m_dirty, false,
+                    SectionW("can_outer", 180.0f), SectionW("can_inner", 180.0f));
                 ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem("Group Cancel List", nullptr, f1))
@@ -3348,7 +3693,8 @@ void MovesetEditorWindow::RenderSubWin_Cancels()
                     m_data.groupCancelBlock, groupCancelGroups, m_cancelsWin.groupCancelSel,
                     "Group Cancel Lists", 0.0f, (uint64_t)GameStatic::Get().data.groupCancelEnd,
                     this, {},
-                    m_data, m_dirty, true);
+                    m_data, m_dirty, true,
+                    SectionW("gcan_outer", 180.0f), SectionW("gcan_inner", 180.0f));
                 ImGui::EndTabItem();
             }
             ImGui::EndTabBar();
@@ -3357,49 +3703,21 @@ void MovesetEditorWindow::RenderSubWin_Cancels()
     ImGui::EndChild();
 
     // Right: cancel-extra (card style, always visible)
-    ImGui::SameLine();
-    ImGui::BeginChild("##cexcol", ImVec2(kCexW, 0.0f), true);
+    VSplitter("##can_sp", &leftW, 300.0f, 180.0f);
+    ImGui::BeginChild("##cexcol", ImVec2(0.0f, 0.0f), true);
     {
         auto& cexBlk  = m_data.cancelExtraBlock;
         int   cexTotal = (int)cexBlk.size();
 
-        // Header: "Cancel Extras (N)  [+]"
-        float btnW  = ImGui::CalcTextSize("+").x + ImGui::GetStyle().FramePadding.x * 2.0f;
-        float rightX = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - btnW;
-        ImGui::TextDisabled("Cancel Extras (%d)", cexTotal);
-        ImGui::SameLine(rightX);
-        ListAction cexAct = RenderListPlusMenu("##cex_pm", "Cancel-extra");
-        ImGui::Separator();
+        // Header: "Cancel Extras (N)"
+        ImGui::TextDisabled("Cancel Extras (%d)", cexTotal);        ImGui::Separator();
 
-        bool hasCexSel = (m_cancelsWin.extradataSel >= 0 && m_cancelsWin.extradataSel < cexTotal);
-        if (cexAct == ListAction::Insert) {
-            uint32_t ipos = hasCexSel ? (uint32_t)m_cancelsWin.extradataSel + 1 : (uint32_t)cexTotal;
-            cexBlk.insert(cexBlk.begin() + ipos, 0u);
-            FixupRef_CancelExtra(m_data, ipos, true);
-            m_cancelsWin.extradataSel = (int)ipos; m_dirty = true;
-        } else if (cexAct == ListAction::Duplicate && hasCexSel) {
-            cexBlk.push_back(cexBlk[m_cancelsWin.extradataSel]);
-            m_dirty = true;
-        } else if (cexAct == ListAction::Remove && hasCexSel) {
-            uint32_t pos  = (uint32_t)m_cancelsWin.extradataSel;
-            uint32_t refs = CountRefs_CancelExtra(m_data, pos);
-            auto doRem = [this, pos]() {
-                FixupRef_CancelExtra(m_data, pos, false);
-                m_data.cancelExtraBlock.erase(m_data.cancelExtraBlock.begin() + pos);
-                if (m_cancelsWin.extradataSel >= (int)m_data.cancelExtraBlock.size())
-                    m_cancelsWin.extradataSel = (std::max)(0, (int)m_data.cancelExtraBlock.size() - 1);
-                m_dirty = true;
-            };
-            if (refs > 0) {
-                snprintf(m_removeConfirm.message, sizeof(m_removeConfirm.message),
-                    "Cancel-extra at index %u is referenced by %u location(s).\nRemove anyway?", pos, refs);
-                m_removeConfirm.onConfirm = doRem; m_removeConfirm.callerViewportId = ImGui::GetWindowViewport()->ID; m_removeConfirm.pending = true;
-            } else { doRem(); }
-        }
+        ListAction pendAct = ListAction::None; int pendK = -1; bool pendInsAfter = false;
 
-        // Card-style items
+        // Card-style items. Header row carries the action buttons, so use the button-row
+        // height for it to keep each card tall enough (no per-card scrollbar).
         const ImGuiStyle& sty = ImGui::GetStyle();
-        float cardH = ImGui::GetTextLineHeight() + sty.ItemSpacing.y
+        float cardH = ListRowHeight() + 2.0f + sty.ItemSpacing.y
                     + ImGui::GetFrameHeight() + sty.ItemSpacing.y
                     + kTTH + sty.WindowPadding.y * 2.0f;
 
@@ -3417,6 +3735,8 @@ void MovesetEditorWindow::RenderSubWin_Cancels()
                     m_cancelsWin.extradataSel = i;
 
                 ImGui::TextDisabled("#%d", i);
+                RowResult rr = ListRowCard(i > 0, i < cexTotal - 1, true, true, true, true, sel);
+                if (rr.act != ListAction::None) { pendAct = rr.act; pendK = i; pendInsAfter = rr.insertAfter; }
 
                 // "value" label + InputInt on same row (2-col table)
                 constexpr ImGuiTableFlags kTF = ImGuiTableFlags_SizingFixedFit;
@@ -3458,6 +3778,14 @@ void MovesetEditorWindow::RenderSubWin_Cancels()
             ImGui::Spacing();
         }
         ImGui::EndChild();
+
+        // ---- Apply the deferred row action (flat, referenced via extradata_idx) ----
+        if (pendAct != ListAction::None && pendK >= 0) {
+            ApplyRowActionFlat(this, m_data, m_dirty, m_cancelsWin.extradataSel, cexBlk,
+                               pendAct, pendK, pendInsAfter,
+                               &FixupRef_CancelExtra, &CountRefs_CancelExtra, &SwapRefs_CancelExtra,
+                               (uint32_t)0u, "Cancel-extra");
+        }
     }
     ImGui::EndChild();
 
@@ -3472,12 +3800,11 @@ void MovesetEditorWindow::RenderSubWin_Cancels()
 void MovesetEditorWindow::RenderSubWin_HitConditions()
 {
     if (!m_hitCondWinOpen) return;
-    const bool hitCondBringFront = m_hitCondWinFocus;
-    if (hitCondBringFront) m_hitCondWinFocus = false;
-    ImGui::SetNextWindowSize(ImVec2(650.0f, 400.0f), ImGuiCond_FirstUseEver);
+    // Bring-to-front: skip one frame so the window re-appears and ImGui auto-focuses it.
+    if (m_hitCondWinFocus) { m_hitCondWinFocus = false; return; }
+    ImGui::SetNextWindowSize(LayoutStore::Get().GetWin("HitConditions", 650.0f, 400.0f), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin(WinId("Hit Conditions##blkwin").c_str(), &m_hitCondWinOpen, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking))
     { ImGui::End(); return; }
-    if (hitCondBringFront) ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());
 
     auto& blk = m_data.hitConditionBlock;
     const auto& reqBlk = m_data.requirementBlock;
@@ -3490,26 +3817,33 @@ void MovesetEditorWindow::RenderSubWin_HitConditions()
     };
     auto mkGroups = [&]{ return ComputeGroups(blk, isHcEnd); };
     auto groups = mkGroups();
-    static constexpr float kListW = 180.0f;
-
-    auto ListHdr = [](const char* popupId, const char* typeName,
-                      const char* label, int count) -> ListAction
-    {
-        float btnW  = ImGui::CalcTextSize("+").x + ImGui::GetStyle().FramePadding.x * 2.0f;
-        float rightX = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - btnW;
-        ImGui::TextDisabled("%s (%d)", label, count);
-        ImGui::SameLine(rightX);
-        return RenderListPlusMenu(popupId, typeName);
-    };
+    float& outerW = SectionW("hc_outer", 180.0f);
+    float& innerW = SectionW("hc_inner", 180.0f);
 
     // ---- Outer list ----
-    ImGui::BeginChild("##hc_outer", ImVec2(kListW, 0.0f), true);
+    ImGui::BeginChild("##hc_outer", ImVec2(outerW, 0.0f), true);
     {
-        bool hasOuter = (m_hitCondWinSel.outer < (int)groups.size());
-        ListAction outerAct = ListHdr("##hc_om", "Hit-condition-list",
-                                       "Hit Condition Lists", (int)groups.size());
-        ImGui::Separator();
+        ImGui::TextDisabled("Hit Condition Lists (%d)", (int)groups.size());        ImGui::Separator();
 
+        ListAction outerAct = ListAction::None;
+
+        ImGui::BeginChild("##hc_outer_sl", ImVec2(0, 0), false);
+        for (int gi = 0; gi < (int)groups.size(); ++gi) {
+            uint32_t items = groups[gi].second;
+            char lbl[48]; snprintf(lbl, sizeof(lbl), "#%u  %u items##hcg%d", groups[gi].first, items, gi);
+            ImGui::PushID(gi);
+            bool s = (m_hitCondWinSel.outer == gi);
+            if (ImGui::Selectable(lbl, s)) { m_hitCondWinSel.outer = gi; m_hitCondWinSel.inner = 0; }
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) { m_hitCondWinSel.outer = gi; m_hitCondWinSel.inner = 0; }
+            ListAction a = OuterListContextMenu("Hit-condition-list");
+            if (a != ListAction::None) outerAct = a;
+            if (s && m_hitCondWinSel.scrollOuter) { ImGui::SetScrollHereY(0.5f); m_hitCondWinSel.scrollOuter = false; }
+            ImGui::PopID();
+        }
+        { ListAction a = OuterListBgMenu("##hc_outer_bg", "Hit-condition-list"); if (a != ListAction::None) outerAct = a; }
+        ImGui::EndChild();
+
+        bool hasOuter = (m_hitCondWinSel.outer < (int)groups.size());
         if (outerAct == ListAction::Insert) {
             uint32_t insertPos = hasOuter
                 ? groups[m_hitCondWinSel.outer].first + groups[m_hitCondWinSel.outer].second
@@ -3542,73 +3876,21 @@ void MovesetEditorWindow::RenderSubWin_HitConditions()
                 m_removeConfirm.onConfirm = doRem; m_removeConfirm.callerViewportId = ImGui::GetWindowViewport()->ID; m_removeConfirm.pending = true;
             } else { doRem(); groups = mkGroups(); }
         }
-
-        ImGui::BeginChild("##hc_outer_sl", ImVec2(0, 0), false);
-        for (int gi = 0; gi < (int)groups.size(); ++gi) {
-            uint32_t items = groups[gi].second;
-            char lbl[48]; snprintf(lbl, sizeof(lbl), "#%u  %u items##hcg%d", groups[gi].first, items, gi);
-            bool s = (m_hitCondWinSel.outer == gi);
-            if (ImGui::Selectable(lbl, s)) { m_hitCondWinSel.outer = gi; m_hitCondWinSel.inner = 0; }
-            if (s && m_hitCondWinSel.scrollOuter) { ImGui::SetScrollHereY(0.5f); m_hitCondWinSel.scrollOuter = false; }
-        }
-        ImGui::EndChild();
     }
-    ImGui::EndChild(); ImGui::SameLine();
+    ImGui::EndChild();
+    VSplitter("##hc_sp1", &outerW, 90.0f, 260.0f);
 
     groups = mkGroups();
 
     // ---- Inner list ----
-    ImGui::BeginChild("##hc_inner", ImVec2(kListW, 0.0f), true);
+    ImGui::BeginChild("##hc_inner", ImVec2(innerW, 0.0f), true);
     {
         bool hasOuter = (m_hitCondWinSel.outer < (int)groups.size());
-        bool isEndSel = false;
-        uint32_t innerAbsIdx = 0xFFFFFFFF;
-        if (hasOuter) {
-            innerAbsIdx = groups[m_hitCondWinSel.outer].first + (uint32_t)m_hitCondWinSel.inner;
-            if (innerAbsIdx < (uint32_t)blk.size())
-                isEndSel = isHcEnd(blk[innerAbsIdx]);
-        }
 
-        int innerCount = hasOuter ? (int)groups[m_hitCondWinSel.outer].second : 0;
-        ListAction innerAct = ListHdr("##hc_im", "Hit-condition",
-                                       "Hit Conditions", innerCount);
-        ImGui::Separator();
+        int innerReal = hasOuter ? (int)groups[m_hitCondWinSel.outer].second - 1 : 0;
+        ImGui::TextDisabled("Hit Conditions (%d)", innerReal < 0 ? 0 : innerReal);        ImGui::Separator();
 
-        bool isOnlyEnd = isEndSel && hasOuter && (groups[m_hitCondWinSel.outer].second == 1);
-        if (innerAct == ListAction::Insert && isEndSel && !isOnlyEnd) { innerAct = ListAction::None; m_endInsertBlocked = true; m_insertBlockedViewportId = ImGui::GetWindowViewport()->ID; }
-
-        if (hasOuter && innerAct != ListAction::None && innerAbsIdx != 0xFFFFFFFF) {
-            uint32_t gf = groups[m_hitCondWinSel.outer].first, gc = groups[m_hitCondWinSel.outer].second;
-            if (innerAct == ListAction::Insert) {
-                uint32_t ipos = isOnlyEnd ? innerAbsIdx : innerAbsIdx + 1;
-                ParsedHitCondition nh{};
-                nh.requirement_addr = 1;
-                nh.req_list_idx = !reqBlk.empty() ? 0u : 0xFFFFFFFFu;
-                blk.insert(blk.begin() + ipos, nh);
-                FixupRef_HitCond(m_data, ipos, true);
-                if (!isOnlyEnd) m_hitCondWinSel.inner++;
-                m_dirty = true; groups = mkGroups();
-            } else if (innerAct == ListAction::Duplicate && !isEndSel) {
-                uint32_t ipos = gf + gc - 1;
-                blk.insert(blk.begin() + ipos, blk[innerAbsIdx]);
-                FixupRef_HitCond(m_data, ipos, true);
-                m_dirty = true; groups = mkGroups();
-            } else if (innerAct == ListAction::Remove && !isEndSel) {
-                uint32_t cai = innerAbsIdx;
-                auto doRem = [this, cai]() {
-                    FixupRef_HitCond(m_data, cai, false);
-                    m_data.hitConditionBlock.erase(m_data.hitConditionBlock.begin() + cai);
-                    if (m_hitCondWinSel.inner > 0) m_hitCondWinSel.inner--;
-                    m_dirty = true;
-                };
-                uint32_t refs = CountRefs_HitCond(m_data, cai);
-                if (refs > 0) {
-                    snprintf(m_removeConfirm.message, sizeof(m_removeConfirm.message),
-                        "Hit-condition at index %u is referenced by %u location(s).\nRemove anyway?", cai, refs);
-                    m_removeConfirm.onConfirm = doRem; m_removeConfirm.callerViewportId = ImGui::GetWindowViewport()->ID; m_removeConfirm.pending = true;
-                } else { doRem(); groups = mkGroups(); }
-            }
-        }
+        ListAction pendAct = ListAction::None; int pendK = -1; bool pendInsAfter = false;
 
         ImGui::BeginChild("##hc_inner_sl", ImVec2(0, 0), false);
         hasOuter = (m_hitCondWinSel.outer < (int)groups.size());
@@ -3637,15 +3919,36 @@ void MovesetEditorWindow::RenderSubWin_HitConditions()
 
                     snprintf(lbl, sizeof(lbl), "#%u  %s##hci%u", k, hcLabel.c_str(), idx);
                 }
+                ImGui::PushID((int)k);
                 if (isTerm) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f,0.5f,0.5f,1.0f));
                 bool sel = (m_hitCondWinSel.inner == (int)k);
-                if (ImGui::Selectable(lbl, sel)) m_hitCondWinSel.inner = (int)k;
+                if (ImGui::Selectable(lbl, sel, ImGuiSelectableFlags_AllowOverlap, ImVec2(0, ListRowHeight()))) m_hitCondWinSel.inner = (int)k;
                 if (isTerm) ImGui::PopStyleColor();
+
+                bool canUp   = !isTerm && k > 0;
+                bool canDown = !isTerm && (int)k < (int)count - 2;
+                bool canInsB = isTerm ? true : (k > 0);
+                bool canInsA = !isTerm;
+                RowResult rr = ListRow(isTerm, canUp, canDown, !isTerm, !isTerm, canInsB, canInsA, sel);
+                if (rr.act != ListAction::None) { pendAct = rr.act; pendK = (int)k; pendInsAfter = rr.insertAfter; }
+                ImGui::PopID();
             }
         }
         ImGui::EndChild();
+
+        // ---- Apply the deferred row action ----
+        if (pendAct != ListAction::None && hasOuter && pendK >= 0) {
+            uint32_t gf = groups[m_hitCondWinSel.outer].first, gc = groups[m_hitCondWinSel.outer].second;
+            ParsedHitCondition nh{}; nh.requirement_addr = 1;
+            nh.req_list_idx = !reqBlk.empty() ? 0u : 0xFFFFFFFFu;
+            if (ApplyRowAction2Level(this, m_data, m_dirty, m_hitCondWinSel.inner, blk, gf, gc,
+                                     pendAct, pendK, pendInsAfter,
+                                     &FixupRef_HitCond, &CountRefs_HitCond, nh, "Hit-condition"))
+                groups = mkGroups();
+        }
     }
-    ImGui::EndChild(); ImGui::SameLine();
+    ImGui::EndChild();
+    VSplitter("##hc_sp2", &innerW, 90.0f, 150.0f);
 
     groups = mkGroups();
 
@@ -3723,7 +4026,7 @@ void MovesetEditorWindow::RenderSubWin_HitConditions()
                         return rr.req == GameStatic::Get().data.reqListEnd; });
                     int gi = FindGroupOuter(grps, h.req_list_idx);
                     if (gi >= 0) { m_reqWinSel.outer = gi; m_reqWinSel.inner = 0; m_reqWinSel.scrollOuter = true; }
-                    m_reqWinOpen = true;
+                    m_reqWinOpen = true; m_reqWinFocus = true; m_reqWinFocus = true;
                 }
                 // Tooltip area inside card
                 ImGui::TextColored(kTTCol, " ");
@@ -3774,6 +4077,7 @@ void MovesetEditorWindow::RenderSubWin_HitConditions()
                 ImGui::SameLine();
                 if (GoButton("##hcrl_go", rlValid)) {
                     m_reacWin.open          = true;
+                    m_reacWin.pendingFocus  = true;
                     m_reacWin.selectedIdx   = (int)h.reaction_list_idx;
                     m_reacWin.scrollPending = true;
                 }
@@ -3799,64 +4103,53 @@ void MovesetEditorWindow::RenderSubWin_HitConditions()
 void MovesetEditorWindow::RenderSubWin_ReactionLists()
 {
     if (!m_reacWin.open) return;
-    ImGui::SetNextWindowSize(ImVec2(700.0f, 480.0f), ImGuiCond_FirstUseEver);
+    // Bring-to-front: skip one frame so the window re-appears and ImGui auto-focuses it.
+    if (m_reacWin.pendingFocus) { m_reacWin.pendingFocus = false; return; }
+    ImGui::SetNextWindowSize(LayoutStore::Get().GetWin("Reactions", 700.0f, 480.0f), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin(WinId("Reaction Lists##blkwin").c_str(), &m_reacWin.open, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking))
     { ImGui::End(); return; }
 
     auto& block = m_data.reactionListBlock;
     int total = (int)block.size();
 
-    ImGui::BeginChild("##rl_master", ImVec2(110.0f, 0.0f), true);
+    float& masterW = SectionW("rl_master", 190.0f);
+    ImGui::BeginChild("##rl_master", ImVec2(masterW, 0.0f), true);
     {
-        ListAction act = RenderListPlusMenu("##rl_pm", "Reaction-list");
-        ImGui::SameLine(); ImGui::TextDisabled("%d", total);
-        ImGui::Separator();
+        ImGui::TextDisabled("Reaction Lists (%d)", total);        ImGui::Separator();
 
-        bool hasSel = (m_reacWin.selectedIdx >= 0 && m_reacWin.selectedIdx < total);
-        if (act == ListAction::Insert) {
-            uint32_t ipos = hasSel ? (uint32_t)m_reacWin.selectedIdx + 1 : (uint32_t)total;
-            ParsedReactionList nr{};
-            for (int p = 0; p < 7; ++p) nr.pushback_idx[p] = 0xFFFFFFFF;
-            block.insert(block.begin() + ipos, nr);
-            FixupRef_ReactionList(m_data, ipos, true);
-            m_reacWin.selectedIdx = (int)ipos;
-            total = (int)block.size(); m_dirty = true;
-        } else if (act == ListAction::Duplicate && hasSel) {
-            block.push_back(block[m_reacWin.selectedIdx]);
-            total = (int)block.size(); m_dirty = true;
-        } else if (act == ListAction::Remove && hasSel) {
-            uint32_t pos = (uint32_t)m_reacWin.selectedIdx;
-            uint32_t refs = CountRefs_ReactionList(m_data, pos);
-            auto doRem = [this, pos]() {
-                FixupRef_ReactionList(m_data, pos, false);
-                m_data.reactionListBlock.erase(m_data.reactionListBlock.begin() + pos);
-                if (m_reacWin.selectedIdx >= (int)m_data.reactionListBlock.size())
-                    m_reacWin.selectedIdx = (std::max)(0, (int)m_data.reactionListBlock.size() - 1);
-                m_dirty = true;
-            };
-            if (refs > 0) {
-                snprintf(m_removeConfirm.message, sizeof(m_removeConfirm.message),
-                    "Reaction-list at index %u is referenced by %u location(s).\nRemove anyway?", pos, refs);
-                m_removeConfirm.onConfirm = doRem; m_removeConfirm.callerViewportId = ImGui::GetWindowViewport()->ID; m_removeConfirm.pending = true;
-            } else { doRem(); total = (int)block.size(); }
-        }
+        ListAction pendAct = ListAction::None; int pendK = -1; bool pendInsAfter = false;
 
         ImGui::BeginChild("##rl_master_sl", ImVec2(0, 0), false);
         for (int i = 0; i < total; ++i)
         {
             char lbl[24]; snprintf(lbl, sizeof(lbl), "#%d", i);
+            ImGui::PushID(i);
             bool sel = (m_reacWin.selectedIdx == i);
-            if (ImGui::Selectable(lbl, sel)) m_reacWin.selectedIdx = i;
+            if (ImGui::Selectable(lbl, sel, ImGuiSelectableFlags_AllowOverlap, ImVec2(0, ListRowHeight()))) m_reacWin.selectedIdx = i;
             if (sel && m_reacWin.scrollPending) {
                 ImGui::SetScrollHereY(0.5f);
                 m_reacWin.scrollPending = false;
             }
+            RowResult rr = ListRow(false, i > 0, i < total - 1, true, true, true, true, sel, /*insertOnly*/true);
+            if (rr.act != ListAction::None) { pendAct = rr.act; pendK = i; pendInsAfter = rr.insertAfter; }
+            ImGui::PopID();
         }
         ImGui::EndChild();
+
+        // ---- Apply the deferred row action (flat, referenced via pushback_idx) ----
+        if (pendAct != ListAction::None && pendK >= 0) {
+            ParsedReactionList nr{};
+            for (int p = 0; p < 7; ++p) nr.pushback_idx[p] = 0xFFFFFFFF;
+            ApplyRowActionFlat(this, m_data, m_dirty, m_reacWin.selectedIdx, block,
+                               pendAct, pendK, pendInsAfter,
+                               &FixupRef_ReactionList, &CountRefs_ReactionList, &SwapRefs_ReactionList,
+                               nr, "Reaction-list");
+            total = (int)block.size();
+        }
     }
     ImGui::EndChild();
 
-    ImGui::SameLine();
+    VSplitter("##rl_sp", &masterW, 90.0f, 260.0f);
     ImGui::BeginChild("##rl_detail", ImVec2(0.0f, 0.0f), false);
     if (m_reacWin.selectedIdx >= 0 && m_reacWin.selectedIdx < total)
     {
@@ -3928,7 +4221,7 @@ void MovesetEditorWindow::RenderSubWin_ReactionLists()
                 char inputId[32]; snprintf(inputId, sizeof(inputId), "##rl_pb%d", p);
                 auto r = RowIdxEditLink(inputId, kPbN[p], rlm.pushback_idx[p], valid);
                 if (r.changed) m_dirty = true;
-                if (r.navigate) { m_pushbackWin.open = true; m_pushbackWin.pushbackSel = (int)rlm.pushback_idx[p]; m_pushbackWin.pbScrollPending = true; }
+                if (r.navigate) { m_pushbackWin.open = true; m_pushbackWin.pendingFocus = true; m_pushbackWin.pushbackSel = (int)rlm.pushback_idx[p]; m_pushbackWin.pbScrollPending = true; }
             }
             ImGui::EndTable();
         }
@@ -3967,64 +4260,50 @@ void MovesetEditorWindow::RenderSubWin_ReactionLists()
 void MovesetEditorWindow::RenderSubWin_Pushbacks()
 {
     if (!m_pushbackWin.open) return;
-    ImGui::SetNextWindowSize(ImVec2(580.0f, 420.0f), ImGuiCond_FirstUseEver);
+    // Bring-to-front: skip one frame so the window re-appears and ImGui auto-focuses it.
+    if (m_pushbackWin.pendingFocus) { m_pushbackWin.pendingFocus = false; return; }
+    ImGui::SetNextWindowSize(LayoutStore::Get().GetWin("Pushbacks", 580.0f, 420.0f), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin(WinId("Pushbacks##blkwin").c_str(), &m_pushbackWin.open, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking))
     { ImGui::End(); return; }
 
     auto& pb = m_data.pushbackBlock;
     auto& pe = m_data.pushbackExtraBlock;
-    float rightW   = 160.0f;
-    float leftW    = ImGui::GetContentRegionAvail().x - rightW - ImGui::GetStyle().ItemSpacing.x;
+    float& leftW = SectionW("pb_left", 0.0f);
+    if (leftW <= 0.0f) leftW = ImGui::GetContentRegionAvail().x - 240.0f - ImGui::GetStyle().ItemSpacing.x;
 
     ImGui::BeginChild("##pb_lm", ImVec2(leftW, 0.0f), false);
     {
-        ImGui::BeginChild("##pblist", ImVec2(120.0f, 0.0f), true);
+        ImGui::BeginChild("##pblist", ImVec2(190.0f, 0.0f), true);
         {
             int pbTotal = (int)pb.size();
-            ListAction pbAct = RenderListPlusMenu("##pb_pm", "Pushback");
-            ImGui::SameLine(); ImGui::TextDisabled("(%d)", pbTotal);
-            ImGui::Separator();
+            ImGui::TextDisabled("Pushbacks (%d)", pbTotal);            ImGui::Separator();
 
-            bool hasPbSel = (m_pushbackWin.pushbackSel >= 0 && m_pushbackWin.pushbackSel < pbTotal);
-            if (pbAct == ListAction::Insert) {
-                uint32_t ipos = hasPbSel ? (uint32_t)m_pushbackWin.pushbackSel + 1 : (uint32_t)pbTotal;
-                ParsedPushback np{}; np.pushback_extra_idx = 0xFFFFFFFF;
-                pb.insert(pb.begin() + ipos, np);
-                FixupRef_Pushback(m_data, ipos, true);
-                m_pushbackWin.pushbackSel = (int)ipos;
-                m_dirty = true;
-            } else if (pbAct == ListAction::Duplicate && hasPbSel) {
-                ParsedPushback copy = pb[m_pushbackWin.pushbackSel];   // copy before push_back (may realloc)
-                pb.push_back(copy);
-                m_dirty = true;
-            } else if (pbAct == ListAction::Remove && hasPbSel) {
-                uint32_t pos = (uint32_t)m_pushbackWin.pushbackSel;
-                uint32_t refs = CountRefs_Pushback(m_data, pos);
-                auto doRem = [this, pos]() {
-                    FixupRef_Pushback(m_data, pos, false);
-                    m_data.pushbackBlock.erase(m_data.pushbackBlock.begin() + pos);
-                    if (m_pushbackWin.pushbackSel >= (int)m_data.pushbackBlock.size())
-                        m_pushbackWin.pushbackSel = (std::max)(0, (int)m_data.pushbackBlock.size() - 1);
-                    m_dirty = true;
-                };
-                if (refs > 0) {
-                    snprintf(m_removeConfirm.message, sizeof(m_removeConfirm.message),
-                        "Pushback at index %u is referenced by %u location(s).\nRemove anyway?", pos, refs);
-                    m_removeConfirm.onConfirm = doRem; m_removeConfirm.callerViewportId = ImGui::GetWindowViewport()->ID; m_removeConfirm.pending = true;
-                } else { doRem(); }
-            }
+            ListAction pendAct = ListAction::None; int pendK = -1; bool pendInsAfter = false;
 
             ImGui::BeginChild("##pblist_sl", ImVec2(0, 0), false);
             for (int i = 0; i < (int)pb.size(); ++i) {
                 char lbl[24]; snprintf(lbl, sizeof(lbl), "#%d", i);
+                ImGui::PushID(i);
                 bool sel = (m_pushbackWin.pushbackSel == i);
-                if (ImGui::Selectable(lbl, sel)) m_pushbackWin.pushbackSel = i;
+                if (ImGui::Selectable(lbl, sel, ImGuiSelectableFlags_AllowOverlap, ImVec2(0, ListRowHeight()))) m_pushbackWin.pushbackSel = i;
                 if (sel && m_pushbackWin.pbScrollPending) {
                     ImGui::SetScrollHereY(0.5f);
                     m_pushbackWin.pbScrollPending = false;
                 }
+                RowResult rr = ListRow(false, i > 0, i < (int)pb.size() - 1, true, true, true, true, sel, /*insertOnly*/true);
+                if (rr.act != ListAction::None) { pendAct = rr.act; pendK = i; pendInsAfter = rr.insertAfter; }
+                ImGui::PopID();
             }
             ImGui::EndChild();
+
+            // ---- Apply the deferred row action (flat, referenced via pushback_idx) ----
+            if (pendAct != ListAction::None && pendK >= 0) {
+                ParsedPushback np{}; np.pushback_extra_idx = 0xFFFFFFFF;
+                ApplyRowActionFlat(this, m_data, m_dirty, m_pushbackWin.pushbackSel, pb,
+                                   pendAct, pendK, pendInsAfter,
+                                   &FixupRef_Pushback, &CountRefs_Pushback, &SwapRefs_Pushback,
+                                   np, "Pushback");
+            }
         }
         ImGui::EndChild();
 
@@ -4050,63 +4329,51 @@ void MovesetEditorWindow::RenderSubWin_Pushbacks()
     }
     ImGui::EndChild();
 
-    ImGui::SameLine();
-    ImGui::BeginChild("##pecol", ImVec2(rightW, 0.0f), true);
+    VSplitter("##pb_sp", &leftW, 200.0f, 160.0f);
+    ImGui::BeginChild("##pecol", ImVec2(0.0f, 0.0f), true);
     {
-        ListAction peAct = RenderListPlusMenu("##pe_pm", "Pushback-extra");
-        ImGui::SameLine(); ImGui::TextDisabled("(%d)", (int)pe.size());
-        ImGui::Separator();
+        ImGui::TextDisabled("Pushback Extras (%d)", (int)pe.size());        ImGui::Separator();
 
-        bool hasPeSel = (m_pushbackWin.extraSel >= 0 && m_pushbackWin.extraSel < (int)pe.size());
-        if (peAct == ListAction::Insert) {
-            uint32_t ipos = hasPeSel ? (uint32_t)m_pushbackWin.extraSel + 1 : (uint32_t)pe.size();
-            pe.insert(pe.begin() + ipos, ParsedPushbackExtra{});
-            FixupRef_PushbackExtra(m_data, ipos, true);
-            m_pushbackWin.extraSel = (int)ipos;
-            m_dirty = true;
-        } else if (peAct == ListAction::Duplicate && hasPeSel) {
-            ParsedPushbackExtra copy = pe[m_pushbackWin.extraSel];   // copy before push_back (may realloc)
-            pe.push_back(copy);
-            m_dirty = true;
-        } else if (peAct == ListAction::Remove && hasPeSel) {
-            uint32_t pos = (uint32_t)m_pushbackWin.extraSel;
-            uint32_t refs = CountRefs_PushbackExtra(m_data, pos);
-            auto doRem = [this, pos]() {
-                FixupRef_PushbackExtra(m_data, pos, false);
-                m_data.pushbackExtraBlock.erase(m_data.pushbackExtraBlock.begin() + pos);
-                if (m_pushbackWin.extraSel >= (int)m_data.pushbackExtraBlock.size())
-                    m_pushbackWin.extraSel = (std::max)(0, (int)m_data.pushbackExtraBlock.size() - 1);
-                m_dirty = true;
-            };
-            if (refs > 0) {
-                snprintf(m_removeConfirm.message, sizeof(m_removeConfirm.message),
-                    "Pushback-extra at index %u is referenced by %u location(s).\nRemove anyway?", pos, refs);
-                m_removeConfirm.onConfirm = doRem; m_removeConfirm.callerViewportId = ImGui::GetWindowViewport()->ID; m_removeConfirm.pending = true;
-            } else { doRem(); }
-        }
+        ListAction pendAct = ListAction::None; int pendK = -1; bool pendInsAfter = false;
 
-        constexpr ImGuiTableFlags kTf = ImGuiTableFlags_BordersInnerH|ImGuiTableFlags_RowBg|ImGuiTableFlags_SizingFixedFit;
-        if (ImGui::BeginTable("##petbl", 2, kTf)) {
-            ImGui::TableSetupColumn("Index",        ImGuiTableColumnFlags_WidthFixed, 45.0f);
-            ImGui::TableSetupColumn(PushbackExtraLabel::Displacement, ImGuiTableColumnFlags_WidthStretch);
-            ImGui::TableHeadersRow();
-            for (int i = 0; i < (int)pe.size(); ++i) {
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0);
-                bool sel = (m_pushbackWin.extraSel == i);
-                char lbl[16]; snprintf(lbl, sizeof(lbl), "%d##pe%d", i, i);
-                if (ImGui::Selectable(lbl, sel, ImGuiSelectableFlags_SpanAllColumns)) m_pushbackWin.extraSel = i;
-                if (sel && m_pushbackWin.extraScrollPending) {
-                    ImGui::SetScrollHereY(0.5f);
-                    m_pushbackWin.extraScrollPending = false;
-                }
-                ImGui::TableSetColumnIndex(1);
+        static constexpr ImVec4 kBlockBg = {0.14f, 0.14f, 0.18f, 1.00f};
+        static constexpr ImVec4 kSelBg   = {0.22f, 0.22f, 0.30f, 1.00f};
+        const ImGuiStyle& psty = ImGui::GetStyle();
+        // Header row carries the action buttons (taller than a text line), so size the card to
+        // the button-row height to avoid a per-card scrollbar.
+        float peCardH = ListRowHeight() + 2.0f + psty.ItemSpacing.y
+                      + ImGui::GetFrameHeight() + psty.WindowPadding.y * 2.0f;
+
+        ImGui::BeginChild("##pe_scroll", ImVec2(0.0f, 0.0f), false);
+        for (int i = 0; i < (int)pe.size(); ++i) {
+            bool sel = (m_pushbackWin.extraSel == i);
+            ImGui::PushStyleColor(ImGuiCol_ChildBg, sel ? kSelBg : kBlockBg);
+            char cardId[32]; snprintf(cardId, sizeof(cardId), "##pe_%d", i);
+            if (ImGui::BeginChild(cardId, ImVec2(-1.0f, peCardH), ImGuiChildFlags_Borders)) {
+                if (ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem) && ImGui::IsMouseClicked(0))
+                    m_pushbackWin.extraSel = i;
+                ImGui::TextDisabled("#%d", i);
+                RowResult rr = ListRowCard(i > 0, i < (int)pe.size() - 1, true, true, true, true, sel);
+                if (rr.act != ListAction::None) { pendAct = rr.act; pendK = i; pendInsAfter = rr.insertAfter; }
+
                 ImGui::SetNextItemWidth(-1.0f);
                 char peid[32]; snprintf(peid, sizeof(peid), "##pev%d", i);
                 int petmp = (int)static_cast<int16_t>(m_data.pushbackExtraBlock[i].value);
                 if (ImGui::InputInt(peid, &petmp, 0, 0)) { m_data.pushbackExtraBlock[i].value = static_cast<uint16_t>(static_cast<int16_t>(petmp)); m_dirty = true; }
             }
-            ImGui::EndTable();
+            ImGui::EndChild();
+            if (sel && m_pushbackWin.extraScrollPending) { ImGui::SetScrollHereY(0.5f); m_pushbackWin.extraScrollPending = false; }
+            ImGui::PopStyleColor();
+            ImGui::Spacing();
+        }
+        ImGui::EndChild();
+
+        // ---- Apply the deferred row action (flat, referenced via pushback_extra_idx) ----
+        if (pendAct != ListAction::None && pendK >= 0) {
+            ApplyRowActionFlat(this, m_data, m_dirty, m_pushbackWin.extraSel, pe,
+                               pendAct, pendK, pendInsAfter,
+                               &FixupRef_PushbackExtra, &CountRefs_PushbackExtra, &SwapRefs_PushbackExtra,
+                               ParsedPushbackExtra{}, "Pushback-extra");
         }
     }
     ImGui::EndChild();
@@ -4120,92 +4387,155 @@ void MovesetEditorWindow::RenderSubWin_Pushbacks()
 void MovesetEditorWindow::RenderSubWin_Voiceclips()
 {
     if (!m_voiceclipWinOpen) return;
-    const bool voiceclipBringFront = m_voiceclipWinFocus;
-    if (voiceclipBringFront) m_voiceclipWinFocus = false;
-    ImGui::SetNextWindowSize(ImVec2(380.0f, 360.0f), ImGuiCond_FirstUseEver);
+    // Bring-to-front: skip one frame so the window re-appears and ImGui auto-focuses it.
+    if (m_voiceclipWinFocus) { m_voiceclipWinFocus = false; return; }
+    ImGui::SetNextWindowSize(LayoutStore::Get().GetWin("Voiceclips", 640.0f, 380.0f), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin(WinId("Voiceclips##blkwin").c_str(), &m_voiceclipWinOpen, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking))
     { ImGui::End(); return; }
-    if (voiceclipBringFront) ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());
 
-    auto& block = m_data.voiceclipBlock;
-    int total = (int)block.size();
-    auto vcIsEnd = [](const ParsedVoiceclip& vc) {
-        return vc.val1 == 0xFFFFFFFFu && vc.val2 == 0xFFFFFFFFu && vc.val3 == 0xFFFFFFFFu;
-    };
+    auto& blk = m_data.voiceclipBlock;
+    auto vcIsEnd = +[](const ParsedVoiceclip& v)->bool{
+        return v.val1 == 0xFFFFFFFFu && v.val2 == 0xFFFFFFFFu && v.val3 == 0xFFFFFFFFu; };
+    auto mkGroups = [&]{ return ComputeGroups(blk, vcIsEnd); };
+    auto groups = mkGroups();
+    float& outerW = SectionW("vc_outer", 170.0f);
+    float& innerW = SectionW("vc_inner", 170.0f);
 
-    ImGui::BeginChild("##vc_master", ImVec2(130.0f, 0.0f), true);
+    // ---- Outer list (voiceclip groups) ----
+    ImGui::BeginChild("##vc_outer", ImVec2(outerW, 0.0f), true);
     {
-        ListAction act = RenderListPlusMenu("##vc_pm", "Voiceclip");
-        ImGui::SameLine(); ImGui::TextDisabled("%d", total);
-        ImGui::Separator();
+        ImGui::TextDisabled("Voiceclip Lists (%d)", (int)groups.size());        ImGui::Separator();
 
-        bool hasSel = (m_voiceclipWinSel >= 0 && m_voiceclipWinSel < total);
-        bool isEndSel = hasSel && vcIsEnd(block[m_voiceclipWinSel]);
-        // isOnlyEnd: this [END] has no non-END items before it in its group → allow insert before it
-        bool isOnlyEnd = isEndSel && (m_voiceclipWinSel == 0 || vcIsEnd(block[m_voiceclipWinSel - 1]));
-        if (act == ListAction::Insert && isEndSel && !isOnlyEnd) { act = ListAction::None; m_endInsertBlocked = true; m_insertBlockedViewportId = ImGui::GetWindowViewport()->ID; }
+        ListAction outerAct = ListAction::None;
 
-        if (act == ListAction::Insert) {
-            uint32_t ipos = isOnlyEnd ? (uint32_t)m_voiceclipWinSel
-                          : hasSel    ? (uint32_t)m_voiceclipWinSel + 1
-                          :             (uint32_t)total;
-            ParsedVoiceclip nv{}; nv.val1 = 0; nv.val2 = 0; nv.val3 = 0;
-            block.insert(block.begin() + ipos, nv);
-            FixupRef_Voiceclip(m_data, ipos, true);
-            m_voiceclipWinSel = (int)ipos;
-            total = (int)block.size(); m_dirty = true;
-        } else if (act == ListAction::Duplicate && hasSel && !isEndSel) {
-            block.push_back(block[m_voiceclipWinSel]);
-            total = (int)block.size(); m_dirty = true;
-        } else if (act == ListAction::Remove && hasSel) {
-            uint32_t pos = (uint32_t)m_voiceclipWinSel;
-            uint32_t refs = CountRefs_Voiceclip(m_data, pos);
-            auto doRem = [this, pos]() {
-                FixupRef_Voiceclip(m_data, pos, false);
-                m_data.voiceclipBlock.erase(m_data.voiceclipBlock.begin() + pos);
-                if (m_voiceclipWinSel >= (int)m_data.voiceclipBlock.size())
-                    m_voiceclipWinSel = (std::max)(0, (int)m_data.voiceclipBlock.size() - 1);
-                m_dirty = true;
+        ImGui::BeginChild("##vc_outer_sl", ImVec2(0, 0), false);
+        for (int gi = 0; gi < (int)groups.size(); ++gi) {
+            uint32_t items = groups[gi].second;   // includes [END]
+            char lbl[48]; snprintf(lbl, sizeof(lbl), "#%u  %u items##vg%d", groups[gi].first, items, gi);
+            ImGui::PushID(gi);
+            bool s = (m_voiceclipSel.outer == gi);
+            if (ImGui::Selectable(lbl, s)) { m_voiceclipSel.outer = gi; m_voiceclipSel.inner = 0; }
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) { m_voiceclipSel.outer = gi; m_voiceclipSel.inner = 0; }
+            ListAction a = OuterListContextMenu("Voiceclip-list");
+            if (a != ListAction::None) outerAct = a;
+            if (s && m_voiceclipSel.scrollOuter) { ImGui::SetScrollHereY(0.5f); m_voiceclipSel.scrollOuter = false; }
+            ImGui::PopID();
+        }
+        { ListAction a = OuterListBgMenu("##vc_outer_bg", "Voiceclip-list"); if (a != ListAction::None) outerAct = a; }
+        ImGui::EndChild();
+
+        bool hasOuter = (m_voiceclipSel.outer < (int)groups.size());
+        if (outerAct == ListAction::Insert) {
+            uint32_t insertPos = hasOuter
+                ? groups[m_voiceclipSel.outer].first + groups[m_voiceclipSel.outer].second
+                : (uint32_t)blk.size();
+            ParsedVoiceclip term{}; term.val1 = term.val2 = term.val3 = 0xFFFFFFFFu;
+            blk.insert(blk.begin() + insertPos, term);
+            FixupRef_Voiceclip(m_data, insertPos, true);
+            m_voiceclipSel.outer = hasOuter ? m_voiceclipSel.outer + 1 : 0;
+            m_voiceclipSel.inner = 0; m_dirty = true;
+            groups = mkGroups();
+        } else if (outerAct == ListAction::Duplicate && hasOuter) {
+            uint32_t gf = groups[m_voiceclipSel.outer].first, gc = groups[m_voiceclipSel.outer].second;
+            for (uint32_t k = 0; k < gc; ++k) blk.push_back(blk[gf + k]);
+            m_dirty = true; groups = mkGroups();
+        } else if (outerAct == ListAction::Remove && hasOuter) {
+            uint32_t gf = groups[m_voiceclipSel.outer].first, gc = groups[m_voiceclipSel.outer].second;
+            uint32_t refs = CountRefs_Voiceclip(m_data, gf);
+            int co = m_voiceclipSel.outer;
+            auto doRem = [this, gf, gc, co]() {
+                for (int i = (int)gc - 1; i >= 0; --i) {
+                    uint32_t pos = gf + (uint32_t)i;
+                    FixupRef_Voiceclip(m_data, pos, false);
+                    m_data.voiceclipBlock.erase(m_data.voiceclipBlock.begin() + pos);
+                }
+                m_voiceclipSel.outer = (std::max)(0, co - 1); m_voiceclipSel.inner = 0; m_dirty = true;
             };
             if (refs > 0) {
                 snprintf(m_removeConfirm.message, sizeof(m_removeConfirm.message),
-                    "Voiceclip at index %u is referenced by %u location(s).\nRemove anyway?", pos, refs);
+                    "Voiceclip-list at index %u is referenced by %u location(s).\nRemove anyway?", gf, refs);
                 m_removeConfirm.onConfirm = doRem; m_removeConfirm.callerViewportId = ImGui::GetWindowViewport()->ID; m_removeConfirm.pending = true;
-            } else { doRem(); total = (int)block.size(); }
+            } else { doRem(); groups = mkGroups(); }
         }
-
-        ImGui::BeginChild("##vc_master_sl", ImVec2(0, 0), false);
-        for (int i = 0; i < total; ++i) {
-            const ParsedVoiceclip& vc = block[i];
-            const bool isEnd = vcIsEnd(vc);
-            char lbl[32];
-            if (isEnd) snprintf(lbl, sizeof(lbl), "#%d  [END]##vci%d", i, i);
-            else       snprintf(lbl, sizeof(lbl), "#%d##vci%d", i, i);
-            bool sel = (m_voiceclipWinSel == i);
-            if (isEnd) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f,0.5f,0.5f,1.0f));
-            if (ImGui::Selectable(lbl, sel)) m_voiceclipWinSel = i;
-            if (isEnd) ImGui::PopStyleColor();
-            if (sel && m_voiceclipWinScroll) { ImGui::SetScrollHereY(0.5f); m_voiceclipWinScroll = false; }
-        }
-        ImGui::EndChild();
     }
     ImGui::EndChild();
+    VSplitter("##vc_sp1", &outerW, 90.0f, 250.0f);
 
-    ImGui::SameLine();
+    groups = mkGroups();
+
+    // ---- Inner list (items within the selected group) ----
+    ImGui::BeginChild("##vc_inner", ImVec2(innerW, 0.0f), true);
+    {
+        bool hasOuter = (m_voiceclipSel.outer < (int)groups.size());
+        int innerReal = hasOuter ? (int)groups[m_voiceclipSel.outer].second - 1 : 0; // exclude [END]
+        ImGui::TextDisabled("Voiceclips (%d)", innerReal < 0 ? 0 : innerReal);        ImGui::Separator();
+
+        ListAction pendAct = ListAction::None; int pendK = -1; bool pendInsAfter = false;
+
+        ImGui::BeginChild("##vc_inner_sl", ImVec2(0, 0), false);
+        hasOuter = (m_voiceclipSel.outer < (int)groups.size());
+        if (hasOuter) {
+            uint32_t start = groups[m_voiceclipSel.outer].first;
+            uint32_t count = groups[m_voiceclipSel.outer].second;   // includes [END]
+            for (uint32_t k = 0; k < count; ++k) {
+                uint32_t idx = start + k;
+                if (idx >= (uint32_t)blk.size()) break;
+                const ParsedVoiceclip& v = blk[idx];
+                bool isTerm = vcIsEnd(v);
+                char lbl[48];
+                if (isTerm) snprintf(lbl, sizeof(lbl), "#%u  [END]##vci%u", k, idx);
+                else        snprintf(lbl, sizeof(lbl), "#%u##vci%u", k, idx);
+                ImGui::PushID((int)k);
+                if (isTerm) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f,0.5f,0.5f,1.0f));
+                bool sel = (m_voiceclipSel.inner == (int)k);
+                if (ImGui::Selectable(lbl, sel, ImGuiSelectableFlags_AllowOverlap, ImVec2(0, ListRowHeight()))) m_voiceclipSel.inner = (int)k;
+                if (isTerm) ImGui::PopStyleColor();
+
+                bool canUp   = !isTerm && k > 0;
+                bool canDown = !isTerm && (int)k < (int)count - 2;
+                bool canInsB = isTerm ? true : (k > 0);
+                bool canInsA = !isTerm;
+                RowResult rr = ListRow(isTerm, canUp, canDown, !isTerm, !isTerm, canInsB, canInsA, sel);
+                if (rr.act != ListAction::None) { pendAct = rr.act; pendK = (int)k; pendInsAfter = rr.insertAfter; }
+                ImGui::PopID();
+            }
+        }
+        ImGui::EndChild();
+
+        // ---- Apply the deferred row action ----
+        if (pendAct != ListAction::None && hasOuter && pendK >= 0) {
+            uint32_t gf = groups[m_voiceclipSel.outer].first, gc = groups[m_voiceclipSel.outer].second;
+            ParsedVoiceclip nv{}; nv.val1 = nv.val2 = nv.val3 = 0;
+            if (ApplyRowAction2Level(this, m_data, m_dirty, m_voiceclipSel.inner, blk, gf, gc,
+                                     pendAct, pendK, pendInsAfter,
+                                     &FixupRef_Voiceclip, &CountRefs_Voiceclip, nv, "Voiceclip"))
+                groups = mkGroups();
+        }
+    }
+    ImGui::EndChild();
+    VSplitter("##vc_sp2", &innerW, 90.0f, 140.0f);
+
+    groups = mkGroups();
+
+    // ---- Detail ----
     ImGui::BeginChild("##vc_detail", ImVec2(0.0f, 0.0f), false);
-    if (m_voiceclipWinSel >= 0 && m_voiceclipWinSel < total) {
-        ParsedVoiceclip& vc = m_data.voiceclipBlock[m_voiceclipWinSel];
-        const bool isEnd = (vc.val1 == 0xFFFFFFFFu && vc.val2 == 0xFFFFFFFFu && vc.val3 == 0xFFFFFFFFu);
-        ImGui::TextDisabled("Voiceclip #%d%s", m_voiceclipWinSel, isEnd ? "  [END]" : ""); ImGui::Separator();
-        if (BeginPropTable("##vcdt")) {
-            // tk_voiceclip fields are 'int' (signed) -- display as signed int32
-            { int32_t tmp = static_cast<int32_t>(vc.val1);
-              if (RowI32Edit("##vc_val1", VoiceclipLabel::Folder, tmp, FieldTT::Voiceclip::Folder)) { vc.val1 = static_cast<uint32_t>(tmp); m_dirty = true; } }
-            { int32_t tmp = static_cast<int32_t>(vc.val2);
-              if (RowI32Edit("##vc_val2", VoiceclipLabel::Val2, tmp, FieldTT::Voiceclip::Val2)) { vc.val2 = static_cast<uint32_t>(tmp); m_dirty = true; } }
-            { int32_t tmp = static_cast<int32_t>(vc.val3);
-              if (RowI32Edit("##vc_val3", VoiceclipLabel::Clip, tmp, FieldTT::Voiceclip::Clip)) { vc.val3 = static_cast<uint32_t>(tmp); m_dirty = true; } }
-            ImGui::EndTable();
+    if (m_voiceclipSel.outer < (int)groups.size()) {
+        uint32_t start = groups[m_voiceclipSel.outer].first;
+        uint32_t idx = start + (uint32_t)m_voiceclipSel.inner;
+        if (idx < (uint32_t)blk.size()) {
+            ParsedVoiceclip& vc = blk[idx];
+            const bool isEnd = vcIsEnd(vc);
+            ImGui::TextDisabled("Voiceclip #%u%s", idx, isEnd ? "  [END]" : ""); ImGui::Separator();
+            if (BeginPropTable("##vcdt")) {
+                // tk_voiceclip fields are 'int' (signed) -- display as signed int32
+                { int32_t tmp = static_cast<int32_t>(vc.val1);
+                  if (RowI32Edit("##vc_val1", VoiceclipLabel::Folder, tmp, FieldTT::Voiceclip::Folder)) { vc.val1 = static_cast<uint32_t>(tmp); m_dirty = true; } }
+                { int32_t tmp = static_cast<int32_t>(vc.val2);
+                  if (RowI32Edit("##vc_val2", VoiceclipLabel::Val2, tmp, FieldTT::Voiceclip::Val2)) { vc.val2 = static_cast<uint32_t>(tmp); m_dirty = true; } }
+                { int32_t tmp = static_cast<int32_t>(vc.val3);
+                  if (RowI32Edit("##vc_val3", VoiceclipLabel::Clip, tmp, FieldTT::Voiceclip::Clip)) { vc.val3 = static_cast<uint32_t>(tmp); m_dirty = true; } }
+                ImGui::EndTable();
+            }
         }
     }
     ImGui::EndChild();
@@ -4223,12 +4553,14 @@ struct PropNavCtx {
     // 0x827b: projectile index
     const std::vector<ParsedProjectile>*           projBlk       = nullptr;
     bool*                                          projWinOpen   = nullptr;
+    bool*                                          projWinFocus  = nullptr;
     int*                                           projWinSel    = nullptr;
     bool*                                          projWinScroll = nullptr;
     // 0x868f: throw-extra index
     const std::vector<std::pair<uint32_t,uint32_t>>* teGroups    = nullptr;
     MovesetEditorWindow::TwoLevelSel*              throwExtraSel = nullptr;
     bool*                                          throwsWinOpen = nullptr;
+    bool*                                          throwsWinFocus = nullptr;
     // 0x860A-0x8613: hand animation/pose pool index
     AnimationManagerWindow*                        animMgr       = nullptr;
 };
@@ -4242,12 +4574,14 @@ static void RenderPropSection(
     bool isExtraProp,
     MovesetEditorWindow::TwoLevelSel& reqWinSel,
     bool& reqWinOpen,
+    bool& reqWinFocus,
     bool& dirty,
     PropNavCtx& navCtx,
     MotbinData& data,
     MovesetEditorWindow* win,
-    void(*fixupFn)(MotbinData&, uint32_t, bool),
-    uint32_t(*countFn)(const MotbinData&, uint32_t))
+    void(*fixupFn)(MotbinData&, uint32_t, bool, bool),
+    uint32_t(*countFn)(const MotbinData&, uint32_t),
+    float& outerW, float& innerW)
 {
     const uint32_t reqEnd = GameStatic::Get().data.reqListEnd;
     auto isPropEnd = [&](const ParsedExtraProp& e) -> bool {
@@ -4256,17 +4590,32 @@ static void RenderPropSection(
     auto mkGroups = [&]{ return ComputeGroups(block, isPropEnd); };
     auto groups = mkGroups();
 
-    static constexpr float kListW = 200.0f;
-
     // ---- Outer list ----
-    ImGui::BeginChild(outerChildId, ImVec2(kListW, 0.0f), true);
+    ImGui::BeginChild(outerChildId, ImVec2(outerW, 0.0f), true);
     {
-        bool hasOuter = (sel.outer < (int)groups.size());
-        char outerMenuId[80]; snprintf(outerMenuId, sizeof(outerMenuId), "##pop%s", outerChildId);
-        ListAction outerAct = RenderListPlusMenu(outerMenuId, isExtraProp ? "Property-list" : "Fl-property-list");
-        ImGui::SameLine(); ImGui::TextDisabled("%s (%d)", listLabel, (int)groups.size());
-        ImGui::Separator();
+        const char* typeName = isExtraProp ? "Property-list" : "Fl-property-list";
+        ImGui::TextDisabled("%s (%d)", listLabel, (int)groups.size());        ImGui::Separator();
 
+        ListAction outerAct = ListAction::None;
+
+        ImGui::BeginChild((std::string(outerChildId) + "_sl").c_str(), ImVec2(0, 0), false);
+        for (int gi = 0; gi < (int)groups.size(); ++gi) {
+            uint32_t items = groups[gi].second;
+            char lbl[48]; snprintf(lbl, sizeof(lbl), "#%u  %u items##pg%d", groups[gi].first, items, gi);
+            ImGui::PushID(gi);
+            bool s = (sel.outer == gi);
+            if (ImGui::Selectable(lbl, s)) { sel.outer = gi; sel.inner = 0; }
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) { sel.outer = gi; sel.inner = 0; }
+            ListAction a = OuterListContextMenu(typeName);
+            if (a != ListAction::None) outerAct = a;
+            if (s && sel.scrollOuter) { ImGui::SetScrollHereY(0.5f); sel.scrollOuter = false; }
+            ImGui::PopID();
+        }
+        { char bgId[80]; snprintf(bgId, sizeof(bgId), "%s_bg", outerChildId);
+          ListAction a = OuterListBgMenu(bgId, typeName); if (a != ListAction::None) outerAct = a; }
+        ImGui::EndChild();
+
+        bool hasOuter = (sel.outer < (int)groups.size());
         if (outerAct == ListAction::Insert) {
             uint32_t insertPos = hasOuter
                 ? groups[sel.outer].first + groups[sel.outer].second
@@ -4274,7 +4623,7 @@ static void RenderPropSection(
             ParsedExtraProp term{};
             if (!isExtraProp) term.id = reqEnd;
             block.insert(block.begin() + insertPos, term);
-            fixupFn(data, insertPos, true);
+            fixupFn(data, insertPos, true, false);
             sel.outer = hasOuter ? sel.outer + 1 : 0; sel.inner = 0; dirty = true;
             groups = mkGroups();
         } else if (outerAct == ListAction::Duplicate && hasOuter) {
@@ -4288,7 +4637,7 @@ static void RenderPropSection(
             auto doRem = [&block, &data, &dirty, &sel, fixupFn, gf, gc, co]() {
                 for (int i = (int)gc - 1; i >= 0; --i) {
                     uint32_t pos = gf + (uint32_t)i;
-                    fixupFn(data, pos, false);
+                    fixupFn(data, pos, false, false);
                     block.erase(block.begin() + pos);
                 }
                 sel.outer = (std::max)(0, co - 1); sel.inner = 0; dirty = true;
@@ -4299,74 +4648,21 @@ static void RenderPropSection(
                 win->m_removeConfirm.onConfirm = doRem; win->m_removeConfirm.callerViewportId = ImGui::GetWindowViewport()->ID; win->m_removeConfirm.pending = true;
             } else { doRem(); groups = mkGroups(); }
         }
-
-        ImGui::BeginChild((std::string(outerChildId) + "_sl").c_str(), ImVec2(0, 0), false);
-        for (int gi = 0; gi < (int)groups.size(); ++gi) {
-            uint32_t items = groups[gi].second;
-            char lbl[48]; snprintf(lbl, sizeof(lbl), "#%u  %u items##pg%d", groups[gi].first, items, gi);
-            bool s = (sel.outer == gi);
-            if (ImGui::Selectable(lbl, s)) { sel.outer = gi; sel.inner = 0; }
-            if (s && sel.scrollOuter) { ImGui::SetScrollHereY(0.5f); sel.scrollOuter = false; }
-        }
-        ImGui::EndChild();
     }
     ImGui::EndChild();
 
-    ImGui::SameLine();
+    VSplitter("##prop_sp1", &outerW, 100.0f, 260.0f);
     groups = mkGroups();
 
     // ---- Inner list ----
-    ImGui::BeginChild(innerChildId, ImVec2(kListW, 0.0f), true);
+    ImGui::BeginChild(innerChildId, ImVec2(innerW, 0.0f), true);
     {
         bool hasOuter = (sel.outer < (int)groups.size());
-        bool isEndSel = false;
-        uint32_t innerAbsIdx = 0xFFFFFFFF;
-        if (hasOuter) {
-            innerAbsIdx = groups[sel.outer].first + (uint32_t)sel.inner;
-            if (innerAbsIdx < (uint32_t)block.size())
-                isEndSel = isPropEnd(block[innerAbsIdx]);
-        }
 
-        char innerMenuId[80]; snprintf(innerMenuId, sizeof(innerMenuId), "##pip%s", innerChildId);
-        ListAction innerAct = RenderListPlusMenu(innerMenuId, "Property");
-        ImGui::SameLine(); ImGui::TextDisabled("items");
-        ImGui::Separator();
+        int innerReal = hasOuter ? (int)groups[sel.outer].second - 1 : 0;
+        ImGui::TextDisabled("Properties (%d)", innerReal < 0 ? 0 : innerReal);        ImGui::Separator();
 
-        bool isOnlyEnd = isEndSel && hasOuter && (groups[sel.outer].second == 1);
-        if (innerAct == ListAction::Insert && isEndSel && !isOnlyEnd) { innerAct = ListAction::None; win->m_endInsertBlocked = true; win->m_insertBlockedViewportId = ImGui::GetWindowViewport()->ID; }
-
-        if (hasOuter && innerAct != ListAction::None && innerAbsIdx != 0xFFFFFFFF) {
-            uint32_t gf = groups[sel.outer].first, gc = groups[sel.outer].second;
-            if (innerAct == ListAction::Insert) {
-                uint32_t ipos = isOnlyEnd ? innerAbsIdx : innerAbsIdx + 1;
-                ParsedExtraProp ne{};
-                ne.req_list_idx = 0;        // requirements: index 0
-                if (isExtraProp) ne.type = 32769; // frame: 32769; type!=0 prevents END trigger
-                block.insert(block.begin() + ipos, ne);
-                fixupFn(data, ipos, true);
-                if (!isOnlyEnd) sel.inner++;
-                dirty = true; groups = mkGroups();
-            } else if (innerAct == ListAction::Duplicate && !isEndSel) {
-                uint32_t ipos = gf + gc - 1;
-                block.insert(block.begin() + ipos, block[innerAbsIdx]);
-                fixupFn(data, ipos, true);
-                dirty = true; groups = mkGroups();
-            } else if (innerAct == ListAction::Remove && !isEndSel) {
-                uint32_t cai = innerAbsIdx;
-                uint32_t refs = countFn(data, cai);
-                auto doRem = [&block, &data, &dirty, &sel, fixupFn, cai]() {
-                    fixupFn(data, cai, false);
-                    block.erase(block.begin() + cai);
-                    if (sel.inner > 0) sel.inner--;
-                    dirty = true;
-                };
-                if (refs > 0) {
-                    snprintf(win->m_removeConfirm.message, sizeof(win->m_removeConfirm.message),
-                        "Property at index %u is referenced by %u location(s).\nRemove anyway?", cai, refs);
-                    win->m_removeConfirm.onConfirm = doRem; win->m_removeConfirm.callerViewportId = ImGui::GetWindowViewport()->ID; win->m_removeConfirm.pending = true;
-                } else { doRem(); groups = mkGroups(); }
-            }
-        }
+        ListAction pendAct = ListAction::None; int pendK = -1; bool pendInsAfter = false;
 
         ImGui::BeginChild((std::string(innerChildId) + "_sl").c_str(), ImVec2(0, 0), false);
         hasOuter = (sel.outer < (int)groups.size());
@@ -4385,23 +4681,41 @@ static void RenderPropSection(
                     snprintf(lbl, sizeof(lbl), "#%u  [END]##pi%u", k, idx);
                 else {
                     const MovesetDataDict::PropEntry* de = MovesetDataDict::Get().GetPropEntry(e.id);
-                    if (de && !de->function.empty()) {
+                    if (de && !de->function.empty())
                         snprintf(lbl, sizeof(lbl), "#%u  0x%.4X: %s##pi%u", k, e.id, de->function.c_str(), idx);
-                    } else {
+                    else
                         snprintf(lbl, sizeof(lbl), "#%u  0x%.4X ##pi%u", k, e.id, idx);
-                    }
                 }
+                ImGui::PushID((int)k);
                 if (isTerm) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f,0.5f,0.5f,1.0f));
                 bool s = (sel.inner == (int)k);
-                if (ImGui::Selectable(lbl, s)) sel.inner = (int)k;
+                if (ImGui::Selectable(lbl, s, ImGuiSelectableFlags_AllowOverlap, ImVec2(0, ListRowHeight()))) sel.inner = (int)k;
                 if (isTerm) ImGui::PopStyleColor();
+
+                bool canUp   = !isTerm && k > 0;
+                bool canDown = !isTerm && (int)k < (int)count - 2;
+                bool canInsB = isTerm ? true : (k > 0);
+                bool canInsA = !isTerm;
+                RowResult rr = ListRow(isTerm, canUp, canDown, !isTerm, !isTerm, canInsB, canInsA, s);
+                if (rr.act != ListAction::None) { pendAct = rr.act; pendK = (int)k; pendInsAfter = rr.insertAfter; }
+                ImGui::PopID();
             }
         }
         ImGui::EndChild();
+
+        // ---- Apply the deferred row action ----
+        if (pendAct != ListAction::None && hasOuter && pendK >= 0) {
+            uint32_t gf = groups[sel.outer].first, gc = groups[sel.outer].second;
+            ParsedExtraProp ne{}; ne.req_list_idx = 0;
+            if (isExtraProp) ne.type = 32769;
+            if (ApplyRowAction2Level(win, data, dirty, sel.inner, block, gf, gc, pendAct, pendK, pendInsAfter,
+                                     fixupFn, countFn, ne, "Property"))
+                groups = mkGroups();
+        }
     }
     ImGui::EndChild();
 
-    ImGui::SameLine();
+    VSplitter("##prop_sp2", &innerW, 100.0f, 160.0f);
     ImGui::BeginChild(detailChildId, ImVec2(0.0f, 0.0f), false);
     if (sel.outer < (int)groups.size())
     {
@@ -4499,7 +4813,7 @@ static void RenderPropSection(
                     auto grps = ComputeGroups(reqBlk, +[](const ParsedRequirement& rr)->bool{ return rr.req==GameStatic::Get().data.reqListEnd; });
                     int gi = FindGroupOuter(grps, e.req_list_idx);
                     if (gi >= 0) { reqWinSel.outer = gi; reqWinSel.inner = 0; reqWinSel.scrollOuter = true; }
-                    reqWinOpen = true;
+                    reqWinOpen = true; reqWinFocus = true;
                 }
 
                 // property dict display
@@ -4627,6 +4941,7 @@ static void RenderPropSection(
                         ImGui::SameLine();
                         if (GoButton("##proj_go", projValid) && navCtx.projWinOpen) {
                             *navCtx.projWinSel = (int)e.value; *navCtx.projWinScroll = true; *navCtx.projWinOpen = true;
+                            if (navCtx.projWinFocus) *navCtx.projWinFocus = true;
                         }
                     }
                     else if (e.id == 0x868f)
@@ -4644,6 +4959,7 @@ static void RenderPropSection(
                             int gi = FindGroupOuter(*navCtx.teGroups, e.value);
                             if (gi >= 0) { navCtx.throwExtraSel->outer = gi; navCtx.throwExtraSel->inner = 0; navCtx.throwExtraSel->scrollOuter = true; }
                             *navCtx.throwsWinOpen = true;
+                            if (navCtx.throwsWinFocus) *navCtx.throwsWinFocus = true;
                         }
                     }
                     else if (isHandAnimProp(e.id))
@@ -4790,12 +5106,11 @@ ComputeOtherPropGroups(const std::vector<ParsedExtraProp>& block,
 void MovesetEditorWindow::RenderSubWin_Properties()
 {
     if (!m_propertiesWin.open) return;
-    const bool propBringFront = m_propertiesWin.pendingFocus;
-    if (propBringFront) m_propertiesWin.pendingFocus = false;
-    ImGui::SetNextWindowSize(ImVec2(960.0f, 600.0f), ImGuiCond_FirstUseEver);
+    // Bring-to-front: skip one frame so the window re-appears and ImGui auto-focuses it.
+    if (m_propertiesWin.pendingFocus) { m_propertiesWin.pendingFocus = false; return; }
+    ImGui::SetNextWindowSize(LayoutStore::Get().GetWin("Properties", 960.0f, 600.0f), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin(WinId("Properties##blkwin").c_str(), &m_propertiesWin.open, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking))
     { ImGui::End(); return; }
-    if (propBringFront) ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());
 
     const auto& reqBlk = m_data.requirementBlock;
 
@@ -4810,11 +5125,13 @@ void MovesetEditorWindow::RenderSubWin_Properties()
     PropNavCtx navCtx;
     navCtx.projBlk       = &m_data.projectileBlock;
     navCtx.projWinOpen   = &m_projectileWin.open;
+    navCtx.projWinFocus  = &m_projectileWin.pendingFocus;
     navCtx.projWinSel    = &m_projectileWin.selectedIdx;
     navCtx.projWinScroll = &m_projectileWin.scrollPending;
     navCtx.teGroups      = &teGroups;
     navCtx.throwExtraSel = &m_throwsWin.extraSel;
     navCtx.throwsWinOpen = &m_throwsWin.open;
+    navCtx.throwsWinFocus = &m_throwsWin.pendingFocus;
     navCtx.animMgr       = m_animMgr.get();
 
     if (!ImGui::BeginTabBar("##prop_tabs")) { ImGui::End(); return; }
@@ -4828,8 +5145,9 @@ void MovesetEditorWindow::RenderSubWin_Properties()
     {
         RenderPropSection("##epo","##epi","##epd",
             m_data.extraPropBlock, reqBlk, m_propertiesWin.epSel,
-            "property-lists", true, m_reqWinSel, m_reqWinOpen, m_dirty, navCtx,
-            m_data, this, FixupRef_ExtraProp, CountRefs_ExtraProp);
+            "property-lists", true, m_reqWinSel, m_reqWinOpen, m_reqWinFocus, m_dirty, navCtx,
+            m_data, this, FixupRef_ExtraProp, CountRefs_ExtraProp,
+            SectionW("ep_outer", 200.0f), SectionW("ep_inner", 200.0f));
         ImGui::EndTabItem();
     }
     if (ImGui::BeginTabItem("Start", nullptr,
@@ -4837,8 +5155,9 @@ void MovesetEditorWindow::RenderSubWin_Properties()
     {
         RenderPropSection("##spo","##spi","##spd",
             m_data.startPropBlock, reqBlk, m_propertiesWin.spSel,
-            "start-property-lists", false, m_reqWinSel, m_reqWinOpen, m_dirty, navCtx,
-            m_data, this, FixupRef_StartProp, CountRefs_StartProp);
+            "start-property-lists", false, m_reqWinSel, m_reqWinOpen, m_reqWinFocus, m_dirty, navCtx,
+            m_data, this, FixupRef_StartProp, CountRefs_StartProp,
+            SectionW("sp_outer", 200.0f), SectionW("sp_inner", 200.0f));
         ImGui::EndTabItem();
     }
     if (ImGui::BeginTabItem("End", nullptr,
@@ -4846,8 +5165,9 @@ void MovesetEditorWindow::RenderSubWin_Properties()
     {
         RenderPropSection("##npo","##npi","##npd",
             m_data.endPropBlock, reqBlk, m_propertiesWin.npSel,
-            "end-property-lists", false, m_reqWinSel, m_reqWinOpen, m_dirty, navCtx,
-            m_data, this, FixupRef_EndProp, CountRefs_EndProp);
+            "end-property-lists", false, m_reqWinSel, m_reqWinOpen, m_reqWinFocus, m_dirty, navCtx,
+            m_data, this, FixupRef_EndProp, CountRefs_EndProp,
+            SectionW("np_outer", 200.0f), SectionW("np_inner", 200.0f));
         ImGui::EndTabItem();
     }
 
@@ -4864,7 +5184,9 @@ void MovesetEditorWindow::RenderSubWin_Properties()
 void MovesetEditorWindow::RenderSubWin_Throws()
 {
     if (!m_throwsWin.open) return;
-    ImGui::SetNextWindowSize(ImVec2(760.0f, 420.0f), ImGuiCond_FirstUseEver);
+    // Bring-to-front: skip one frame so the window re-appears and ImGui auto-focuses it.
+    if (m_throwsWin.pendingFocus) { m_throwsWin.pendingFocus = false; return; }
+    ImGui::SetNextWindowSize(LayoutStore::Get().GetWin("Throws", 760.0f, 420.0f), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin(WinId("Throws##blkwin").c_str(), &m_throwsWin.open, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking))
     { ImGui::End(); return; }
 
@@ -4881,8 +5203,8 @@ void MovesetEditorWindow::RenderSubWin_Throws()
 
     const float spacing = ImGui::GetStyle().ItemSpacing.x;
     const float totalW  = ImGui::GetContentRegionAvail().x;
-    const float leftW   = totalW * 0.25f;
-    const float rightW  = totalW - leftW - spacing;
+    float& leftW = SectionW("th_left", 0.0f);
+    if (leftW <= 0.0f) leftW = totalW * 0.25f;
     const float listH   = 160.0f;
 
     // ---- Left: throw list + detail ----
@@ -4891,44 +5213,35 @@ void MovesetEditorWindow::RenderSubWin_Throws()
         ImGui::BeginChild("##thlist", ImVec2(0.0f, listH), true);
         {
             int thTotal = (int)th.size();
-            ListAction thAct = RenderListPlusMenu("##th_pm", "Throw");
-            ImGui::SameLine(); ImGui::TextDisabled("(%d)", thTotal);
-            ImGui::Separator();
+            ImGui::TextDisabled("Throws (%d)", thTotal);            ImGui::Separator();
 
-            bool hasThSel = (m_throwsWin.throwSel >= 0 && m_throwsWin.throwSel < thTotal);
-            if (thAct == ListAction::Insert) {
-                uint32_t ipos = hasThSel ? (uint32_t)m_throwsWin.throwSel + 1 : (uint32_t)thTotal;
-                ParsedThrow nt{}; nt.throwextra_idx = 0xFFFFFFFF;
-                th.insert(th.begin() + ipos, nt);
-                m_throwsWin.throwSel = (int)ipos; m_dirty = true;
-            } else if (thAct == ListAction::Duplicate && hasThSel) {
-                th.push_back(th[m_throwsWin.throwSel]);
-                m_dirty = true;
-            } else if (thAct == ListAction::Remove && hasThSel) {
-                uint32_t pos = (uint32_t)m_throwsWin.throwSel;
-                // throws have no dedicated CountRefs — they're not indexed by other blocks
-                auto doRem = [this, pos]() {
-                    m_data.throwBlock.erase(m_data.throwBlock.begin() + pos);
-                    if (m_throwsWin.throwSel >= (int)m_data.throwBlock.size())
-                        m_throwsWin.throwSel = (std::max)(0, (int)m_data.throwBlock.size() - 1);
-                    m_dirty = true;
-                };
-                doRem();
-            }
+            ListAction pendAct = ListAction::None; int pendK = -1; bool pendInsAfter = false;
 
             ImGui::BeginChild("##thlist_sl", ImVec2(0, 0), false);
             for (int i = 0; i < (int)th.size(); ++i)
             {
                 char lbl[48]; snprintf(lbl, sizeof(lbl), "#%d  0x%llX", i, (unsigned long long)th[i].side);
+                ImGui::PushID(i);
                 bool sel = (m_throwsWin.throwSel == i);
-                if (ImGui::Selectable(lbl, sel)) m_throwsWin.throwSel = i;
+                if (ImGui::Selectable(lbl, sel, ImGuiSelectableFlags_AllowOverlap, ImVec2(0, ListRowHeight()))) m_throwsWin.throwSel = i;
                 if (sel && m_throwsWin.throwScrollPending)
                 {
                     ImGui::SetScrollHereY(0.5f);
                     m_throwsWin.throwScrollPending = false;
                 }
+                RowResult rr = ListRow(false, i > 0, i < (int)th.size() - 1, true, true, true, true, sel, /*insertOnly*/true);
+                if (rr.act != ListAction::None) { pendAct = rr.act; pendK = i; pendInsAfter = rr.insertAfter; }
+                ImGui::PopID();
             }
             ImGui::EndChild();
+
+            // ---- Apply the deferred row action (flat, unreferenced) ----
+            if (pendAct != ListAction::None && pendK >= 0) {
+                ParsedThrow nt{}; nt.throwextra_idx = 0xFFFFFFFF;
+                ApplyRowActionFlat(this, m_data, m_dirty, m_throwsWin.throwSel, th,
+                                   pendAct, pendK, pendInsAfter,
+                                   nullptr, nullptr, nullptr, nt, "Throw");
+            }
         }
         ImGui::EndChild();
 
@@ -4967,21 +5280,43 @@ void MovesetEditorWindow::RenderSubWin_Throws()
     }
     ImGui::EndChild();
 
-    ImGui::SameLine();
+    VSplitter("##th_sp", &leftW, 120.0f, 320.0f);
 
     // ---- Right: throw_extra 3-panel (outer groups | inner items | detail) ----
-    ImGui::BeginChild("##te_right", ImVec2(rightW, 0.0f), false);
+    ImGui::BeginChild("##te_right", ImVec2(0.0f, 0.0f), false);
     {
-        float colW = ImGui::GetContentRegionAvail().x / 3.0f - spacing;
+        float& teOuterW = SectionW("te_outer", 0.0f);
+        float& teInnerW = SectionW("te_inner", 0.0f);
+        {
+            float def = ImGui::GetContentRegionAvail().x / 3.0f - spacing;
+            if (teOuterW <= 0.0f) teOuterW = def;
+            if (teInnerW <= 0.0f) teInnerW = def;
+        }
 
         // Outer groups
-        ImGui::BeginChild("##te_outer", ImVec2(colW, 0.0f), true);
+        ImGui::BeginChild("##te_outer", ImVec2(teOuterW, 0.0f), true);
         {
-            bool hasOuter = (m_throwsWin.extraSel.outer < (int)teGroups.size());
-            ListAction outerAct = RenderListPlusMenu("##te_om", "ThrowExtra-list");
-            ImGui::SameLine(); ImGui::TextDisabled("throw_extra lists (%d)", (int)teGroups.size());
-            ImGui::Separator();
+            ImGui::TextDisabled("throw_extra lists (%d)", (int)teGroups.size());            ImGui::Separator();
 
+            ListAction outerAct = ListAction::None;
+
+            ImGui::BeginChild("##te_outer_sl", ImVec2(0, 0), false);
+            for (int gi = 0; gi < (int)teGroups.size(); ++gi) {
+                uint32_t items = teGroups[gi].second;
+                char lbl[48]; snprintf(lbl, sizeof(lbl), "#%u  %u items##teg%d", teGroups[gi].first, items, gi);
+                ImGui::PushID(gi);
+                bool s = (m_throwsWin.extraSel.outer == gi);
+                if (ImGui::Selectable(lbl, s)) { m_throwsWin.extraSel.outer = gi; m_throwsWin.extraSel.inner = 0; }
+                if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) { m_throwsWin.extraSel.outer = gi; m_throwsWin.extraSel.inner = 0; }
+                ListAction a = OuterListContextMenu("ThrowExtra-list");
+                if (a != ListAction::None) outerAct = a;
+                if (s && m_throwsWin.extraSel.scrollOuter) { ImGui::SetScrollHereY(0.5f); m_throwsWin.extraSel.scrollOuter = false; }
+                ImGui::PopID();
+            }
+            { ListAction a = OuterListBgMenu("##te_outer_bg", "ThrowExtra-list"); if (a != ListAction::None) outerAct = a; }
+            ImGui::EndChild();
+
+            bool hasOuter = (m_throwsWin.extraSel.outer < (int)teGroups.size());
             if (outerAct == ListAction::Insert) {
                 uint32_t insertPos = hasOuter
                     ? teGroups[m_throwsWin.extraSel.outer].first + teGroups[m_throwsWin.extraSel.outer].second
@@ -5013,71 +5348,21 @@ void MovesetEditorWindow::RenderSubWin_Throws()
                     m_removeConfirm.onConfirm = doRem; m_removeConfirm.callerViewportId = ImGui::GetWindowViewport()->ID; m_removeConfirm.pending = true;
                 } else { doRem(); teGroups = mkTeGroups(); }
             }
-
-            ImGui::BeginChild("##te_outer_sl", ImVec2(0, 0), false);
-            for (int gi = 0; gi < (int)teGroups.size(); ++gi) {
-                uint32_t items = teGroups[gi].second;
-                char lbl[48]; snprintf(lbl, sizeof(lbl), "#%u  %u items##teg%d", teGroups[gi].first, items, gi);
-                bool s = (m_throwsWin.extraSel.outer == gi);
-                if (ImGui::Selectable(lbl, s)) { m_throwsWin.extraSel.outer = gi; m_throwsWin.extraSel.inner = 0; }
-                if (s && m_throwsWin.extraSel.scrollOuter) { ImGui::SetScrollHereY(0.5f); m_throwsWin.extraSel.scrollOuter = false; }
-            }
-            ImGui::EndChild();
         }
         ImGui::EndChild();
 
-        ImGui::SameLine();
+        VSplitter("##te_sp1", &teOuterW, 80.0f, 180.0f);
         teGroups = mkTeGroups();
 
         // Inner items
-        ImGui::BeginChild("##te_inner", ImVec2(colW, 0.0f), true);
+        ImGui::BeginChild("##te_inner", ImVec2(teInnerW, 0.0f), true);
         {
             bool hasOuter = (m_throwsWin.extraSel.outer < (int)teGroups.size());
-            bool isEndSel = false;
-            uint32_t innerAbsIdx = 0xFFFFFFFF;
-            if (hasOuter) {
-                innerAbsIdx = teGroups[m_throwsWin.extraSel.outer].first + (uint32_t)m_throwsWin.extraSel.inner;
-                if (innerAbsIdx < (uint32_t)te.size())
-                    isEndSel = isTeEnd(te[innerAbsIdx]);
-            }
 
-            ListAction innerAct = RenderListPlusMenu("##te_im", "ThrowExtra");
-            ImGui::SameLine(); ImGui::TextDisabled("items");
-            ImGui::Separator();
+            int innerReal = hasOuter ? (int)teGroups[m_throwsWin.extraSel.outer].second - 1 : 0;
+            ImGui::TextDisabled("ThrowExtras (%d)", innerReal < 0 ? 0 : innerReal);            ImGui::Separator();
 
-            bool isOnlyEnd = isEndSel && hasOuter && (teGroups[m_throwsWin.extraSel.outer].second == 1);
-            if (innerAct == ListAction::Insert && isEndSel && !isOnlyEnd) { innerAct = ListAction::None; m_endInsertBlocked = true; m_insertBlockedViewportId = ImGui::GetWindowViewport()->ID; }
-
-            if (hasOuter && innerAct != ListAction::None && innerAbsIdx != 0xFFFFFFFF) {
-                uint32_t gf = teGroups[m_throwsWin.extraSel.outer].first, gc = teGroups[m_throwsWin.extraSel.outer].second;
-                if (innerAct == ListAction::Insert) {
-                    uint32_t ipos = isOnlyEnd ? innerAbsIdx : innerAbsIdx + 1;
-                    ParsedThrowExtra nte{}; nte.pick_probability = 1; // non-zero so not [END]
-                    te.insert(te.begin() + ipos, nte);
-                    FixupRef_ThrowExtra(m_data, ipos, true);
-                    if (!isOnlyEnd) m_throwsWin.extraSel.inner++;
-                    m_dirty = true; teGroups = mkTeGroups();
-                } else if (innerAct == ListAction::Duplicate && !isEndSel) {
-                    uint32_t ipos = gf + gc - 1;
-                    te.insert(te.begin() + ipos, te[innerAbsIdx]);
-                    FixupRef_ThrowExtra(m_data, ipos, true);
-                    m_dirty = true; teGroups = mkTeGroups();
-                } else if (innerAct == ListAction::Remove && !isEndSel) {
-                    uint32_t cai = innerAbsIdx;
-                    uint32_t refs = CountRefs_ThrowExtra(m_data, cai);
-                    auto doRem = [this, cai]() {
-                        FixupRef_ThrowExtra(m_data, cai, false);
-                        m_data.throwExtraBlock.erase(m_data.throwExtraBlock.begin() + cai);
-                        if (m_throwsWin.extraSel.inner > 0) m_throwsWin.extraSel.inner--;
-                        m_dirty = true;
-                    };
-                    if (refs > 0) {
-                        snprintf(m_removeConfirm.message, sizeof(m_removeConfirm.message),
-                            "ThrowExtra at index %u is referenced by %u location(s).\nRemove anyway?", cai, refs);
-                        m_removeConfirm.onConfirm = doRem; m_removeConfirm.callerViewportId = ImGui::GetWindowViewport()->ID; m_removeConfirm.pending = true;
-                    } else { doRem(); teGroups = mkTeGroups(); }
-                }
-            }
+            ListAction pendAct = ListAction::None; int pendK = -1; bool pendInsAfter = false;
 
             ImGui::BeginChild("##te_inner_sl", ImVec2(0, 0), false);
             hasOuter = (m_throwsWin.extraSel.outer < (int)teGroups.size());
@@ -5093,17 +5378,36 @@ void MovesetEditorWindow::RenderSubWin_Throws()
                     char lbl[32];
                     if (isEnd) snprintf(lbl, sizeof(lbl), "#%u  [END]##tei%u", k, idx);
                     else        snprintf(lbl, sizeof(lbl), "#%u##tei%u", k, idx);
-                    bool sel = (m_throwsWin.extraSel.inner == (int)k);
+                    ImGui::PushID((int)k);
                     if (isEnd) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
-                    if (ImGui::Selectable(lbl, sel)) m_throwsWin.extraSel.inner = (int)k;
+                    bool sel = (m_throwsWin.extraSel.inner == (int)k);
+                    if (ImGui::Selectable(lbl, sel, ImGuiSelectableFlags_AllowOverlap, ImVec2(0, ListRowHeight()))) m_throwsWin.extraSel.inner = (int)k;
                     if (isEnd) ImGui::PopStyleColor();
+
+                    bool canUp   = !isEnd && k > 0;
+                    bool canDown = !isEnd && (int)k < (int)count - 2;
+                    bool canInsB = isEnd ? true : (k > 0);
+                    bool canInsA = !isEnd;
+                    RowResult rr = ListRow(isEnd, canUp, canDown, !isEnd, !isEnd, canInsB, canInsA, sel);
+                    if (rr.act != ListAction::None) { pendAct = rr.act; pendK = (int)k; pendInsAfter = rr.insertAfter; }
+                    ImGui::PopID();
                 }
             }
             ImGui::EndChild();
+
+            // ---- Apply the deferred row action ----
+            if (pendAct != ListAction::None && hasOuter && pendK >= 0) {
+                uint32_t gf = teGroups[m_throwsWin.extraSel.outer].first, gc = teGroups[m_throwsWin.extraSel.outer].second;
+                ParsedThrowExtra nte{}; nte.pick_probability = 1;
+                if (ApplyRowAction2Level(this, m_data, m_dirty, m_throwsWin.extraSel.inner, te, gf, gc,
+                                         pendAct, pendK, pendInsAfter,
+                                         &FixupRef_ThrowExtra, &CountRefs_ThrowExtra, nte, "ThrowExtra"))
+                    teGroups = mkTeGroups();
+            }
         }
         ImGui::EndChild();
 
-        ImGui::SameLine();
+        VSplitter("##te_sp2", &teInnerW, 80.0f, 120.0f);
 
         // Detail
         ImGui::BeginChild("##te_detail", ImVec2(0.0f, 0.0f), false);
@@ -5145,56 +5449,50 @@ void MovesetEditorWindow::RenderSubWin_Throws()
 void MovesetEditorWindow::RenderSubWin_Projectiles()
 {
     if (!m_projectileWin.open) return;
-    ImGui::SetNextWindowSize(ImVec2(540.0f, 480.0f), ImGuiCond_FirstUseEver);
+    // Bring-to-front: skip one frame so the window re-appears and ImGui auto-focuses it.
+    if (m_projectileWin.pendingFocus) { m_projectileWin.pendingFocus = false; return; }
+    ImGui::SetNextWindowSize(LayoutStore::Get().GetWin("Projectiles", 540.0f, 480.0f), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin(WinId("Projectiles##blkwin").c_str(), &m_projectileWin.open, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking))
     { ImGui::End(); return; }
 
     auto& block = m_data.projectileBlock;
-    const float leftW = 110.0f;
+    float& leftW = SectionW("pj_list", 190.0f);
 
     ImGui::BeginChild("##pjlist", ImVec2(leftW, 0.0f), true);
     {
         int pjTotal = (int)block.size();
-        ListAction act = RenderListPlusMenu("##pj_pm", "Projectile");
-        ImGui::SameLine(); ImGui::TextDisabled("(%d)", pjTotal);
-        ImGui::Separator();
+        ImGui::TextDisabled("Projectiles (%d)", pjTotal);        ImGui::Separator();
 
-        bool hasSel = (m_projectileWin.selectedIdx >= 0 && m_projectileWin.selectedIdx < pjTotal);
-        if (act == ListAction::Insert) {
-            uint32_t ipos = hasSel ? (uint32_t)m_projectileWin.selectedIdx + 1 : (uint32_t)pjTotal;
-            ParsedProjectile np{}; np.hit_condition_idx = 0xFFFFFFFF; np.cancel_idx = 0xFFFFFFFF;
-            block.insert(block.begin() + ipos, np);
-            // Projectiles are not referenced by fixup functions (only projectile refs cancel/hitcond)
-            m_projectileWin.selectedIdx = (int)ipos; m_dirty = true;
-        } else if (act == ListAction::Duplicate && hasSel) {
-            block.push_back(block[m_projectileWin.selectedIdx]);
-            m_dirty = true;
-        } else if (act == ListAction::Remove && hasSel) {
-            uint32_t pos = (uint32_t)m_projectileWin.selectedIdx;
-            // projectiles are not referenced by other blocks
-            block.erase(block.begin() + pos);
-            if (m_projectileWin.selectedIdx >= (int)block.size())
-                m_projectileWin.selectedIdx = (std::max)(0, (int)block.size() - 1);
-            m_dirty = true;
-        }
+        ListAction pendAct = ListAction::None; int pendK = -1; bool pendInsAfter = false;
 
         ImGui::BeginChild("##pjlist_sl", ImVec2(0, 0), false);
         for (int i = 0; i < (int)block.size(); ++i)
         {
             char lbl[20]; snprintf(lbl, sizeof(lbl), "#%d", i);
+            ImGui::PushID(i);
             bool sel = (m_projectileWin.selectedIdx == i);
-            if (ImGui::Selectable(lbl, sel)) m_projectileWin.selectedIdx = i;
+            if (ImGui::Selectable(lbl, sel, ImGuiSelectableFlags_AllowOverlap, ImVec2(0, ListRowHeight()))) m_projectileWin.selectedIdx = i;
             if (sel && m_projectileWin.scrollPending)
             {
                 ImGui::SetScrollHereY(0.5f);
                 m_projectileWin.scrollPending = false;
             }
+            RowResult rr = ListRow(false, i > 0, i < (int)block.size() - 1, true, true, true, true, sel, /*insertOnly*/true);
+            if (rr.act != ListAction::None) { pendAct = rr.act; pendK = i; pendInsAfter = rr.insertAfter; }
+            ImGui::PopID();
         }
         ImGui::EndChild();
+
+        // ---- Apply the deferred row action (flat, unreferenced) ----
+        if (pendAct != ListAction::None && pendK >= 0) {
+            ParsedProjectile np{}; np.hit_condition_idx = 0xFFFFFFFF; np.cancel_idx = 0xFFFFFFFF;
+            ApplyRowActionFlat(this, m_data, m_dirty, m_projectileWin.selectedIdx, block, pendAct, pendK, pendInsAfter,
+                               nullptr, nullptr, nullptr, np, "Projectile");
+        }
     }
     ImGui::EndChild();
 
-    ImGui::SameLine();
+    VSplitter("##pj_sp", &leftW, 90.0f, 220.0f);
 
     ImGui::BeginChild("##pjdetail", ImVec2(0.0f, 0.0f), false);
     if (m_projectileWin.selectedIdx >= 0 && m_projectileWin.selectedIdx < (int)block.size())
@@ -5282,7 +5580,7 @@ static void ShiftInputStartRefs(MotbinData& d, const ParsedInputSequence& owner,
 void MovesetEditorWindow::RenderSubWin_InputSequences()
 {
     if (!m_inputSeqWin.open) return;
-    ImGui::SetNextWindowSize(ImVec2(580.0f, 400.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(LayoutStore::Get().GetWin("InputSequences", 580.0f, 400.0f), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin(WinId("Input Sequences##blkwin").c_str(), &m_inputSeqWin.open, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking))
     { ImGui::End(); return; }
 
@@ -5291,8 +5589,8 @@ void MovesetEditorWindow::RenderSubWin_InputSequences()
 
     const float spacing = ImGui::GetStyle().ItemSpacing.x;
     const float totalW  = ImGui::GetContentRegionAvail().x;
-    const float leftW   = totalW * 0.40f;
-    const float rightW  = totalW - leftW - spacing;
+    float& leftW = SectionW("iseq_left", 0.0f);
+    if (leftW <= 0.0f) leftW = totalW * 0.40f;
     const float listH   = 150.0f;
 
     // ---- Left: sequence list + detail ----
@@ -5301,56 +5599,67 @@ void MovesetEditorWindow::RenderSubWin_InputSequences()
         ImGui::BeginChild("##iseqlist", ImVec2(0.0f, listH), true);
         {
             int seqTotal = (int)seqs.size();
-            ListAction act = RenderListPlusMenu("##iseq_pm", "Input-sequence");
-            ImGui::SameLine(); ImGui::TextDisabled("(%d)", seqTotal);
-            ImGui::Separator();
+            ImGui::TextDisabled("Input Sequences (%d)", seqTotal);            ImGui::Separator();
 
-            bool hasSel = (m_inputSeqWin.sel.outer >= 0 && m_inputSeqWin.sel.outer < seqTotal);
-            if (act == ListAction::Insert) {
-                uint32_t ipos = hasSel ? (uint32_t)m_inputSeqWin.sel.outer + 1 : (uint32_t)seqTotal;
-                ParsedInputSequence ns{}; ns.input_start_idx = 0xFFFFFFFF;
-                seqs.insert(seqs.begin() + ipos, ns);
-                m_inputSeqWin.sel.outer = (int)ipos; m_inputSeqWin.sel.inner = 0;
-                m_dirty = true;
-            } else if (act == ListAction::Duplicate && hasSel) {
-                // Deep-copy: the sequence header only stores start_idx/amount into the
-                // shared inputBlock. Copying the header alone makes the duplicate share
-                // the ORIGINAL's inputs, so editing one edits both. Append fresh copies
-                // of the inputs and point the new sequence at them.
-                ParsedInputSequence ns = seqs[m_inputSeqWin.sel.outer];
-                if (ns.input_start_idx != 0xFFFFFFFF && ns.input_amount > 0) {
-                    const uint32_t srcStart = ns.input_start_idx;
-                    const uint32_t newStart = (uint32_t)inps.size();
-                    inps.reserve(inps.size() + ns.input_amount);
-                    for (uint32_t i = 0; i < ns.input_amount && (srcStart + i) < inps.size(); ++i) {
-                        ParsedInput tmp = inps[srcStart + i];   // copy before push_back (may realloc)
-                        inps.push_back(tmp);
-                    }
-                    ns.input_start_idx = newStart;
-                }
-                seqs.push_back(ns);
-                m_dirty = true;
-            } else if (act == ListAction::Remove && hasSel) {
-                seqs.erase(seqs.begin() + m_inputSeqWin.sel.outer);
-                if (m_inputSeqWin.sel.outer >= (int)seqs.size())
-                    m_inputSeqWin.sel.outer = (std::max)(0, (int)seqs.size() - 1);
-                m_inputSeqWin.sel.inner = 0; m_dirty = true;
-            }
+            ListAction pendAct = ListAction::None; int pendK = -1; bool pendInsAfter = false;
 
             ImGui::BeginChild("##iseqlist_sl", ImVec2(0, 0), false);
             for (int i = 0; i < (int)seqs.size(); ++i)
             {
                 char lbl[40];
                 snprintf(lbl, sizeof(lbl), "#%d  (amount=%u)", i, seqs[i].input_amount);
+                ImGui::PushID(i);
                 bool sel = (m_inputSeqWin.sel.outer == i);
-                if (ImGui::Selectable(lbl, sel)) { m_inputSeqWin.sel.outer = i; m_inputSeqWin.sel.inner = 0; }
+                if (ImGui::Selectable(lbl, sel, ImGuiSelectableFlags_AllowOverlap, ImVec2(0, ListRowHeight()))) { m_inputSeqWin.sel.outer = i; m_inputSeqWin.sel.inner = 0; }
                 if (sel && m_inputSeqWin.sel.scrollOuter)
                 {
                     ImGui::SetScrollHereY(0.5f);
                     m_inputSeqWin.sel.scrollOuter = false;
                 }
+                RowResult rr = ListRow(false, i > 0, i < (int)seqs.size() - 1, true, true, true, true, sel, /*insertOnly*/true);
+                if (rr.act != ListAction::None) { pendAct = rr.act; pendK = i; pendInsAfter = rr.insertAfter; }
+                ImGui::PopID();
             }
             ImGui::EndChild();
+
+            // ---- Apply the deferred outer action (sequences are standalone; pure swap) ----
+            if (pendAct != ListAction::None && pendK >= 0) {
+                int idx = pendK;
+                if (pendAct == ListAction::Insert) {
+                    uint32_t ipos = pendInsAfter ? (uint32_t)idx + 1 : (uint32_t)idx;
+                    ParsedInputSequence ns{}; ns.input_start_idx = 0xFFFFFFFF;
+                    seqs.insert(seqs.begin() + ipos, ns);
+                    m_inputSeqWin.sel.outer = (int)ipos; m_inputSeqWin.sel.inner = 0; m_dirty = true;
+                } else if (pendAct == ListAction::Duplicate) {
+                    // Deep-copy: the sequence header only stores start_idx/amount into the shared
+                    // inputBlock. Copying the header alone would make the duplicate share the
+                    // ORIGINAL's inputs; append fresh copies and point the new sequence at them.
+                    ParsedInputSequence ns = seqs[idx];
+                    if (ns.input_start_idx != 0xFFFFFFFF && ns.input_amount > 0) {
+                        const uint32_t srcStart = ns.input_start_idx;
+                        const uint32_t newStart = (uint32_t)inps.size();
+                        inps.reserve(inps.size() + ns.input_amount);
+                        for (uint32_t j = 0; j < ns.input_amount && (srcStart + j) < inps.size(); ++j) {
+                            ParsedInput tmp = inps[srcStart + j];   // copy before push_back (may realloc)
+                            inps.push_back(tmp);
+                        }
+                        ns.input_start_idx = newStart;
+                    }
+                    seqs.insert(seqs.begin() + idx + 1, ns);
+                    m_inputSeqWin.sel.outer = idx + 1; m_inputSeqWin.sel.inner = 0; m_dirty = true;
+                } else if (pendAct == ListAction::Remove) {
+                    seqs.erase(seqs.begin() + idx);
+                    if (m_inputSeqWin.sel.outer >= (int)seqs.size())
+                        m_inputSeqWin.sel.outer = (std::max)(0, (int)seqs.size() - 1);
+                    m_inputSeqWin.sel.inner = 0; m_dirty = true;
+                } else if (pendAct == ListAction::MoveUp || pendAct == ListAction::MoveDown) {
+                    int ni = idx + (pendAct == ListAction::MoveUp ? -1 : 1);
+                    if (ni >= 0 && ni < (int)seqs.size()) {   // pure swap: each seq keeps its own inputs
+                        std::swap(seqs[idx], seqs[ni]);
+                        m_inputSeqWin.sel.outer = ni; m_dirty = true;
+                    }
+                }
+            }
         }
         ImGui::EndChild();
 
@@ -5369,80 +5678,44 @@ void MovesetEditorWindow::RenderSubWin_InputSequences()
     }
     ImGui::EndChild();
 
-    ImGui::SameLine();
+    VSplitter("##iseq_sp", &leftW, 150.0f, 200.0f);
 
     // ---- Right: inputs table for selected sequence ----
-    ImGui::BeginChild("##iseq_right", ImVec2(rightW, 0.0f), true);
+    ImGui::BeginChild("##iseq_right", ImVec2(0.0f, 0.0f), true);
     if (m_inputSeqWin.sel.outer >= 0 && m_inputSeqWin.sel.outer < (int)seqs.size())
     {
         ParsedInputSequence& s = seqs[m_inputSeqWin.sel.outer];
 
-        // + button for inputs
-        ListAction inpAct = RenderListPlusMenu("##inp_pm", "Input");
-        ImGui::SameLine();
-        ImGui::TextDisabled("inputs  (seq #%d,  amount=%u)", m_inputSeqWin.sel.outer, s.input_amount);
-        ImGui::Separator();
+        ImGui::TextDisabled("inputs  (seq #%d,  amount=%u)", m_inputSeqWin.sel.outer, s.input_amount);        ImGui::Separator();
 
-        bool hasInpSel = (m_inputSeqWin.sel.inner >= 0 && s.input_start_idx != 0xFFFFFFFF &&
-                          (uint32_t)m_inputSeqWin.sel.inner < s.input_amount);
-        if (inpAct == ListAction::Insert) {
-            const bool wasEmpty = (s.input_start_idx == 0xFFFFFFFF);
-            uint32_t ipos = wasEmpty
-                ? (uint32_t)inps.size()
-                : s.input_start_idx + (hasInpSel ? (uint32_t)m_inputSeqWin.sel.inner + 1 : s.input_amount);
-            inps.insert(inps.begin() + ipos, ParsedInput{});
-            // Shift start indices of OTHER sequences at/after the insert point.
-            // The sequence receiving the input must NOT be shifted (it either keeps
-            // pointing at its range, or gets input_start_idx set below); a generic
-            // fixup would wrongly bump its own start and desync it from its inputs.
-            ShiftInputStartRefs(m_data, s, ipos);
-            if (wasEmpty) s.input_start_idx = ipos;
-            s.input_amount++; m_dirty = true;
-            if (hasInpSel) m_inputSeqWin.sel.inner++;
-        } else if (inpAct == ListAction::Duplicate && hasInpSel) {
-            uint32_t absSrc = s.input_start_idx + (uint32_t)m_inputSeqWin.sel.inner;
-            uint32_t ipos = s.input_start_idx + s.input_amount;
-            ParsedInput copy = inps[absSrc];   // copy before insert; insert may reallocate inps
-            inps.insert(inps.begin() + ipos, copy);
-            ShiftInputStartRefs(m_data, s, ipos);
-            s.input_amount++; m_dirty = true;
-        } else if (inpAct == ListAction::Remove && hasInpSel) {
-            uint32_t absPos = s.input_start_idx + (uint32_t)m_inputSeqWin.sel.inner;
-            inps.erase(inps.begin() + absPos);
-            // Manual fixup: decrement start indices > absPos; don't nullify == absPos
-            // (erasing first input keeps input_start_idx pointing to the now-shifted next item)
-            for (auto& sq : m_data.inputSequenceBlock) {
-                if (sq.input_start_idx != 0xFFFFFFFF && sq.input_start_idx > absPos)
-                    sq.input_start_idx--;
-            }
-            s.input_amount--;
-            if (m_inputSeqWin.sel.inner > 0 && (uint32_t)m_inputSeqWin.sel.inner >= s.input_amount)
-                m_inputSeqWin.sel.inner--;
-            m_dirty = true;
-        }
+        ListAction pendInpAct = ListAction::None; int pendInpK = -1; bool pendInpInsAfter = false;
 
-        constexpr ImGuiTableFlags kTf =
-            ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit;
-        if (ImGui::BeginTable("##inptbl", 2, kTf))
+        static constexpr ImVec4 kBlockBg = {0.14f, 0.14f, 0.18f, 1.00f};
+        static constexpr ImVec4 kSelBg   = {0.22f, 0.22f, 0.30f, 1.00f};
+        const ImGuiStyle& isty = ImGui::GetStyle();
+        // Header row carries the action buttons (taller than a text line); size to the
+        // button-row height so no per-card scrollbar appears.
+        float inpCardH = ListRowHeight() + 2.0f + isty.ItemSpacing.y
+                       + ImGui::GetFrameHeight() + isty.WindowPadding.y * 2.0f;
+
+        ImGui::BeginChild("##inp_scroll", ImVec2(0, 0), false);
+        if (s.input_start_idx != 0xFFFFFFFF)
         {
-            ImGui::TableSetupColumn("Index",              ImGuiTableColumnFlags_WidthFixed,   45.0f);
-            ImGui::TableSetupColumn(InputLabel::Command,  ImGuiTableColumnFlags_WidthStretch);
-            ImGui::TableHeadersRow();
-
-            if (s.input_start_idx != 0xFFFFFFFF)
+            const uint32_t end = s.input_start_idx + s.input_amount;
+            for (uint32_t k = s.input_start_idx; k < end && k < (uint32_t)inps.size(); ++k)
             {
-                const uint32_t end = s.input_start_idx + s.input_amount;
-                for (uint32_t k = s.input_start_idx; k < end && k < (uint32_t)inps.size(); ++k)
+                const int localIdx = (int)(k - s.input_start_idx);
+                bool sel = (m_inputSeqWin.sel.inner == localIdx);
+                ImGui::PushStyleColor(ImGuiCol_ChildBg, sel ? kSelBg : kBlockBg);
+                char cardId[24]; snprintf(cardId, sizeof(cardId), "##inp_%u", k);
+                if (ImGui::BeginChild(cardId, ImVec2(-1.0f, inpCardH), ImGuiChildFlags_Borders))
                 {
-                    const int localIdx = (int)(k - s.input_start_idx);
-                    ImGui::TableNextRow();
-                    ImGui::TableSetColumnIndex(0);
-                    bool sel = (m_inputSeqWin.sel.inner == localIdx);
-                    char selLbl[16]; snprintf(selLbl, sizeof(selLbl), "%d##inp%u", localIdx, k);
-                    if (ImGui::Selectable(selLbl, sel, ImGuiSelectableFlags_SpanAllColumns))
+                    if (ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem) && ImGui::IsMouseClicked(0))
                         m_inputSeqWin.sel.inner = localIdx;
+                    ImGui::TextDisabled("#%d", localIdx);
+                    RowResult rr = ListRowCard(localIdx > 0, (uint32_t)(localIdx + 1) < s.input_amount, true, true, true, true, sel);
+                    if (rr.act != ListAction::None) { pendInpAct = rr.act; pendInpK = localIdx; pendInpInsAfter = rr.insertAfter; }
 
-                    ImGui::TableSetColumnIndex(1);
                     ImGui::SetNextItemWidth(-1.0f);
                     char inputId[24]; snprintf(inputId, sizeof(inputId), "##inp_cmd%u", k);
                     char hexBuf[20];
@@ -5469,8 +5742,57 @@ void MovesetEditorWindow::RenderSubWin_InputSequences()
                         m_dirty = true;
                     }
                 }
+                ImGui::EndChild();
+                ImGui::PopStyleColor();
+                ImGui::Spacing();
             }
-            ImGui::EndTable();
+        }
+        ImGui::EndChild();
+
+        // ---- Apply the deferred inner-input action (range-based; reorder within sequence) ----
+        if (pendInpAct != ListAction::None && pendInpK >= 0)
+        {
+            bool hasRange = (s.input_start_idx != 0xFFFFFFFF);
+            if (pendInpAct == ListAction::Insert) {
+                const bool wasEmpty = (s.input_start_idx == 0xFFFFFFFF);
+                uint32_t ipos = wasEmpty ? (uint32_t)inps.size()
+                    : s.input_start_idx + (uint32_t)(pendInpInsAfter ? pendInpK + 1 : pendInpK);
+                inps.insert(inps.begin() + ipos, ParsedInput{});
+                // Shift start indices of OTHER sequences at/after the insert point; `s` itself
+                // is excluded (it keeps its range / gets its start set below).
+                ShiftInputStartRefs(m_data, s, ipos);
+                if (wasEmpty) s.input_start_idx = ipos;
+                s.input_amount++; m_dirty = true;
+                m_inputSeqWin.sel.inner = pendInpInsAfter ? pendInpK + 1 : pendInpK;
+            } else if (pendInpAct == ListAction::Duplicate && hasRange) {
+                uint32_t absSrc = s.input_start_idx + (uint32_t)pendInpK;
+                uint32_t ipos   = s.input_start_idx + (uint32_t)pendInpK + 1;
+                ParsedInput copy = inps[absSrc];   // copy before insert; insert may reallocate inps
+                inps.insert(inps.begin() + ipos, copy);
+                ShiftInputStartRefs(m_data, s, ipos);
+                s.input_amount++; m_dirty = true;
+                m_inputSeqWin.sel.inner = pendInpK + 1;
+            } else if (pendInpAct == ListAction::Remove && hasRange) {
+                uint32_t absPos = s.input_start_idx + (uint32_t)pendInpK;
+                inps.erase(inps.begin() + absPos);
+                // Manual fixup: decrement start indices > absPos; don't nullify == absPos.
+                for (auto& sq : m_data.inputSequenceBlock) {
+                    if (sq.input_start_idx != 0xFFFFFFFF && sq.input_start_idx > absPos)
+                        sq.input_start_idx--;
+                }
+                s.input_amount--;
+                if (m_inputSeqWin.sel.inner > 0 && (uint32_t)m_inputSeqWin.sel.inner >= s.input_amount)
+                    m_inputSeqWin.sel.inner--;
+                m_dirty = true;
+            } else if ((pendInpAct == ListAction::MoveUp || pendInpAct == ListAction::MoveDown) && hasRange) {
+                int nl = pendInpK + (pendInpAct == ListAction::MoveUp ? -1 : 1);
+                if (nl >= 0 && (uint32_t)nl < s.input_amount) {
+                    uint32_t a = s.input_start_idx + (uint32_t)pendInpK;
+                    uint32_t b = s.input_start_idx + (uint32_t)nl;
+                    std::swap(inps[a], inps[b]);   // within the same range: start_idx unchanged
+                    m_inputSeqWin.sel.inner = nl; m_dirty = true;
+                }
+            }
         }
     }
     ImGui::EndChild();
@@ -5487,7 +5809,7 @@ void MovesetEditorWindow::RenderSubWin_InputSequences()
 void MovesetEditorWindow::RenderSubWin_ParryableMoves()
 {
     if (!m_parryWinOpen) return;
-    ImGui::SetNextWindowSize(ImVec2(500.0f, 380.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(LayoutStore::Get().GetWin("ParryableMoves", 500.0f, 380.0f), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin(WinId("Parryable Moves##blkwin").c_str(), &m_parryWinOpen, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking))
     { ImGui::End(); return; }
 
@@ -5504,16 +5826,38 @@ void MovesetEditorWindow::RenderSubWin_ParryableMoves()
         return nullptr;
     };
 
-    float colW = ImGui::GetContentRegionAvail().x / 3.0f - ImGui::GetStyle().ItemSpacing.x;
+    float& outerW = SectionW("pm_outer", 0.0f);
+    float& innerW = SectionW("pm_inner", 0.0f);
+    {
+        float def = ImGui::GetContentRegionAvail().x / 3.0f - ImGui::GetStyle().ItemSpacing.x;
+        if (outerW <= 0.0f) outerW = def;
+        if (innerW <= 0.0f) innerW = def;
+    }
 
     // Outer list
-    ImGui::BeginChild("##pm_outer", ImVec2(colW, 0.0f), true);
+    ImGui::BeginChild("##pm_outer", ImVec2(outerW, 0.0f), true);
     {
-        bool hasOuter = (m_parryWinSel.outer < (int)groups.size());
-        ListAction outerAct = RenderListPlusMenu("##pm_om", "ParryableMove-list");
-        ImGui::SameLine(); ImGui::TextDisabled("lists (%d)", (int)groups.size());
-        ImGui::Separator();
+        ImGui::TextDisabled("lists (%d)", (int)groups.size());        ImGui::Separator();
 
+        ListAction outerAct = ListAction::None;
+
+        ImGui::BeginChild("##pm_outer_sl", ImVec2(0, 0), false);
+        for (int gi = 0; gi < (int)groups.size(); ++gi) {
+            uint32_t items = groups[gi].second;
+            char lbl[48]; snprintf(lbl, sizeof(lbl), "#%u  %u items##pmg%d", groups[gi].first, items, gi);
+            ImGui::PushID(gi);
+            bool s = (m_parryWinSel.outer == gi);
+            if (ImGui::Selectable(lbl, s)) { m_parryWinSel.outer = gi; m_parryWinSel.inner = 0; }
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) { m_parryWinSel.outer = gi; m_parryWinSel.inner = 0; }
+            ListAction a = OuterListContextMenu("ParryableMove-list");
+            if (a != ListAction::None) outerAct = a;
+            if (s && m_parryWinSel.scrollOuter) { ImGui::SetScrollHereY(0.5f); m_parryWinSel.scrollOuter = false; }
+            ImGui::PopID();
+        }
+        { ListAction a = OuterListBgMenu("##pm_outer_bg", "ParryableMove-list"); if (a != ListAction::None) outerAct = a; }
+        ImGui::EndChild();
+
+        bool hasOuter = (m_parryWinSel.outer < (int)groups.size());
         if (outerAct == ListAction::Insert) {
             uint32_t insertPos = hasOuter
                 ? groups[m_parryWinSel.outer].first + groups[m_parryWinSel.outer].second
@@ -5536,59 +5880,21 @@ void MovesetEditorWindow::RenderSubWin_ParryableMoves()
             m_parryWinSel.outer = (std::max)(0, co - 1); m_parryWinSel.inner = 0; m_dirty = true;
             groups = mkPmGroups();
         }
-
-        ImGui::BeginChild("##pm_outer_sl", ImVec2(0, 0), false);
-        for (int gi = 0; gi < (int)groups.size(); ++gi) {
-            uint32_t items = groups[gi].second;
-            char lbl[48]; snprintf(lbl, sizeof(lbl), "#%u  %u items##pmg%d", groups[gi].first, items, gi);
-            bool s = (m_parryWinSel.outer == gi);
-            if (ImGui::Selectable(lbl, s)) { m_parryWinSel.outer = gi; m_parryWinSel.inner = 0; }
-            if (s && m_parryWinSel.scrollOuter) { ImGui::SetScrollHereY(0.5f); m_parryWinSel.scrollOuter = false; }
-        }
-        ImGui::EndChild();
     }
     ImGui::EndChild();
 
-    ImGui::SameLine();
+    VSplitter("##pm_sp1", &outerW, 90.0f, 220.0f);
     groups = mkPmGroups();
 
     // Inner list
-    ImGui::BeginChild("##pm_inner", ImVec2(colW, 0.0f), true);
+    ImGui::BeginChild("##pm_inner", ImVec2(innerW, 0.0f), true);
     {
         bool hasOuter = (m_parryWinSel.outer < (int)groups.size());
-        bool isEndSel = false;
-        uint32_t innerAbsIdx = 0xFFFFFFFF;
-        if (hasOuter) {
-            innerAbsIdx = groups[m_parryWinSel.outer].first + (uint32_t)m_parryWinSel.inner;
-            if (innerAbsIdx < (uint32_t)block.size())
-                isEndSel = isPmEnd(block[innerAbsIdx]);
-        }
 
-        ListAction innerAct = RenderListPlusMenu("##pm_im", "ParryableMove");
-        ImGui::SameLine(); ImGui::TextDisabled("items");
-        ImGui::Separator();
+        int innerReal = hasOuter ? (int)groups[m_parryWinSel.outer].second - 1 : 0;
+        ImGui::TextDisabled("Parryable (%d)", innerReal < 0 ? 0 : innerReal);        ImGui::Separator();
 
-        bool isOnlyEnd = isEndSel && hasOuter && (groups[m_parryWinSel.outer].second == 1);
-        if (innerAct == ListAction::Insert && isEndSel && !isOnlyEnd) { innerAct = ListAction::None; m_endInsertBlocked = true; m_insertBlockedViewportId = ImGui::GetWindowViewport()->ID; }
-
-        if (hasOuter && innerAct != ListAction::None && innerAbsIdx != 0xFFFFFFFF) {
-            uint32_t gf = groups[m_parryWinSel.outer].first, gc = groups[m_parryWinSel.outer].second;
-            if (innerAct == ListAction::Insert) {
-                uint32_t ipos = isOnlyEnd ? innerAbsIdx : innerAbsIdx + 1;
-                ParsedParryableMove nm{}; nm.value = 1; // non-zero so not [END]
-                block.insert(block.begin() + ipos, nm);
-                if (!isOnlyEnd) m_parryWinSel.inner++;
-                m_dirty = true; groups = mkPmGroups();
-            } else if (innerAct == ListAction::Duplicate && !isEndSel) {
-                uint32_t ipos = gf + gc - 1;
-                block.insert(block.begin() + ipos, block[innerAbsIdx]);
-                m_dirty = true; groups = mkPmGroups();
-            } else if (innerAct == ListAction::Remove && !isEndSel) {
-                block.erase(block.begin() + innerAbsIdx);
-                if (m_parryWinSel.inner > 0) m_parryWinSel.inner--;
-                m_dirty = true; groups = mkPmGroups();
-            }
-        }
+        ListAction pendAct = ListAction::None; int pendK = -1; bool pendInsAfter = false;
 
         ImGui::BeginChild("##pm_inner_sl", ImVec2(0, 0), false);
         hasOuter = (m_parryWinSel.outer < (int)groups.size());
@@ -5610,17 +5916,36 @@ void MovesetEditorWindow::RenderSubWin_ParryableMoves()
                     if (mvName) snprintf(lbl, sizeof(lbl), "#%u  %s##pmi%u", k, mvName, idx);
                     else        snprintf(lbl, sizeof(lbl), "#%u  0x%X##pmi%u", k, pm.value, idx);
                 }
-                bool sel = (m_parryWinSel.inner == (int)k);
+                ImGui::PushID((int)k);
                 if (isEnd) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
-                if (ImGui::Selectable(lbl, sel)) m_parryWinSel.inner = (int)k;
+                bool sel = (m_parryWinSel.inner == (int)k);
+                if (ImGui::Selectable(lbl, sel, ImGuiSelectableFlags_AllowOverlap, ImVec2(0, ListRowHeight()))) m_parryWinSel.inner = (int)k;
                 if (isEnd) ImGui::PopStyleColor();
+
+                bool canUp   = !isEnd && k > 0;
+                bool canDown = !isEnd && (int)k < (int)count - 2;
+                bool canInsB = isEnd ? true : (k > 0);
+                bool canInsA = !isEnd;
+                RowResult rr = ListRow(isEnd, canUp, canDown, !isEnd, !isEnd, canInsB, canInsA, sel);
+                if (rr.act != ListAction::None) { pendAct = rr.act; pendK = (int)k; pendInsAfter = rr.insertAfter; }
+                ImGui::PopID();
             }
         }
         ImGui::EndChild();
+
+        // ---- Apply the deferred row action ----
+        if (pendAct != ListAction::None && hasOuter && pendK >= 0) {
+            uint32_t gf = groups[m_parryWinSel.outer].first, gc = groups[m_parryWinSel.outer].second;
+            ParsedParryableMove nm{}; nm.value = 1;
+            if (ApplyRowAction2Level(this, m_data, m_dirty, m_parryWinSel.inner, block, gf, gc,
+                                     pendAct, pendK, pendInsAfter,
+                                     &NoRefFixup, &NoRefCount, nm, "ParryableMove"))
+                groups = mkPmGroups();
+        }
     }
     ImGui::EndChild();
 
-    ImGui::SameLine();
+    VSplitter("##pm_sp2", &innerW, 90.0f, 130.0f);
 
     // Detail
     ImGui::BeginChild("##pm_detail", ImVec2(0.0f, 0.0f), false);
@@ -5673,41 +5998,33 @@ void MovesetEditorWindow::RenderSubWin_Dialogues()
     // Left: flat list
     ImGui::BeginChild("##dlg_list", ImVec2(200.0f, 0.0f), true);
     {
-        ListAction act = RenderListPlusMenu("##dlg_pm", "Dialogue");
-        ImGui::SameLine(); ImGui::TextDisabled("%d", total);
-        ImGui::Separator();
+        ImGui::TextDisabled("Dialogues (%d)", total);        ImGui::Separator();
 
-        bool hasSel = (m_dialogueSel >= 0 && m_dialogueSel < total);
-        if (act == ListAction::Insert) {
-            uint32_t ipos = hasSel ? (uint32_t)m_dialogueSel + 1 : (uint32_t)total;
-            ParsedDialogue nd{}; nd.req_list_idx = 0xFFFFFFFF;
-            block.insert(block.begin() + ipos, nd);
-            m_dialogueSel = (int)ipos;
-            total = (int)block.size(); m_dirty = true;
-        } else if (act == ListAction::Duplicate && hasSel) {
-            block.push_back(block[m_dialogueSel]);
-            total = (int)block.size(); m_dirty = true;
-        } else if (act == ListAction::Remove && hasSel) {
-            uint32_t pos = (uint32_t)m_dialogueSel;
-            // dialogues are not referenced by other blocks
-            block.erase(block.begin() + pos);
-            if (m_dialogueSel >= (int)block.size())
-                m_dialogueSel = (std::max)(0, (int)block.size() - 1);
-            total = (int)block.size(); m_dirty = true;
-        }
+        ListAction pendAct = ListAction::None; int pendK = -1; bool pendInsAfter = false;
 
         ImGui::BeginChild("##dlg_list_sl", ImVec2(0, 0), false);
         for (int i = 0; i < total; ++i) {
             const ParsedDialogue& d = block[i];
             char lbl[128];
-            const char* vcName = LabelDB::Get().GetMoveName(d.voiceclip_key);
             const char* dramaLabel = MovesetDataDict::Get().GetDramaLabel(d.type, d.id);
             if (dramaLabel) snprintf(lbl, sizeof(lbl), "#%d  %s##dlgi%d", i, dramaLabel, i);
             else        snprintf(lbl, sizeof(lbl), "#%d  t:%u id:%u##dlgi%d", i, d.type, d.id, i);
+            ImGui::PushID(i);
             bool sel = (m_dialogueSel == i);
-            if (ImGui::Selectable(lbl, sel)) m_dialogueSel = i;
+            if (ImGui::Selectable(lbl, sel, ImGuiSelectableFlags_AllowOverlap, ImVec2(0, ListRowHeight()))) m_dialogueSel = i;
+            RowResult rr = ListRow(false, i > 0, i < total - 1, true, true, true, true, sel, /*insertOnly*/true);
+            if (rr.act != ListAction::None) { pendAct = rr.act; pendK = i; pendInsAfter = rr.insertAfter; }
+            ImGui::PopID();
         }
         ImGui::EndChild();
+
+        // ---- Apply the deferred row action (flat, unreferenced) ----
+        if (pendAct != ListAction::None && pendK >= 0) {
+            ParsedDialogue nd{}; nd.req_list_idx = 0xFFFFFFFF;
+            ApplyRowActionFlat(this, m_data, m_dirty, m_dialogueSel, block, pendAct, pendK, pendInsAfter,
+                               nullptr, nullptr, nullptr, nd, "Dialogue");
+            total = (int)block.size();
+        }
     }
     ImGui::EndChild();
 
@@ -5734,7 +6051,7 @@ void MovesetEditorWindow::RenderSubWin_Dialogues()
                     auto grps = ComputeGroups(blk, +[](const ParsedRequirement& rr)->bool{ return rr.req==GameStatic::Get().data.reqListEnd; });
                     int gi = FindGroupOuter(grps, d.req_list_idx);
                     if (gi >= 0) { m_reqWinSel.outer = gi; m_reqWinSel.inner = 0; m_reqWinSel.scrollOuter = true; }
-                    m_reqWinOpen = true;
+                    m_reqWinOpen = true; m_reqWinFocus = true; m_reqWinFocus = true;
                 }
             }
             if (RowU32Edit("##dlg_vckey", DialogueLabel::VoiceclipKey, d.voiceclip_key,   FieldTT::Dialogue::VoiceclipKey))  m_dirty = true;
@@ -5939,6 +6256,7 @@ void MovesetEditorWindow::RenderSubWin_ReferenceFinder()
                             m_reacWin.selectedIdx   = (int)h.blockIdx;
                             m_reacWin.scrollPending = true;
                             m_reacWin.open          = true;
+                    m_reacWin.pendingFocus  = true;
                         }
                     }
                     else

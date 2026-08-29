@@ -1602,27 +1602,27 @@ void FixupGroupCancelInsert(MotbinData& data, uint32_t insertPos, uint32_t delta
 //  FixupRef_*  (unified single-element insert/remove fixup)
 // -------------------------------------------------------------
 
-void FixupRef_Requirement(MotbinData& d, uint32_t pos, bool ins) {
-    for (auto& c  : d.cancelBlock)       AdjRef(c.req_list_idx,  pos, ins);
-    for (auto& c  : d.groupCancelBlock)  AdjRef(c.req_list_idx,  pos, ins);
-    for (auto& h  : d.hitConditionBlock) AdjRef(h.req_list_idx,  pos, ins);
-    for (auto& e  : d.extraPropBlock)    AdjRef(e.req_list_idx,  pos, ins);
-    for (auto& e  : d.startPropBlock)    AdjRef(e.req_list_idx,  pos, ins);
-    for (auto& e  : d.endPropBlock)      AdjRef(e.req_list_idx,  pos, ins);
-    for (auto& dl : d.dialogueBlock)     AdjRef(dl.req_list_idx, pos, ins);
+void FixupRef_Requirement(MotbinData& d, uint32_t pos, bool ins, bool keepEqual) {
+    for (auto& c  : d.cancelBlock)       AdjRef(c.req_list_idx,  pos, ins, keepEqual);
+    for (auto& c  : d.groupCancelBlock)  AdjRef(c.req_list_idx,  pos, ins, keepEqual);
+    for (auto& h  : d.hitConditionBlock) AdjRef(h.req_list_idx,  pos, ins, keepEqual);
+    for (auto& e  : d.extraPropBlock)    AdjRef(e.req_list_idx,  pos, ins, keepEqual);
+    for (auto& e  : d.startPropBlock)    AdjRef(e.req_list_idx,  pos, ins, keepEqual);
+    for (auto& e  : d.endPropBlock)      AdjRef(e.req_list_idx,  pos, ins, keepEqual);
+    for (auto& dl : d.dialogueBlock)     AdjRef(dl.req_list_idx, pos, ins, keepEqual);
 }
-void FixupRef_Cancel(MotbinData& d, uint32_t pos, bool ins) {
-    for (auto& m : d.moves) { AdjRef(m.cancel_idx, pos, ins); AdjRef(m.cancel2_idx, pos, ins); }
-    for (auto& p : d.projectileBlock) AdjRef(p.cancel_idx, pos, ins);
+void FixupRef_Cancel(MotbinData& d, uint32_t pos, bool ins, bool keepEqual) {
+    for (auto& m : d.moves) { AdjRef(m.cancel_idx, pos, ins, keepEqual); AdjRef(m.cancel2_idx, pos, ins, keepEqual); }
+    for (auto& p : d.projectileBlock) AdjRef(p.cancel_idx, pos, ins, keepEqual);
 }
-void FixupRef_GroupCancel(MotbinData& d, uint32_t pos, bool ins) {
+void FixupRef_GroupCancel(MotbinData& d, uint32_t pos, bool ins, bool keepEqual) {
     // group_cancel_list_idx is always 0xFFFFFFFF (never populated, never saved).
     // The real file field is move_id for cancels with command == groupCancelStart.
     uint64_t gcStart = GameStatic::Get().data.groupCancelStart;
     auto adj = [&](ParsedCancel& c) {
         if (c.command != gcStart) return;
         uint32_t mid = c.move_id;
-        AdjRef(mid, pos, ins);
+        AdjRef(mid, pos, ins, keepEqual);
         c.move_id = (uint16_t)mid;
     };
     for (auto& c : d.cancelBlock)      adj(c);
@@ -1632,9 +1632,9 @@ void FixupRef_CancelExtra(MotbinData& d, uint32_t pos, bool ins) {
     for (auto& c : d.cancelBlock)      AdjRef(c.extradata_idx, pos, ins);
     for (auto& c : d.groupCancelBlock) AdjRef(c.extradata_idx, pos, ins);
 }
-void FixupRef_HitCond(MotbinData& d, uint32_t pos, bool ins) {
-    for (auto& m : d.moves)           AdjRef(m.hit_condition_idx, pos, ins);
-    for (auto& p : d.projectileBlock) AdjRef(p.hit_condition_idx, pos, ins);
+void FixupRef_HitCond(MotbinData& d, uint32_t pos, bool ins, bool keepEqual) {
+    for (auto& m : d.moves)           AdjRef(m.hit_condition_idx, pos, ins, keepEqual);
+    for (auto& p : d.projectileBlock) AdjRef(p.hit_condition_idx, pos, ins, keepEqual);
 }
 void FixupRef_ReactionList(MotbinData& d, uint32_t pos, bool ins) {
     for (auto& h : d.hitConditionBlock) AdjRef(h.reaction_list_idx, pos, ins);
@@ -1646,23 +1646,41 @@ void FixupRef_Pushback(MotbinData& d, uint32_t pos, bool ins) {
 void FixupRef_PushbackExtra(MotbinData& d, uint32_t pos, bool ins) {
     for (auto& p : d.pushbackBlock) AdjRef(p.pushback_extra_idx, pos, ins);
 }
-void FixupRef_ExtraProp(MotbinData& d, uint32_t pos, bool ins) {
-    for (auto& m : d.moves) AdjRef(m.extra_prop_idx, pos, ins);
+void FixupRef_ExtraProp(MotbinData& d, uint32_t pos, bool ins, bool keepEqual) {
+    for (auto& m : d.moves) AdjRef(m.extra_prop_idx, pos, ins, keepEqual);
 }
-void FixupRef_StartProp(MotbinData& d, uint32_t pos, bool ins) {
-    for (auto& m : d.moves) AdjRef(m.start_prop_idx, pos, ins);
+void FixupRef_StartProp(MotbinData& d, uint32_t pos, bool ins, bool keepEqual) {
+    for (auto& m : d.moves) AdjRef(m.start_prop_idx, pos, ins, keepEqual);
 }
-void FixupRef_EndProp(MotbinData& d, uint32_t pos, bool ins) {
-    for (auto& m : d.moves) AdjRef(m.end_prop_idx, pos, ins);
+void FixupRef_EndProp(MotbinData& d, uint32_t pos, bool ins, bool keepEqual) {
+    for (auto& m : d.moves) AdjRef(m.end_prop_idx, pos, ins, keepEqual);
 }
-void FixupRef_Voiceclip(MotbinData& d, uint32_t pos, bool ins) {
-    for (auto& m : d.moves) AdjRef(m.voiceclip_idx, pos, ins);
+void FixupRef_Voiceclip(MotbinData& d, uint32_t pos, bool ins, bool keepEqual) {
+    for (auto& m : d.moves) AdjRef(m.voiceclip_idx, pos, ins, keepEqual);
 }
-void FixupRef_ThrowExtra(MotbinData& d, uint32_t pos, bool ins) {
-    for (auto& t : d.throwBlock) AdjRef(t.throwextra_idx, pos, ins);
+void FixupRef_ThrowExtra(MotbinData& d, uint32_t pos, bool ins, bool keepEqual) {
+    for (auto& t : d.throwBlock) AdjRef(t.throwextra_idx, pos, ins, keepEqual);
 }
 void FixupRef_Input(MotbinData& d, uint32_t pos, bool ins) {
     for (auto& s : d.inputSequenceBlock) AdjRef(s.input_start_idx, pos, ins);
+}
+
+void SwapRefs_ReactionList(MotbinData& d, uint32_t a, uint32_t b) {
+    for (auto& h : d.hitConditionBlock) SwapRef(h.reaction_list_idx, a, b);
+}
+void SwapRefs_Pushback(MotbinData& d, uint32_t a, uint32_t b) {
+    for (auto& r : d.reactionListBlock)
+        for (int i = 0; i < 7; ++i) SwapRef(r.pushback_idx[i], a, b);
+}
+void SwapRefs_PushbackExtra(MotbinData& d, uint32_t a, uint32_t b) {
+    for (auto& p : d.pushbackBlock) SwapRef(p.pushback_extra_idx, a, b);
+}
+void SwapRefs_Voiceclip(MotbinData& d, uint32_t a, uint32_t b) {
+    for (auto& m : d.moves) SwapRef(m.voiceclip_idx, a, b);
+}
+void SwapRefs_CancelExtra(MotbinData& d, uint32_t a, uint32_t b) {
+    for (auto& c : d.cancelBlock)      SwapRef(c.extradata_idx, a, b);
+    for (auto& c : d.groupCancelBlock) SwapRef(c.extradata_idx, a, b);
 }
 
 // -------------------------------------------------------------

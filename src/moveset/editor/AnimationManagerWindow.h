@@ -7,6 +7,7 @@
 #include <vector>
 #include <functional>
 #include <unordered_map>
+#include <unordered_set>
 #include <memory>
 
 // Forward declarations — keep d3d11.h out of the header chain.
@@ -47,6 +48,11 @@ public:
     void SetOnAnimRemoved(std::function<void(uint32_t removedHash)> cb)
     { m_onAnimRemoved = std::move(cb); }
 
+    // Called when the user renames an animation (right-click -> Rename):
+    //   MovesetEditorWindow updates AnimNameDB (name <-> key) and persists.
+    void SetOnAnimRenamed(std::function<void(uint32_t key, const std::string& newName)> cb)
+    { m_onAnimRenamed = std::move(cb); }
+
     // Provide the character code (e.g. "grf") for fallback animation naming.
     void SetCharaCode(const std::string& code) { m_charaCode = code; }
 
@@ -55,7 +61,8 @@ public:
     void SetD3DContext(ID3D11Device* dev, ID3D11DeviceContext* ctx);
 
     bool IsLoaded() const { return m_loaded && m_anmbin.loaded; }
-    void Show() { m_open = true; }  // resets close state so Render() will display the window
+    // Show the window and request it be raised above other sub-windows next frame.
+    void Show() { m_open = true; m_bringToFront = true; }
 
     std::string AnimKeyToName(uint32_t motbinAnimKey, int cat = 0);
     bool        NameToAnimKey(const std::string& name, uint32_t& outMotbinKey, int cat = 0);
@@ -106,10 +113,15 @@ private:
     AnmbinData  m_anmbin;
     bool        m_loaded           = false;
     bool        m_open             = true;
+    bool        m_bringToFront     = false; // one-frame: raise window above others next Render()
     int         m_selRow[6]        = {};
     int         m_pendingTab       = -1;
     int         m_activeCat        = -1;  // tab currently visible; -1 before first render
     bool        m_scrollPending[6] = {};
+    // Deferred preview load requested by navigation: applied during Render() AFTER the tab is
+    // active and its on-tab-change reset has run, so the loaded anim isn't wiped.
+    int         m_pendingPreviewCat  = -1;
+    int         m_pendingPreviewPool = -1;
 
     std::vector<uint32_t>                  m_motbinAnimKeys;
     std::unordered_map<uint32_t, uint32_t> m_hashToAnimKey;
@@ -122,10 +134,12 @@ private:
 
     std::function<void(int, const std::string&, uint32_t)> m_onAnimAdded;
     std::function<void(uint32_t)>                          m_onAnimRemoved;
+    std::function<void(uint32_t, const std::string&)>      m_onAnimRenamed;
 
     // Status message shown in toolbar (Add/Remove/Extract results)
     std::string m_statusMsg;
-    bool        m_statusOk = true;
+    bool        m_statusOk   = true;
+    bool        m_statusWarn = false;  // yellow (e.g. duplicate skipped); overrides ok color
 
     // Rebuild error (set by MovesetEditorWindow if RebuildAnmbin fails)
     std::string m_rebuildError;
@@ -138,6 +152,15 @@ private:
         std::string animName;
     };
     RemoveConfirm m_removeConfirm;
+
+    // Rename popup state (right-click -> Rename)
+    struct RenameState {
+        bool        showing   = false;
+        bool        openPopup = false;
+        uint32_t    key       = 0;
+        char        buf[64]   = {};
+    };
+    RenameState m_rename;
 
 
     // 3D preview renderer (created lazily via SetD3DContext)

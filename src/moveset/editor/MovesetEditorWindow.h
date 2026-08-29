@@ -45,12 +45,14 @@ public:
 
     struct ReactionListWinState {
         bool open            = false;
+        bool pendingFocus    = false;  // one-frame: bring window to front
         int  selectedIdx     = 0;
         bool scrollPending   = false;
     };
 
     struct PushbackWinState {
         bool open                 = false;
+        bool pendingFocus         = false;  // one-frame: bring window to front
         int  pushbackSel          = 0;
         int  extraSel             = 0;
         bool extraScrollPending   = false;
@@ -64,12 +66,14 @@ public:
 
     struct ProjectileWinState {
         bool open          = false;
+        bool pendingFocus  = false;  // one-frame: bring window to front
         int  selectedIdx   = 0;
         bool scrollPending = false;
     };
 
     struct ThrowsWinState {
         bool        open               = false;
+        bool        pendingFocus       = false;  // one-frame: bring window to front
         int         throwSel           = 0;
         bool        throwScrollPending = false;
         TwoLevelSel extraSel;
@@ -188,6 +192,13 @@ private:
     bool        m_dirty            = false; // unsaved changes exist
     bool        m_pendingClose     = false; // close requested while dirty
 
+    // Per-sub-window section widths (drag-splitter state), keyed by a stable string id.
+    // Persistent per editor-window instance; the first access seeds the value from LayoutStore
+    // (the remembered layout), and PersistLayout() writes the live values back each frame.
+    std::unordered_map<std::string, float> m_sectionW;
+    float& SectionW(const char* key, float defaultW);   // defined in .cpp (seeds from LayoutStore)
+    void   PersistLayout();                              // push section widths + window sizes to LayoutStore
+
     enum class SaveState { Idle, Saving, Done };
     SaveState          m_saveState        = SaveState::Idle;
     std::future<void>  m_saveFuture;                         // async save task
@@ -199,6 +210,7 @@ private:
 
     // Subwindow states (open = only one instance allowed)
     bool                 m_reqWinOpen       = false;
+    bool                 m_reqWinFocus      = false;  // one-frame: bring window to front
     TwoLevelSel          m_reqWinSel;
     CancelsWinState      m_cancelsWin;
     bool                 m_hitCondWinOpen   = false;
@@ -208,8 +220,7 @@ private:
     PushbackWinState     m_pushbackWin;
     bool                 m_voiceclipWinOpen   = false;
     bool                 m_voiceclipWinFocus  = false;
-    bool                 m_voiceclipWinScroll = false;
-    int                  m_voiceclipWinSel    = 0;
+    TwoLevelSel          m_voiceclipSel;   // outer = voiceclip group, inner = item within group
     PropertiesWinState   m_propertiesWin;
     InputSeqWinState     m_inputSeqWin;
     ProjectileWinState   m_projectileWin;

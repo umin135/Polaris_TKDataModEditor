@@ -651,8 +651,10 @@ bool AddAnimToAnmbin(const std::string&             folderPath,
                      int                             cat,
                      const std::vector<uint8_t>&     panmBytes,
                      uint32_t&                       outCRC32,
-                     std::string&                    errorMsg)
+                     std::string&                    errorMsg,
+                     bool*                           outAlreadyPresent)
 {
+    if (outAlreadyPresent) *outAlreadyPresent = false;
     if (cat < 0 || cat >= 6) { errorMsg = "Invalid category index"; return false; }
     if (panmBytes.empty())   { errorMsg = "Empty PANM data";        return false; }
 
@@ -693,7 +695,22 @@ bool AddAnimToAnmbin(const std::string&             folderPath,
         }
     }
 
-    // --- Embed new PANM blob ---
+    // --- Dedup: is this CRC32 already a pool[cat] entry? ---
+    // Without this, adding the same animation twice creates two pool entries that
+    // share one animKey; removing one then strips the shared name from AnimNameDB
+    // and the survivor falls back to "anim_<code>_<idx>".
+    bool alreadyPresent = false;
+    {
+        uint32_t cnt   = rdU32(0x04 + cat * 4);
+        uint64_t plOff = rdU64(0x38 + cat * 8);
+        if (plOff != 0 && (size_t)plOff + (size_t)cnt * 0x38 <= bytes.size())
+            for (uint32_t j = 0; j < cnt && !alreadyPresent; ++j)
+                if (rdU32((size_t)plOff + (size_t)j * 0x38) == outCRC32) alreadyPresent = true;
+    }
+    if (outAlreadyPresent) *outAlreadyPresent = alreadyPresent;
+
+    // --- Embed new PANM blob (skip if the CRC32 is already embedded) ---
+    if (!alreadyPresent)
     {
         uint32_t origCount  = rdU32(0x04 + cat * 4);
         uint64_t origPlOff  = rdU64(0x38 + cat * 8);
