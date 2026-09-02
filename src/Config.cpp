@@ -83,6 +83,8 @@ void Config::Load()
             data.gameRootDir = val;
         else if (section == "FbsData" && key == "TkmodManagerDir")
             data.tkmodManagerDir = val;
+        else if (section == "Cinematics" && key == "ExportRoot")
+            data.cinematicExportRoot = val;
         else if (section == "Keybindings")
         {
             if      (key == "Insert")    data.listKeys[0] = val;
@@ -117,6 +119,9 @@ void Config::Save() const
 
     fprintf(f, "\n[FbsData]\n");
     fprintf(f, "TkmodManagerDir=%s\n", data.tkmodManagerDir.c_str());
+
+    fprintf(f, "\n[Cinematics]\n");
+    fprintf(f, "ExportRoot=%s\n", data.cinematicExportRoot.c_str());
 
     fprintf(f, "\n[Keybindings]\n");
     fprintf(f, "Insert=%s\n",    data.listKeys[0].c_str());

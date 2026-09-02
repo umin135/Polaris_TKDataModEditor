@@ -1,5 +1,6 @@
 ﻿#pragma once
 #include "moveset/data/MotbinData.h"
+#include "moveset/data/CinematicManifest.h"
 #include "moveset/data/AnimNameDB.h"
 #include "moveset/data/AnmbinRebuild.h"
 #include "moveset/editor/AnimationManagerWindow.h"
@@ -167,6 +168,7 @@ private:
     void RenderSubWin_InputSequences();
     void RenderSubWin_ParryableMoves();
     void RenderSubWin_Dialogues();
+    void RenderSubWin_Cinematics();
     void RenderSubWin_ReferenceFinder();
     void RenderRemoveConfirmModal();
     void RenderCommandCreator();
@@ -229,6 +231,21 @@ private:
     TwoLevelSel          m_parryWinSel;
     bool                 m_dialogueWinOpen = false;
     int                  m_dialogueSel     = 0;
+
+    // Cinematics (camera redirect) sub-window: loads <folder>/polaris/cinematic.json, edits overrides.
+    bool                 m_cineWinOpen  = false;
+    bool                 m_cineLoaded   = false;               // manifest read for current folder
+    CineManifest         m_cine;
+    std::vector<std::string> m_cineEdit;                       // parallel to m_cine.entries (Source field text)
+    int                  m_cineAddNN    = 0;                   // "add throw" number input
+    int                  m_cineSel      = -1;                  // selected row (index into m_cine.entries)
+    void                 LoadCinematicsManifest();
+    // Navigation from a 0x838E/0x8314 property's Go button -> focus + highlight a row.
+    bool                 m_cineWinFocus = false;               // bring-to-front (skip-one-frame)
+    std::string          m_cineHlGroup;                        // highlight target group ("rage"/"throw"/"intro"/"outro")
+    std::string          m_cineHlSub;                          // rage sub (pre/finish/finishko)
+    int                  m_cineHlNum    = -1;                  // throw nn or drama no
+    bool                 m_cineScrollPending = false;          // scroll to the highlighted row once
     RefFinderState       m_refFinder;
 
     struct CommandCreatorState {

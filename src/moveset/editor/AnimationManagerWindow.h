@@ -162,6 +162,11 @@ private:
     };
     RenameState m_rename;
 
+    // Duplicate-skip report (shown as a popup after an Add that skipped byte-identical animations).
+    struct SkipRec { std::string file; std::string existing; };  // added file -> collided existing anim
+    std::vector<SkipRec> m_skips;
+    bool                 m_skipPopupOpen = false;
+
 
     // 3D preview renderer (created lazily via SetD3DContext)
     std::unique_ptr<PreviewRenderer> m_preview;

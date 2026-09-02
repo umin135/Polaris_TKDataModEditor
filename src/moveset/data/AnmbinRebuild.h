@@ -44,6 +44,8 @@ bool RebuildAnmbin(const std::string&             folderPath,
 //  outCRC32 is set to the computed CRC32 of panmBytes.
 //  outAlreadyPresent (optional): set to true when the CRC32 already exists in
 //  pool[cat] and embedding was skipped (byte-identical animation).
+//  outMatchPoolIdx (optional): when already present, the pool[cat] index of the
+//  byte-identical entry the blob collided with (-1 otherwise).
 //  Returns true on success (including "already present" no-op).
 // -------------------------------------------------------------
 bool AddAnimToAnmbin(const std::string&             folderPath,
@@ -53,7 +55,8 @@ bool AddAnimToAnmbin(const std::string&             folderPath,
                      const std::vector<uint8_t>&     panmBytes,
                      uint32_t&                       outCRC32,
                      std::string&                    errorMsg,
-                     bool*                           outAlreadyPresent = nullptr);
+                     bool*                           outAlreadyPresent = nullptr,
+                     int*                            outMatchPoolIdx   = nullptr);
 
 // -------------------------------------------------------------
 //  RemoveAnimFromAnmbin  --  remove one pool entry from a category

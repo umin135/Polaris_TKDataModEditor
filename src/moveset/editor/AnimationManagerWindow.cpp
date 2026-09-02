@@ -421,6 +421,7 @@ void AnimationManagerWindow::DoAdd(int cat)
     int addedCount = 0, failCount = 0, skipCount = 0, lastHandKey = -1;
     std::string lastStem, firstErr, firstSkip;
     uint32_t lastCrc = 0;
+    m_skips.clear();
 
     for (const std::string& filePath : paths)
     {
@@ -448,16 +449,23 @@ void AnimationManagerWindow::DoAdd(int cat)
         uint32_t crc32 = 0;
         std::string err;
         bool already = false;
-        if (!AddAnimToAnmbin(m_folderPath, *m_animNameDB, *m_moves, cat, panmBytes, crc32, err, &already))
+        int  matchIdx = -1;
+        if (!AddAnimToAnmbin(m_folderPath, *m_animNameDB, *m_moves, cat, panmBytes, crc32, err, &already, &matchIdx))
         { ++failCount; if (firstErr.empty()) firstErr = err; continue; }
 
         // Byte-identical animation already embedded: warn + skip (no new entry, no rename).
         if (already) {
             ++skipCount;
-            if (firstSkip.empty()) {
-                std::string existing = m_animNameDB ? m_animNameDB->AnimKeyToName(crc32) : "";
-                firstSkip = existing.empty() ? stem : existing;
+            // Name of the existing entry this blob collided with (user name, else anim_<code>_<idx>).
+            std::string existing = GetNameForPoolIdx(cat, matchIdx);
+            if (existing.empty() && m_animNameDB) existing = m_animNameDB->AnimKeyToName(crc32);
+            if (existing.empty() && matchIdx >= 0) {
+                char b[48]; snprintf(b, sizeof(b), "%s #%d", AnmbinCategoryName(cat), matchIdx);
+                existing = b;
             }
+            if (existing.empty()) existing = "(unknown)";
+            m_skips.push_back({ stem, existing });
+            if (firstSkip.empty()) firstSkip = existing;
             continue;
         }
 
@@ -534,6 +542,9 @@ void AnimationManagerWindow::DoAdd(int cat)
         if (skipCount > 0) m_statusWarn = true;   // draw attention to the skips
     }
     m_statusMsg = msg;
+
+    // Show a popup detailing every skipped duplicate (esp. useful for multi-file adds).
+    if (!m_skips.empty()) m_skipPopupOpen = true;
 }
 
 // -------------------------------------------------------------
@@ -1604,6 +1615,39 @@ bool AnimationManagerWindow::Render()
             m_rename = {};
             ImGui::CloseCurrentPopup();
         }
+        ImGui::EndPopup();
+    }
+
+    // -- Duplicate-skip report modal -----------------------------------------
+    if (m_skipPopupOpen)
+    {
+        ImGui::OpenPopup("Duplicates skipped##anmmgr");
+        m_skipPopupOpen = false;
+    }
+    ImGui::SetNextWindowSize(ImVec2(560.0f, 320.0f), ImGuiCond_Appearing);
+    if (ImGui::BeginPopupModal("Duplicates skipped##anmmgr", nullptr, ImGuiWindowFlags_NoCollapse))
+    {
+        ImGui::TextWrapped("%d animation(s) were skipped because a byte-identical animation is already "
+                           "embedded. Each skipped file and the existing animation it matched:",
+                           (int)m_skips.size());
+        ImGui::Spacing();
+        if (ImGui::BeginTable("##skiptbl", 2,
+                              ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY,
+                              ImVec2(0.0f, -ImGui::GetFrameHeightWithSpacing() - 4.0f)))
+        {
+            ImGui::TableSetupColumn("Added file", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("Identical to (existing)", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupScrollFreeze(0, 1);
+            ImGui::TableHeadersRow();
+            for (const auto& s : m_skips) {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted(s.file.c_str());
+                ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted(s.existing.c_str());
+            }
+            ImGui::EndTable();
+        }
+        ImGui::Spacing();
+        if (ImGui::Button("Close", ImVec2(100.0f, 0.0f))) ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
     }
 

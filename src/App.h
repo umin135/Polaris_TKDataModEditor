@@ -115,6 +115,7 @@ private:
     bool m_settingsInitialized = false;
     int  m_settingsCat       = 1;     // 0 = fbsdata, 1 = moveset
     char m_settingsGameRoot[1024] = {};
+    char m_settingsCineExport[1024] = {};   // cinematics export dump root (optional)
     int  m_capturingKey      = -1;    // ListShortcut index currently being rebound, -1 = none
 
     // Auto-update

@@ -652,9 +652,11 @@ bool AddAnimToAnmbin(const std::string&             folderPath,
                      const std::vector<uint8_t>&     panmBytes,
                      uint32_t&                       outCRC32,
                      std::string&                    errorMsg,
-                     bool*                           outAlreadyPresent)
+                     bool*                           outAlreadyPresent,
+                     int*                            outMatchPoolIdx)
 {
     if (outAlreadyPresent) *outAlreadyPresent = false;
+    if (outMatchPoolIdx)   *outMatchPoolIdx   = -1;
     if (cat < 0 || cat >= 6) { errorMsg = "Invalid category index"; return false; }
     if (panmBytes.empty())   { errorMsg = "Empty PANM data";        return false; }
 
@@ -705,7 +707,10 @@ bool AddAnimToAnmbin(const std::string&             folderPath,
         uint64_t plOff = rdU64(0x38 + cat * 8);
         if (plOff != 0 && (size_t)plOff + (size_t)cnt * 0x38 <= bytes.size())
             for (uint32_t j = 0; j < cnt && !alreadyPresent; ++j)
-                if (rdU32((size_t)plOff + (size_t)j * 0x38) == outCRC32) alreadyPresent = true;
+                if (rdU32((size_t)plOff + (size_t)j * 0x38) == outCRC32) {
+                    alreadyPresent = true;
+                    if (outMatchPoolIdx) *outMatchPoolIdx = (int)j;
+                }
     }
     if (outAlreadyPresent) *outAlreadyPresent = alreadyPresent;
 

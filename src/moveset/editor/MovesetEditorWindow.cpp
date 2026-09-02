@@ -692,6 +692,7 @@ bool MovesetEditorWindow::Render()
     RenderSubWin_InputSequences();
     RenderSubWin_ParryableMoves();
     RenderSubWin_Dialogues();
+    RenderSubWin_Cinematics();
     RenderSubWin_ReferenceFinder();
     RenderCommandCreator();
 
@@ -2592,6 +2593,21 @@ void MovesetEditorWindow::RenderMenuBar()
             if (ImGui::MenuItem("Input Sequences",  nullptr, m_inputSeqWin.open))  m_inputSeqWin.open    = !m_inputSeqWin.open;
             if (ImGui::MenuItem("Parryable Moves",  nullptr, m_parryWinOpen))      m_parryWinOpen        = !m_parryWinOpen;
             if (ImGui::MenuItem("Dialogues",        nullptr, m_dialogueWinOpen))   m_dialogueWinOpen     = !m_dialogueWinOpen;
+            {
+                // Cinematics is only meaningful once polaris/cinematic.json exists (created at extraction).
+                bool cineExists = false;
+                { FILE* cf = nullptr;
+                  if (fopen_s(&cf, (m_data.folderPath + "\\polaris\\cinematic.json").c_str(), "rb") == 0 && cf) {
+                      cineExists = true; fclose(cf);
+                  } }
+                if (!cineExists) ImGui::BeginDisabled();
+                if (ImGui::MenuItem("Cinematics",   nullptr, m_cineWinOpen))       m_cineWinOpen         = !m_cineWinOpen;
+                if (!cineExists) {
+                    ImGui::EndDisabled();
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                        ImGui::SetTooltip("No polaris/cinematic.json - re-extract this character to generate it.");
+                }
+            }
             ImGui::EndMenu();
         }
         ImGui::EndMenu();
@@ -2794,6 +2810,11 @@ void MovesetEditorWindow::SaveEditorDatas()
 void MovesetEditorWindow::SaveToFile()
 {
     if (m_saveState == SaveState::Saving) return;
+
+    // Persist cinematic overrides/added-slots alongside the moveset (main thread: small + avoids a
+    // race with the Cinematics window reading m_cine while the background motbin save runs).
+    if (m_cineLoaded) SaveCineManifest(m_data.folderPath, m_cine);
+
     m_saveState = SaveState::Saving;
 
     // Run save on a background thread so the UI keeps rendering.
@@ -2860,6 +2881,7 @@ void MovesetEditorWindow::RenderCloseConfirmModal()
     ImGui::Spacing();
     if (ImGui::Button("Save", ImVec2(76, 0)))
     {
+        if (m_cineLoaded) SaveCineManifest(m_data.folderPath, m_cine);
         if (SaveMotbin(m_data)) m_dirty = false;
         if (m_animNameDB.IsLoaded())
         {
@@ -4563,6 +4585,13 @@ struct PropNavCtx {
     bool*                                          throwsWinFocus = nullptr;
     // 0x860A-0x8613: hand animation/pose pool index
     AnimationManagerWindow*                        animMgr       = nullptr;
+    // 0x838E / 0x8314: cinematic sequence -> Cinematics window (focus + highlight a row)
+    bool*        cineWinOpen  = nullptr;
+    bool*        cineWinFocus = nullptr;
+    std::string* cineHlGroup  = nullptr;
+    std::string* cineHlSub    = nullptr;
+    int*         cineHlNum    = nullptr;
+    bool*        cineScroll   = nullptr;
 };
 
 static void RenderPropSection(
@@ -4853,7 +4882,8 @@ static void RenderPropSection(
             };
             if (isHandAnimProp(e.id)) {
                 b2ContentH += fieldRowH + paramLabelRowH;  // 입력행 + 이름 힌트행
-            } else if (e.id == 0x877d || e.id == 0x827b || e.id == 0x868f) {
+            } else if (e.id == 0x877d || e.id == 0x827b || e.id == 0x868f ||
+                       e.id == 0x838E || e.id == 0x8314) {
                 b2ContentH += fieldRowH;
             } else if (isHandPoseProp(e.id)) {
                 b2ContentH += 2 * fieldRowH + paramLabelRowH;  // pose combo + blend input + decoded label
@@ -4960,6 +4990,53 @@ static void RenderPropSection(
                             if (gi >= 0) { navCtx.throwExtraSel->outer = gi; navCtx.throwExtraSel->inner = 0; navCtx.throwExtraSel->scrollOuter = true; }
                             *navCtx.throwsWinOpen = true;
                             if (navCtx.throwsWinFocus) *navCtx.throwsWinFocus = true;
+                        }
+                    }
+                    else if (e.id == 0x838E)
+                    {
+                        // rage 5/6/7 or throw 8+ -> highlight in the Cinematics window
+                        std::string cat, sub; int nn = -1; bool mapped = false;
+                        if      (e.value == 5) { cat = "rage"; sub = "pre";      mapped = true; }
+                        else if (e.value == 6) { cat = "rage"; sub = "finish";   mapped = true; }
+                        else if (e.value == 7) { cat = "rage"; sub = "finishko"; mapped = true; }
+                        else if (e.value >= 8) { cat = "throw"; nn = (int)e.value - 8; mapped = true; }
+                        snprintf(p0lbl, sizeof(p0lbl), "%s   (Cinematics)", ExtraPropLabel::Param0);
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("%s", p0lbl);
+                        ImGui::TableSetColumnIndex(1); ImGui::SetNextItemWidth(-(kBtnW + sty.ItemSpacing.x));
+                        int vtmp = (int)e.value;
+                        if (ImGui::InputInt("##ep_v1_838e", &vtmp, 0, 0)) { e.value = (uint32_t)vtmp; dirty = true; }
+                        ImGui::SameLine();
+                        if (GoButton("##cine_go", mapped) && navCtx.cineWinOpen) {
+                            *navCtx.cineWinOpen = true;
+                            if (navCtx.cineWinFocus) *navCtx.cineWinFocus = true;
+                            if (cat == "rage") { *navCtx.cineHlGroup = "rage"; *navCtx.cineHlSub = sub; *navCtx.cineHlNum = -1; }
+                            else               { *navCtx.cineHlGroup = "throw"; navCtx.cineHlSub->clear(); *navCtx.cineHlNum = nn; }
+                            *navCtx.cineScroll = true;
+                        }
+                    }
+                    else if (e.id == 0x8314)
+                    {
+                        // intro/outro resolved from the paired 0x8313 (Set Drama Type) in this group
+                        int dtype = -1;
+                        uint32_t gend = start + groups[sel.outer].second;
+                        for (uint32_t k = start; k < gend && k < (uint32_t)block.size(); ++k)
+                            if (block[k].id == 0x8313) { dtype = (int)block[k].value; break; }
+                        bool camType = (dtype == 1 || dtype == 2);
+                        snprintf(p0lbl, sizeof(p0lbl), "%s   (Cinematics)", ExtraPropLabel::Param0);
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("%s", p0lbl);
+                        ImGui::TableSetColumnIndex(1); ImGui::SetNextItemWidth(-(kBtnW + sty.ItemSpacing.x));
+                        int vtmp = (int)e.value;
+                        if (ImGui::InputInt("##ep_v1_8314", &vtmp, 0, 0)) { e.value = (uint32_t)vtmp; dirty = true; }
+                        ImGui::SameLine();
+                        if (GoButton("##cine_go2", camType) && navCtx.cineWinOpen) {
+                            *navCtx.cineWinOpen = true;
+                            if (navCtx.cineWinFocus) *navCtx.cineWinFocus = true;
+                            *navCtx.cineHlGroup = (dtype == 1) ? "intro" : "outro";
+                            navCtx.cineHlSub->clear();
+                            *navCtx.cineHlNum = (int)e.value;
+                            *navCtx.cineScroll = true;
                         }
                     }
                     else if (isHandAnimProp(e.id))
@@ -5133,6 +5210,12 @@ void MovesetEditorWindow::RenderSubWin_Properties()
     navCtx.throwsWinOpen = &m_throwsWin.open;
     navCtx.throwsWinFocus = &m_throwsWin.pendingFocus;
     navCtx.animMgr       = m_animMgr.get();
+    navCtx.cineWinOpen   = &m_cineWinOpen;
+    navCtx.cineWinFocus  = &m_cineWinFocus;
+    navCtx.cineHlGroup   = &m_cineHlGroup;
+    navCtx.cineHlSub     = &m_cineHlSub;
+    navCtx.cineHlNum     = &m_cineHlNum;
+    navCtx.cineScroll    = &m_cineScrollPending;
 
     if (!ImGui::BeginTabBar("##prop_tabs")) { ImGui::End(); return; }
 
@@ -6068,6 +6151,318 @@ void MovesetEditorWindow::RenderSubWin_Dialogues()
         }
     }
     ImGui::EndChild();
+
+    ImGui::End();
+}
+
+// -------------------------------------------------------------
+//  Cinematics (camera redirect) sub-window
+//  Loads <folder>/polaris/cinematic.json, lists per-character redirectable camera sequences
+//  (rage/throw + intro/outro only), and edits the per-id "overrides" map. Save rewrites ONLY the
+//  overrides block, preserving the game-resolved catalog.
+// -------------------------------------------------------------
+
+void MovesetEditorWindow::LoadCinematicsManifest()
+{
+    m_cine = LoadCineManifest(m_data.folderPath);
+    m_cineEdit.assign(m_cine.entries.size(), std::string());
+    for (size_t i = 0; i < m_cine.entries.size(); ++i) {
+        const CineManifestEntry& e = m_cine.entries[i];
+        m_cineEdit[i] = e.overridePath.empty() ? e.src : e.overridePath;
+    }
+    m_cineSel = -1;
+    m_cineLoaded = true;
+}
+
+// Derive the season bucket ("polaris" / "polaris01"..) from an existing entry's src (by "/game/" or
+// "/demo/" marker), else "polaris".
+static std::string DeriveFolder(const CineManifest& m, const std::string& marker)
+{
+    for (const auto& e : m.entries) {
+        size_t g = e.src.find(marker);
+        if (g != std::string::npos) {
+            size_t a = g + marker.size(), b = e.src.find('/', a);
+            if (b != std::string::npos) return e.src.substr(a, b - a);
+        }
+    }
+    return "polaris";
+}
+
+// The index the moveset property actually references for this sequence:
+//   rage: 0x838E param (pre=5, finish=6, finishko=7)   throw: 0x838E param (NN+8)
+//   intro/outro: 0x8314 "no"
+static int CinePropIndex(const CineManifestEntry& e)
+{
+    if (e.group == "rage")  return e.sub == "pre" ? 5 : e.sub == "finish" ? 6 : e.sub == "finishko" ? 7 : -1;
+    if (e.group == "throw") return e.num + 8;
+    return e.num; // intro / outro
+}
+
+// Sequence name (cam-agnostic; P1/P2 are shown as separate Source columns in the row).
+static std::string CineRowName(const CineManifestEntry& e)
+{
+    if (e.group == "rage")  return e.sub == "pre" ? "RageArt(PRE)" : e.sub == "finishko" ? "RageArtFinish" : "RageArt";
+    if (e.group == "throw") return "throw " + std::to_string(e.num + 1);
+    if (e.group == "intro") return "Intro " + std::to_string(e.num);
+    return "Outro " + std::to_string(e.num);
+}
+
+void MovesetEditorWindow::RenderSubWin_Cinematics()
+{
+    // Keep m_cine in memory across window close (edits persist until the moveset is saved).
+    if (!m_cineWinOpen) { m_cineHlGroup.clear(); m_cineScrollPending = false; return; }
+    if (m_cineWinFocus) { m_cineWinFocus = false; return; } // skip one frame -> reappears focused
+
+    ImGui::SetNextWindowSize(ImVec2(780.0f, 520.0f), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin(WinId("Cinematics##blkwin").c_str(), &m_cineWinOpen,
+                      ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking))
+    {
+        ImGui::End();
+        return;
+    }
+
+    if (!m_cineLoaded) LoadCinematicsManifest();
+
+    if (!m_cine.loaded) {
+        ImGui::TextWrapped("No polaris/cinematic.json for this moveset. Re-extract this character "
+                           "(with the game running) to generate it.");
+        ImGui::End();
+        return;
+    }
+
+    std::string pendingAddGroup, pendingRemoveGroup;
+    int         pendingAddNum = -1, pendingRemoveNum = -1;
+
+    auto commit = [&](size_t i) {
+        CineManifestEntry& e = m_cine.entries[i];
+        std::string v = m_cineEdit[i];
+        if (v.empty() || v == e.src) { e.overridePath.clear(); m_cineEdit[i] = e.src; }
+        else e.overridePath = v;
+        m_dirty = true;   // persisted with the moveset on Save
+    };
+
+    auto sectionBody = [&](const char* group) {
+        ImGui::BeginChild("##cbody", ImVec2(0.0f, 0.0f), false);
+        {
+            const bool dual = (std::string(group) == "rage" || std::string(group) == "throw");
+            const int  ncol = dual ? 5 : 4;
+            if (ImGui::BeginTable("##t", ncol, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable)) {
+                ImGui::TableSetupColumn("Index", ImGuiTableColumnFlags_WidthFixed,  44.0f);
+                ImGui::TableSetupColumn("Name",  ImGuiTableColumnFlags_WidthFixed, 150.0f);
+                if (dual) {
+                    ImGui::TableSetupColumn("Source P1", ImGuiTableColumnFlags_WidthStretch);
+                    ImGui::TableSetupColumn("Source P2", ImGuiTableColumnFlags_WidthStretch);
+                } else {
+                    ImGui::TableSetupColumn("Source", ImGuiTableColumnFlags_WidthStretch);
+                }
+                ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 26.0f);
+                ImGui::TableHeadersRow();
+
+                const std::string g(group);
+
+                // Source cell: edits an existing entry, or a placeholder (a fixed rage sub the moveset
+                // doesn't reference) that materialises into an entry when a value is entered + saved.
+                auto srcCellFor = [&](int ei, const std::string& sub, int num, const char* cam) {
+                    ImGui::SetNextItemWidth(-1.0f);
+                    ImGui::PushID(cam[0] ? cam : "s");
+                    if (ei >= 0) {
+                        CineManifestEntry& e = m_cine.entries[ei];
+                        char buf[512]; snprintf(buf, sizeof(buf), "%s", m_cineEdit[ei].c_str());
+                        bool ov = !e.overridePath.empty();
+                        if (ov) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.85f, 0.4f, 1.0f));
+                        if (ImGui::InputText("##src", buf, sizeof(buf))) m_cineEdit[ei] = buf;
+                        bool done = ImGui::IsItemDeactivatedAfterEdit();
+                        if (ImGui::IsItemHovered() && !ImGui::IsItemActive()) ImGui::SetTooltip("src: %s", e.src.c_str());
+                        if (ov) ImGui::PopStyleColor();
+                        if (done) commit((size_t)ei);
+                    } else {
+                        char buf[512] = { 0 };  // empty placeholder
+                        ImGui::InputText("##srcph", buf, sizeof(buf));
+                        if (ImGui::IsItemDeactivatedAfterEdit() && buf[0]) {
+                            CineManifestEntry e;
+                            e.group = g; e.sub = sub; e.num = num; e.cam = (cam[0] ? cam : "");
+                            e.overridePath = buf;   // no source camera -> stored as an override target
+                            if (g == "rage")        e.id = "rage_" + sub + "_" + cam;
+                            else if (g == "throw") { char nb[8]; snprintf(nb, sizeof(nb), "%02d", num); e.id = std::string("throw_") + nb + "_" + cam; }
+                            else                    e.id = g + "_" + std::to_string(num);
+                            m_cine.entries.push_back(e);
+                            m_cineEdit.push_back(buf);
+                            m_dirty = true;
+                        }
+                    }
+                    ImGui::PopID();
+                };
+
+                auto rowName = [](const std::string& gg, const std::string& sub, int num) -> std::string {
+                    if (gg == "rage")  return sub == "pre" ? "RageArt(PRE)" : sub == "finishko" ? "RageArtFinish" : "RageArt";
+                    if (gg == "throw") return "throw " + std::to_string(num + 1);
+                    if (gg == "intro") return "Intro " + std::to_string(num);
+                    return "Outro " + std::to_string(num);
+                };
+
+                // Build display rows. Rage always shows the 3 fixed subs (the game always tries to load
+                // them); a missing one is an empty placeholder. Other sections list existing entries.
+                struct RowInfo { int index = 0; std::string sub; int num = -1; int p1 = -1, p2 = -1; };
+                std::vector<RowInfo> rowInfos;
+                if (g == "rage") {
+                    const char* subs[3] = { "pre", "finish", "finishko" };
+                    const int   idxs[3] = { 5, 6, 7 };
+                    for (int s = 0; s < 3; ++s) {
+                        RowInfo ri; ri.index = idxs[s]; ri.sub = subs[s];
+                        for (size_t k = 0; k < m_cine.entries.size(); ++k) {
+                            const CineManifestEntry& e = m_cine.entries[k];
+                            if (e.group == "rage" && e.sub == subs[s]) { if (e.cam == "cam2p") ri.p2 = (int)k; else ri.p1 = (int)k; }
+                        }
+                        rowInfos.push_back(ri);
+                    }
+                } else {
+                    auto findRI = [&](int index) -> RowInfo* {
+                        for (auto& r : rowInfos) if (r.index == index) return &r;
+                        rowInfos.push_back(RowInfo{ index, "", -1, -1, -1 }); return &rowInfos.back();
+                    };
+                    for (size_t k = 0; k < m_cine.entries.size(); ++k) {
+                        const CineManifestEntry& e = m_cine.entries[k];
+                        if (e.group != g) continue;
+                        RowInfo* r = findRI(CinePropIndex(e));
+                        r->num = e.num; r->sub = e.sub;
+                        if (e.cam == "cam2p") r->p2 = (int)k; else r->p1 = (int)k;
+                    }
+                    std::sort(rowInfos.begin(), rowInfos.end(), [](const RowInfo& a, const RowInfo& b) { return a.index < b.index; });
+                }
+
+                for (const RowInfo& r : rowInfos) {
+                    int rep = (r.p1 >= 0) ? r.p1 : r.p2;   // -1 for a rage placeholder row
+
+                    const bool navMatch = !m_cineHlGroup.empty() && g == m_cineHlGroup &&
+                                          (g == "rage" ? r.sub == m_cineHlSub : r.num == m_cineHlNum);
+                    if (navMatch && rep >= 0) m_cineSel = rep;
+
+                    ImGui::TableNextRow();
+                    ImGui::PushID(r.index);
+
+                    // col 0: index — full-row selectable (explicit height so the highlight fills the row)
+                    ImGui::TableSetColumnIndex(0);
+                    char idxs2[16]; snprintf(idxs2, sizeof(idxs2), "%d", r.index);
+                    const bool selected = (rep >= 0 && m_cineSel == rep);
+                    if (ImGui::Selectable(idxs2, selected,
+                                          ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap,
+                                          ImVec2(0.0f, ImGui::GetFrameHeight())))
+                        { if (rep >= 0) m_cineSel = rep; }
+                    if (navMatch && rep >= 0 && m_cineScrollPending) ImGui::SetScrollHereY(0.4f);
+
+                    // col 1: name (cam-agnostic)
+                    ImGui::TableSetColumnIndex(1);
+                    ImGui::AlignTextToFramePadding();
+                    ImGui::TextUnformatted(rowName(g, r.sub, r.num).c_str());
+
+                    // col 2 (+3 if dual): Source(s)
+                    ImGui::TableSetColumnIndex(2); srcCellFor(r.p1, r.sub, r.num, dual ? "cam1p" : "");
+                    int actCol = 3;
+                    if (dual) { ImGui::TableSetColumnIndex(3); srcCellFor(r.p2, r.sub, r.num, "cam2p"); actCol = 4; }
+
+                    // action col: remove (added) or existence hint
+                    ImGui::TableSetColumnIndex(actCol);
+                    if (rep >= 0) {
+                        CineManifestEntry& e = m_cine.entries[rep];
+                        if (e.added) {
+                            if (ImGui::SmallButton("x")) { pendingRemoveGroup = e.group; pendingRemoveNum = e.num; }
+                        } else if (e.hasExists) {
+                            ImGui::TextColored(e.exists ? ImVec4(0.35f, 1.0f, 0.5f, 1.0f) : ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                                               e.exists ? "o" : "!");
+                        }
+                    }
+                    ImGui::PopID();
+                }
+                ImGui::EndTable();
+            }
+
+            std::string g(group);
+            if (g == "throw") {
+                int maxNN = -1;
+                for (const auto& e : m_cine.entries) if (e.group == "throw" && e.num > maxNN) maxNN = e.num;
+                int next = maxNN + 1;
+                ImGui::Spacing();
+                if (ImGui::Button("Add slot")) { pendingAddGroup = "throw"; pendingAddNum = next; }
+                ImGui::SameLine(); ImGui::TextDisabled("(adds throw %d)", next + 1);
+            } else if (g == "intro" || g == "outro") {
+                bool present[6] = { false }; int cnt = 0;
+                for (const auto& e : m_cine.entries)
+                    if (e.group == g) { ++cnt; if (e.num >= 0 && e.num < 6) present[e.num] = true; }
+                int next = -1; for (int k = 0; k < 6; ++k) if (!present[k]) { next = k; break; }
+                ImGui::Spacing();
+                ImGui::BeginDisabled(next < 0);
+                if (ImGui::Button("Add slot")) { pendingAddGroup = g; pendingAddNum = next; }
+                ImGui::EndDisabled();
+                ImGui::SameLine(); ImGui::TextDisabled("(game loads up to 6 -- %d/6)", cnt);
+            }
+        }
+        ImGui::EndChild();
+    };
+
+    // Rage | Intro | Outro | Throw tabs. A Go from a property force-selects the matching tab.
+    if (ImGui::BeginTabBar("##cine_tabs")) {
+        struct CTab { const char* title; const char* group; };
+        static const CTab tabs[] = { {"Rage","rage"}, {"Intro","intro"}, {"Outro","outro"}, {"Throw","throw"} };
+        for (const CTab& t : tabs) {
+            int flags = (m_cineScrollPending && m_cineHlGroup == t.group) ? ImGuiTabItemFlags_SetSelected : 0;
+            if (ImGui::BeginTabItem(t.title, nullptr, flags)) {
+                ImGui::PushID(t.group);
+                sectionBody(t.group);
+                ImGui::PopID();
+                ImGui::EndTabItem();
+            }
+        }
+        ImGui::EndTabBar();
+    }
+
+    // nav is one-shot: it selected + scrolled this frame; selection persists as the highlight
+    m_cineScrollPending = false;
+    m_cineHlGroup.clear();
+
+    // -- deferred add/remove (mutates entries; done outside the render loops) --
+    if (pendingAddNum >= 0 && !pendingAddGroup.empty()) {
+        const std::string& g = pendingAddGroup; int nn = pendingAddNum;
+        bool dup = false;
+        for (const auto& e : m_cine.entries) if (e.group == g && e.num == nn) { dup = true; break; }
+        if (!dup) {
+            char nnb[8]; snprintf(nnb, sizeof(nnb), "%02d", nn);
+            if (g == "throw") {
+                std::string folder = DeriveFolder(m_cine, "/game/");
+                for (const char* cam : { "cam1p", "cam2p" }) {
+                    CineManifestEntry e;
+                    e.group = "throw"; e.cam = cam; e.num = nn; e.added = true;
+                    e.id = std::string("throw_") + nnb + "_" + cam;
+                    e.src = "/Game/cinematics/game/" + folder + "/" + m_cine.code + "/throw/" + nnb +
+                            "/" + m_cine.code + "_throw_" + nnb + "_" + cam + "_master";
+                    m_cine.entries.push_back(e);
+                    m_cineEdit.push_back(e.src);
+                }
+            } else { // intro / outro (demo builder)
+                std::string folder = DeriveFolder(m_cine, "/demo/");
+                const char* tok = (g == "intro") ? "sta" : "win";
+                CineManifestEntry e;
+                e.group = g; e.num = nn; e.added = true;
+                e.id = g + "_" + std::to_string(nn);
+                e.src = "/Game/cinematics/demo/" + folder + "/" + m_cine.code + "/" + tok + "/" + nnb +
+                        "/" + m_cine.code + "_" + tok + "_" + nnb + "_master";
+                m_cine.entries.push_back(e);
+                m_cineEdit.push_back(e.src);
+            }
+            m_dirty = true;
+            m_cineSel = -1;
+        }
+    }
+    if (pendingRemoveNum >= 0 && !pendingRemoveGroup.empty()) {
+        for (size_t i = m_cine.entries.size(); i-- > 0; ) {
+            const CineManifestEntry& e = m_cine.entries[i];
+            if (e.group == pendingRemoveGroup && e.added && e.num == pendingRemoveNum) {
+                m_cine.entries.erase(m_cine.entries.begin() + i);
+                if (i < m_cineEdit.size()) m_cineEdit.erase(m_cineEdit.begin() + i);
+            }
+        }
+        m_dirty = true;
+        m_cineSel = -1;
+    }
 
     ImGui::End();
 }

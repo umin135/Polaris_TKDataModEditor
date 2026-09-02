@@ -1297,6 +1297,7 @@ void App::ApplyAndSaveSettings()
 {
     AppConfig& cfg   = Config::Get().data;
     cfg.gameRootDir  = m_settingsGameRoot;
+    cfg.cinematicExportRoot = m_settingsCineExport;
 
     // Persist the current list-edit keybindings as encoded chord strings.
     {
@@ -1379,6 +1380,8 @@ void App::RenderSettingsWindow()
         const AppConfig& cfg = Config::Get().data;
         strncpy_s(m_settingsGameRoot, sizeof(m_settingsGameRoot),
                   cfg.gameRootDir.c_str(), _TRUNCATE);
+        strncpy_s(m_settingsCineExport, sizeof(m_settingsCineExport),
+                  cfg.cinematicExportRoot.c_str(), _TRUNCATE);
         m_settingsCat = 1;  // default to moveset category
     }
 
@@ -1467,6 +1470,42 @@ void App::RenderSettingsWindow()
                                    "tkdata.bin: Not found");
                 if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
                     ImGui::SetTooltip("%s", tkPath.c_str());
+            }
+
+            // -- Cinematic export root ---------------------------
+            ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
+            ImGui::TextUnformatted("Cinematic Export Root (optional)");
+            ImGui::Spacing();
+            ImGui::TextDisabled(
+                "Root of a ripped cinematics dump (...\\Exports\\Polaris\\Content\\cinematics).\n"
+                "When set, extraction resolves each sequence's real season folder\n"
+                "(polaris / polaris01 / ...) and existence against the dump.");
+            ImGui::Spacing();
+
+            ImGui::SetNextItemWidth(-76.0f);
+            ImGui::InputText("##cineExport", m_settingsCineExport, sizeof(m_settingsCineExport));
+            ImGui::SameLine();
+            if (ImGui::Button("Browse##cine", ImVec2(68.0f, 0.0f)))
+            {
+                std::string folder = BrowseForFolder();
+                if (!folder.empty())
+                    strncpy_s(m_settingsCineExport, sizeof(m_settingsCineExport),
+                              folder.c_str(), _TRUNCATE);
+            }
+            ImGui::Spacing();
+            if (m_settingsCineExport[0] == '\0')
+            {
+                ImGui::TextDisabled("cinematics dump: (not set -> folder assumed \"polaris\")");
+            }
+            else
+            {
+                std::string gameDir = std::string(m_settingsCineExport) + "\\game";
+                DWORD a = GetFileAttributesA(gameDir.c_str());
+                if (a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY))
+                    ImGui::TextColored(ImVec4(0.35f, 1.0f, 0.50f, 1.0f), "cinematics dump: Found");
+                else
+                    ImGui::TextColored(ImVec4(1.0f, 0.40f, 0.40f, 1.0f),
+                                       "cinematics dump: 'game' subfolder not found");
             }
 
             // -- List edit shortcuts -----------------------------
