@@ -108,10 +108,9 @@ const char* LabelDB::Cmd(uint64_t cmd) const
 }
 
 // -------------------------------------------------------------
-//  LoadNames / GetMoveName  (name_keys.json)
+//  LoadNames / GetMoveName  (kamui-hashes/data.json)
 //
-//  Format: flat JSON object  { "decimal_key": "move_name", ... }
-//  No full JSON parser needed -- just scan for "key": "value" pairs.
+//  Format: flat JSON object  { "decimal_key": "name", ... }
 // -------------------------------------------------------------
 
 // -------------------------------------------------------------
@@ -180,25 +179,6 @@ uint32_t LabelDB::GetHashByName(const std::string& name) const
 {
     auto it = m_hashByName.find(name);
     return it != m_hashByName.end() ? it->second : 0;
-}
-
-// -------------------------------------------------------------
-//  LoadAnimNames / GetAnimName  (anim_keys.json)
-//
-//  Same flat JSON format as name_keys.json.
-//  Values are real anim name strings (for the 4 keys that overlap
-//  with name_keys.json) or sized placeholders for all others.
-// -------------------------------------------------------------
-
-void LabelDB::LoadAnimNames(const std::string& jsonPath)
-{
-    ParseNameJson(jsonPath, m_animNames, /*clearFirst=*/true);
-}
-
-const char* LabelDB::GetAnimName(uint32_t key) const
-{
-    auto it = m_animNames.find(key);
-    return it != m_animNames.end() ? it->second.c_str() : nullptr;
 }
 
 bool LabelDB::IsSizedKeyPlaceholder(const char* s)
@@ -274,50 +254,6 @@ void LabelDB::ParseBuffer(const char* buf, size_t sz,
 }
 
 // -------------------------------------------------------------
-//  ParseNameJsonBuffer  (memory-based counterpart to ParseNameJson)
-// -------------------------------------------------------------
-
-void LabelDB::ParseNameJsonBuffer(const char* buf, size_t sz,
-                                  std::unordered_map<uint32_t, std::string>& out,
-                                  bool clearFirst)
-{
-    if (clearFirst) out.clear();
-    const char* end = buf + sz;
-    while (buf < end)
-    {
-        const char* lineEnd = buf;
-        while (lineEnd < end && *lineEnd != '\n') ++lineEnd;
-
-        std::string line(buf, lineEnd);
-        buf = (lineEnd < end) ? lineEnd + 1 : end;
-
-        size_t q1 = line.find('"');
-        if (q1 == std::string::npos) continue;
-        size_t q2 = line.find('"', q1 + 1);
-        if (q2 == std::string::npos) continue;
-        size_t q3 = line.find('"', q2 + 1);
-        if (q3 == std::string::npos) continue;
-        size_t q4 = line.find('"', q3 + 1);
-        if (q4 == std::string::npos) continue;
-
-        std::string keyStr = line.substr(q1 + 1, q2 - q1 - 1);
-        std::string valStr = line.substr(q3 + 1, q4 - q3 - 1);
-        if (keyStr.empty() || valStr.empty()) continue;
-
-        bool allDigits = true;
-        for (char c : keyStr) { if (c < '0' || c > '9') { allDigits = false; break; } }
-        if (!allDigits) continue;
-
-        try
-        {
-            uint32_t key = static_cast<uint32_t>(std::stoull(keyStr));
-            out[key] = std::move(valStr);
-        }
-        catch (...) {}
-    }
-}
-
-// -------------------------------------------------------------
 //  Helper: load a Win32 RCDATA resource into a (data, size) pair.
 //  Returns {nullptr, 0} if not found.
 // -------------------------------------------------------------
@@ -352,14 +288,6 @@ void LabelDB::LoadFromResources()
     if (cmd.first  && cmd.second)  ParseBuffer(cmd.first,  cmd.second,  m_cmd);
 
     m_loaded = (!m_req.empty() || !m_prop.empty() || !m_cmd.empty());
-
-    std::pair<const char*, size_t> names = GetResourceData(IDR_DATA_NAMEKEYS);
-    std::pair<const char*, size_t> supp  = GetResourceData(IDR_DATA_SUPPKEYS);
-    std::pair<const char*, size_t> anim  = GetResourceData(IDR_DATA_ANIMKEYS);
-
-    if (names.first && names.second) ParseNameJsonBuffer(names.first, names.second, m_names,     /*clearFirst=*/true);
-    if (supp.first  && supp.second)  ParseNameJsonBuffer(supp.first,  supp.second,  m_names,     /*clearFirst=*/false);
-    if (anim.first  && anim.second)  ParseNameJsonBuffer(anim.first,  anim.second,  m_animNames, /*clearFirst=*/true);
 }
 
 // TODO: Make it more robust in the future to cover all cases.

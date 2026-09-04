@@ -39,24 +39,18 @@ public:
     // All command entries (for building dropdown lists).
     const std::unordered_map<uint64_t, std::string>& CmdMap() const { return m_cmd; }
 
-    // Move name: name_key uint32 -> move name string, e.g. 391423 -> "Hw_66RK"
-    // Loaded from name_keys.json.  Call AddNames() to merge additional JSON files
-    // (e.g. supplement_name_keys.json) without clearing the existing map.
+    // Move/anim/VFS name: Kamui hash uint32 -> string (res/kamui-hashes/data.json).
+    // Call AddNames() to merge additional JSON without clearing.
     void LoadNames(const std::string& jsonPath);
     void AddNames(const std::string& jsonPath);
     const char* GetMoveName(uint32_t key) const;
 
-    // Reverse name lookup: vfsPath string -> hash (uint32).
+    // Reverse name lookup: string -> hash (uint32).
     // Populated from m_names during LoadNames / AddNames.
     uint32_t GetHashByName(const std::string& name) const;
 
-    // Anim name: anim_key uint32 -> animation name string (or placeholder)
-    // Loaded from anim_keys.json.
-    void LoadAnimNames(const std::string& jsonPath);
-    const char* GetAnimName(uint32_t key) const;
-
-    // True for sized placeholders from supplement_name_keys / anim_keys
-    // (e.g. "nk0E8134F4__________", "ak0A27D720___") — not real names.
+    // True for legacy sized placeholders (e.g. "nk0E8134F4__", "ak0A27D720___")
+    // that may still appear in old extracted string blocks.
     static bool IsSizedKeyPlaceholder(const char* s);
 
     bool IsLoaded() const { return m_loaded; }
@@ -74,15 +68,11 @@ private:
                           std::unordered_map<uint64_t, std::string>& out);
     static void ParseBuffer(const char* buf, size_t sz,
                             std::unordered_map<uint64_t, std::string>& out);
-    static void ParseNameJsonBuffer(const char* buf, size_t sz,
-                                    std::unordered_map<uint32_t, std::string>& out,
-                                    bool clearFirst);
 
     std::unordered_map<uint64_t, std::string> m_req;
     std::unordered_map<uint64_t, std::string> m_prop;
     std::unordered_map<uint64_t, std::string> m_cmd;
     std::unordered_map<uint32_t, std::string> m_names;
-    std::unordered_map<uint32_t, std::string> m_animNames;
     std::unordered_map<std::string, uint32_t> m_hashByName;
     bool m_loaded = false;
 };

@@ -964,10 +964,8 @@ bool MovesetExtractor::ExtractToFile(int slotIndex,
     //   fullDate  = "YYYYMMDD.000000 00:00:00.000" (28 chars)
     //
     // Physical string block names:
-    //   move name  → kamui-hashes / name_keys (reject nk/ak placeholders) else "move_X"
-    //   anim name  → same kamui lookup on anim_key, else real anim_keys entry,
-    //                else "<charaCode>_anim_X"
-    // Do NOT write anim_keys.json sized placeholders (e.g. "ak0A27D720___").
+    //   move name  → kamui-hashes else "move_X"
+    //   anim name  → same lookup on anim_key else "<charaCode>_anim_X"
     MotbinNameData names;
     {
         // Build header strings from compile_date (header 0x04)
@@ -991,8 +989,6 @@ bool MovesetExtractor::ExtractToFile(int slotIndex,
         auto resolveRealName = [](uint32_t key) -> const char* {
             const char* n = LabelDB::Get().GetMoveName(key);
             if (n && !LabelDB::IsSizedKeyPlaceholder(n)) return n;
-            const char* a = LabelDB::Get().GetAnimName(key);
-            if (a && !LabelDB::IsSizedKeyPlaceholder(a)) return a;
             return nullptr;
         };
 

@@ -373,9 +373,6 @@ void App::RunInitThread()
             LabelDB::Get().Load(c);
             if (LabelDB::Get().IsLoaded())
             {
-                LabelDB::Get().LoadNames(c + "\\name_keys.json");
-                LabelDB::Get().AddNames(c + "\\supplement_name_keys.json");
-                LabelDB::Get().LoadAnimNames(c + "\\anim_keys.json");
                 loadedFromDisk = true;
                 break;
             }
@@ -406,7 +403,7 @@ void App::RunInitThread()
             {
                 std::string p = resDir + "\\kamui-hashes\\data.json";
                 FILE* f = nullptr; fopen_s(&f, p.c_str(), "rb");
-                if (f) { fclose(f); LabelDB::Get().AddNames(p); }
+                if (f) { fclose(f); LabelDB::Get().LoadNames(p); }
             }
 
             MovesetDataDictCheckAndUpdate(resDir);

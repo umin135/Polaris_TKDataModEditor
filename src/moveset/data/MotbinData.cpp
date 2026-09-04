@@ -1024,7 +1024,7 @@ MotbinData LoadMotbin(const std::string& folderPath)
             m.end_prop_idx = (uint32_t)((m.move_end_extraprop_addr - enPropBase) / 0x20);
 
         // -- Name: prefer physical string block when gated; else kamui-hashes --
-        // Reject nk/ak sized placeholders (old extracts / supplement_name_keys).
+        // Reject legacy nk/ak sized placeholders from old extracts.
         if (result.hasPhysicalStringBlock && !result.stringBlock.empty())
         {
             uint64_t nameOff = ReadAt<uint64_t>(mb, kMove_Size, 0x40);

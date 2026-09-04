@@ -45,7 +45,7 @@ namespace AppStr
     struct ModuleEntry { const char* name; const char* desc; bool ready; };
     static constexpr ModuleEntry Modules[] = {
         { "fbsdata", "Add modded items to fbsdata (.tkmod)",                                    true  },
-        { "moveset", "Moveset Extraction/Editor (.motbin / .anmbin / .stllstb / .mvl)",         true  },
+        { "moveset", "XX Moveset Extraction/Editor (.motbin / .anmbin / .stllstb / .mvl)",         true  },
         { "ghost",   "Ghost data (low priority)",                                               false },
     };
 
