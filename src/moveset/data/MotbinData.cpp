@@ -4,6 +4,7 @@
 #include "moveset/data/MotbinData.h"
 #include "moveset/data/AnimNameDB.h"
 #include "moveset/labels/LabelDB.h"
+#include "moveset/serialize/MotbinSerialize.h"
 #include "GameStatic.h"
 #include <windows.h>
 #include <cstdio>
@@ -15,6 +16,15 @@
 // -------------------------------------------------------------
 //  Helpers
 // -------------------------------------------------------------
+
+static std::string CStrFromStringBlock(const std::vector<uint8_t>& blk, uint64_t off)
+{
+    if (off >= blk.size()) return {};
+    size_t end = static_cast<size_t>(off);
+    while (end < blk.size() && blk[end] != 0) ++end;
+    return std::string(reinterpret_cast<const char*>(blk.data() + static_cast<size_t>(off)),
+                       end - static_cast<size_t>(off));
+}
 
 static std::wstring Utf8ToWide(const std::string& s)
 {
@@ -331,6 +341,24 @@ MotbinData LoadMotbin(const std::string& folderPath)
     {
         result.errorMsg = "Invalid file signature (expected 'TEK').";
         return result;
+    }
+
+    // Physical string block (gated): header 0x0C flag + 0x170 size, bytes at 0x318.
+    {
+        uint32_t flag = 0;
+        uint64_t strEnd = 0;
+        if (result.rawBytes.size() >= kMotbinStringBlockFlagOff + 4)
+            memcpy(&flag, result.rawBytes.data() + kMotbinStringBlockFlagOff, 4);
+        if (result.rawBytes.size() >= kMotbinStringBlockEndOff + 8)
+            memcpy(&strEnd, result.rawBytes.data() + kMotbinStringBlockEndOff, 8);
+        if (flag == kMotbinPhysicalStringBlockFlag && strEnd > 0 &&
+            kMotbinBase + strEnd <= result.rawBytes.size())
+        {
+            result.hasPhysicalStringBlock = true;
+            result.stringBlock.assign(
+                result.rawBytes.begin() + static_cast<std::ptrdiff_t>(kMotbinBase),
+                result.rawBytes.begin() + static_cast<std::ptrdiff_t>(kMotbinBase + strEnd));
+        }
     }
 
     const uint64_t movesOffset = ReadAt<uint64_t>(buf, cap, kHdr_MovesPtr);
@@ -995,34 +1023,20 @@ MotbinData LoadMotbin(const std::string& folderPath)
         if (m.move_end_extraprop_addr && m.move_end_extraprop_addr < cap && enPropBase && m.move_end_extraprop_addr >= enPropBase)
             m.end_prop_idx = (uint32_t)((m.move_end_extraprop_addr - enPropBase) / 0x20);
 
-        // -- Name lookup via name_keys.json -------------------
-        // Supplement entries are placeholder strings of the form "nkXXXXXXXX___"
-        // (nk + 8 uppercase hex digits + padding underscores).  These exist only
-        // to produce correct string-block byte offsets in the binary; they are not
-        // human-readable names, so we fall back to "move_N" for those.
-        if (nameKey != 0)
+        // -- Name: prefer physical string block when gated; else kamui-hashes --
+        // Reject nk/ak sized placeholders (old extracts / supplement_name_keys).
+        if (result.hasPhysicalStringBlock && !result.stringBlock.empty())
+        {
+            uint64_t nameOff = ReadAt<uint64_t>(mb, kMove_Size, 0x40);
+            std::string fromBlk = CStrFromStringBlock(result.stringBlock, nameOff);
+            if (!fromBlk.empty() && !LabelDB::IsSizedKeyPlaceholder(fromBlk.c_str()))
+                m.displayName = std::move(fromBlk);
+        }
+        if (m.displayName.empty() && nameKey != 0)
         {
             const char* name = LabelDB::Get().GetMoveName(nameKey);
-            if (name)
-            {
-                // Detect supplement placeholder: starts with "nk" followed by
-                // exactly 8 hex digits (e.g. "nk0E8134F4__________")
-                bool isPlaceholder = false;
-                if (name[0] == 'n' && name[1] == 'k')
-                {
-                    isPlaceholder = true;
-                    for (int hc = 0; hc < 8; ++hc)
-                    {
-                        char c = name[2 + hc];
-                        if (!((c >= '0' && c <= '9') ||
-                              (c >= 'A' && c <= 'F') ||
-                              (c >= 'a' && c <= 'f')))
-                        { isPlaceholder = false; break; }
-                    }
-                }
-                if (!isPlaceholder)
-                    m.displayName = name;
-            }
+            if (name && !LabelDB::IsSizedKeyPlaceholder(name))
+                m.displayName = name;
         }
         if (m.displayName.empty())
             m.displayName = "move_" + std::to_string(static_cast<uint64_t>(i));
@@ -1110,20 +1124,19 @@ static std::vector<uint8_t> RebuildMotbinBytes(MotbinData& data)
     std::vector<uint8_t> out(raw.begin(), raw.begin() + kMotbinBase);
 
     // -- String block tracking for new moves ---------------------------------
-    // header[0x170] = total virtual string-block size (byte count).
-    // Each move[i]+0x040 = nameOff (uint64), move[i]+0x048 = animOff (uint64):
-    // byte offsets into the string block where the loader writes name/anim strings.
-    // The mod loader uses animOff to find the anim key string, whose hash must
-    // match anmbin moveList[anmbin_body_idx]. Wrong animOff → hash mismatch → Fatal Error.
-    //
-    // For existing moves (i < origMoveCnt): rawBytes already has correct values
-    // (captured from game memory after load), preserved via anim_related[4..7].
-    // For new/duplicate moves: compute correct offsets by appending to the block.
+    // header[0x170] = string_block_end_offset (byte count).
+    // Each move[i]+0x040 = nameOff, move[i]+0x048 = animOff into that block.
+    // When hasPhysicalStringBlock, the bytes live at file[0x318 .. 0x318+size).
     AnimNameDB animDB;
     if (!data.folderPath.empty()) animDB.Load(data.folderPath);
 
+    std::vector<uint8_t> strBlk = data.stringBlock;
+    const bool physicalStr = data.hasPhysicalStringBlock || !strBlk.empty();
+
     uint64_t strBlockCur = 0;
-    if (0x170 + 8 <= raw.size())
+    if (physicalStr)
+        strBlockCur = static_cast<uint64_t>(strBlk.size());
+    else if (0x170 + 8 <= raw.size())
         memcpy(&strBlockCur, raw.data() + 0x170, 8);
 
     size_t origMoveCnt = 0;
@@ -1132,6 +1145,31 @@ static std::vector<uint8_t> RebuildMotbinBytes(MotbinData& data)
         if (0x238 + 8 <= raw.size()) memcpy(&c, raw.data() + 0x238, 8);
         origMoveCnt = (size_t)c;
     }
+
+    // Pre-append strings for new/duplicate moves into strBlk (physical path).
+    struct NewMoveStrOff { uint64_t nameOff = 0; uint64_t animOff = 0; };
+    std::vector<NewMoveStrOff> newMoveStrOffs;
+    if (physicalStr && data.moves.size() > origMoveCnt) {
+        newMoveStrOffs.resize(data.moves.size());
+        auto appendStr = [&](const std::string& s) -> uint64_t {
+            uint64_t off = static_cast<uint64_t>(strBlk.size());
+            strBlk.insert(strBlk.end(), s.begin(), s.end());
+            strBlk.push_back(0);
+            return off;
+        };
+        for (size_t i = origMoveCnt; i < data.moves.size(); ++i) {
+            const ParsedMove& m = data.moves[i];
+            std::string animStr;
+            if (animDB.IsLoaded())
+                animStr = animDB.AnimKeyToName(m.anim_key);
+            newMoveStrOffs[i].nameOff = appendStr(m.displayName);
+            newMoveStrOffs[i].animOff = appendStr(animStr);
+        }
+        strBlockCur = static_cast<uint64_t>(strBlk.size());
+    }
+
+    if (physicalStr)
+        out.insert(out.end(), strBlk.begin(), strBlk.end());
     // ------------------------------------------------------------------------
 
     // Helper: update header entry in out
@@ -1343,11 +1381,12 @@ static std::vector<uint8_t> RebuildMotbinBytes(MotbinData& data)
                 memcpy(e + kMove_EncOrdinalId + 16 + k*4, &m.ordinal_related[k], 4);
 
             // Per-slot patches: overwrite this move's specific slot with current values.
+            { uint32_t enc = m.name_key    ^ kXorKeys[slot]; memcpy(e + kMove_EncNameKey   + slot*4, &enc, 4); }
+            { uint32_t enc = m.anim_key    ^ kXorKeys[slot]; memcpy(e + kMove_EncAnimKey   + slot*4, &enc, 4); }
             { uint32_t enc = m.vuln        ^ kXorKeys[slot]; memcpy(e + kMove_EncVuln      + slot*4, &enc, 4); }
             { uint32_t enc = m.hitlevel    ^ kXorKeys[slot]; memcpy(e + kMove_EncHitlevel  + slot*4, &enc, 4); }
             { uint32_t enc = m.ordinal_id2 ^ kXorKeys[slot]; memcpy(e + kMove_EncCharId    + slot*4, &enc, 4); }
             { uint32_t enc = m.moveId      ^ kXorKeys[slot]; memcpy(e + kMove_EncOrdinalId + slot*4, &enc, 4); }
-            { uint32_t enc = m.anim_key    ^ kXorKeys[slot]; memcpy(e + kMove_EncAnimKey   + slot*4, &enc, 4); }
 
             // anmbin fields: body_idx == move index (game uses this to index into
             // anmbin moveList; duplicated moves must get their own index, not the
@@ -1399,18 +1438,18 @@ static std::vector<uint8_t> RebuildMotbinBytes(MotbinData& data)
             memcpy(e + 0x2E4, m.unk5, sizeof(m.unk5));
 
             // String block offsets: move[i]+0x040 = nameOff, move[i]+0x048 = animOff.
-            // These are byte offsets into the virtual string block that the mod loader
-            // creates. The loader places the anim key string at animOff; the game
-            // computes hash(animStr) and validates it against anmbin moveList[body_idx].
-            // Wrong animOff → hash mismatch → Fatal Error.
-            //
-            // For existing moves: anim_related[4..7] (already copied above) have the
-            // correct values from the original extraction. No override needed.
-            //
-            // For new moves (i >= origMoveCnt): the source move's values were inherited
-            // by anim_related[4..7]. Override them with freshly computed offsets so the
-            // loader places the correct anim key string at the right position.
+            // Existing moves: anim_related[4..7] already copied above.
+            // New moves: use precomputed physical offsets, or legacy virtual append.
             if (i >= origMoveCnt && strBlockCur > 0) {
+                auto W32at = [](uint8_t* b, size_t o, uint32_t v){ memcpy(b+o,&v,4); };
+                if (physicalStr && i < newMoveStrOffs.size()) {
+                    uint64_t nameOff = newMoveStrOffs[i].nameOff;
+                    uint64_t animOff = newMoveStrOffs[i].animOff;
+                    W32at(e, 0x40, (uint32_t)(nameOff & 0xFFFFFFFF));
+                    W32at(e, 0x44, (uint32_t)(nameOff >> 32));
+                    W32at(e, 0x48, (uint32_t)(animOff & 0xFFFFFFFF));
+                    W32at(e, 0x4C, (uint32_t)(animOff >> 32));
+                } else {
                 // Name string
                 const std::string& nameStr = m.displayName;
                 uint64_t nameOff = strBlockCur;
@@ -1447,14 +1486,11 @@ static std::vector<uint8_t> RebuildMotbinBytes(MotbinData& data)
                     }
                 }
 
-                // Write nameOff (uint64) at e+0x40 and animOff (uint64) at e+0x48.
-                // anim_related[4/5] = low/high 32 bits of nameOff,
-                // anim_related[6/7] = low/high 32 bits of animOff.
-                auto W32at = [](uint8_t* b, size_t o, uint32_t v){ memcpy(b+o,&v,4); };
                 W32at(e, 0x40, (uint32_t)(nameOff & 0xFFFFFFFF));
                 W32at(e, 0x44, (uint32_t)(nameOff >> 32));
                 W32at(e, 0x48, (uint32_t)(animOff & 0xFFFFFFFF));
                 W32at(e, 0x4C, (uint32_t)(animOff >> 32));
+                }
             }
 
             // Pointer fields (stored as indexes in index-format)
@@ -1528,11 +1564,16 @@ static std::vector<uint8_t> RebuildMotbinBytes(MotbinData& data)
             W32(e, 0x14, d.facial_anim_idx);
         });
 
-    // Update string block total size if new moves were added.
-    // The loader allocates strBlockCur bytes for the virtual string block and uses
-    // each move's nameOff/animOff to place strings and resolve pointers.
-    if (strBlockCur > 0 && out.size() >= 0x170 + 8)
-        memcpy(out.data() + 0x170, &strBlockCur, 8);
+    // Update string block size / physical-string flag.
+    if (out.size() >= kMotbinStringBlockEndOff + 8)
+        memcpy(out.data() + kMotbinStringBlockEndOff, &strBlockCur, 8);
+    if (physicalStr && strBlockCur > 0) {
+        uint32_t flag = kMotbinPhysicalStringBlockFlag;
+        if (out.size() >= kMotbinStringBlockFlagOff + 4)
+            memcpy(out.data() + kMotbinStringBlockFlagOff, &flag, 4);
+        data.stringBlock = std::move(strBlk);
+        data.hasPhysicalStringBlock = true;
+    }
 
     return out;
 }

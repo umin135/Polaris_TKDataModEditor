@@ -354,6 +354,11 @@ struct MotbinData {
     std::vector<ParsedThrow>         throwBlock;
     std::vector<ParsedParryableMove> parryableMoveBlock;
     std::vector<ParsedDialogue>      dialogueBlock;
+
+    // Physical string block (after header 0x318) when hasPhysicalStringBlock.
+    // Header 0x0C = kMotbinPhysicalStringBlockFlag; 0x170 = size.
+    bool                 hasPhysicalStringBlock = false;
+    std::vector<uint8_t> stringBlock;
 };
 
 // Loads moveset.motbin from the given moveset folder path.

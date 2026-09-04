@@ -963,9 +963,11 @@ bool MovesetExtractor::ExtractToFile(int slotIndex,
     //   date      = "YYYYMMDD.000000"     (15 chars from compile_date)
     //   fullDate  = "YYYYMMDD.000000 00:00:00.000" (28 chars)
     //
-    // Move name strings come from name_keys.json (and supplement_name_keys.json
-    // for missing entries) via LabelDB::GetMoveName(name_key).
-    // Anim strings come from anim_keys.json via LabelDB::GetAnimName(anim_key).
+    // Physical string block names:
+    //   move name  → kamui-hashes / name_keys (reject nk/ak placeholders) else "move_X"
+    //   anim name  → same kamui lookup on anim_key, else real anim_keys entry,
+    //                else "<charaCode>_anim_X"
+    // Do NOT write anim_keys.json sized placeholders (e.g. "ak0A27D720___").
     MotbinNameData names;
     {
         // Build header strings from compile_date (header 0x04)
@@ -982,6 +984,18 @@ bool MovesetExtractor::ExtractToFile(int slotIndex,
         names.date        = std::string(dateBuf);
         names.fullDate    = std::string(fullDateBuf);
 
+        const char* codePtr = FbsDataDict::Get().CharaCode(slot.charaId);
+        const std::string charaCode = codePtr ? codePtr
+            : (slot.charaName.size() >= 3 ? slot.charaName.substr(0, 3) : slot.charaName);
+
+        auto resolveRealName = [](uint32_t key) -> const char* {
+            const char* n = LabelDB::Get().GetMoveName(key);
+            if (n && !LabelDB::IsSizedKeyPlaceholder(n)) return n;
+            const char* a = LabelDB::Get().GetAnimName(key);
+            if (a && !LabelDB::IsSizedKeyPlaceholder(a)) return a;
+            return nullptr;
+        };
+
         uint64_t moveBlockAbs = ReadBuf<uint64_t>(bytes.data(), 0x230);
         uint64_t moveCount    = ReadBuf<uint64_t>(bytes.data(), 0x238);
         if (moveBlockAbs >= static_cast<uint64_t>(slot.motbinAddr)) {
@@ -993,10 +1007,14 @@ bool MovesetExtractor::ExtractToFile(int slotIndex,
                 uint32_t nk = DecryptMotbinMoveKey(bytes.data() + e, 0x00);
                 uint32_t ak = DecryptMotbinMoveKey(bytes.data() + e, 0x20);
                 MotbinNameData::MoveNameEntry entry;
-                const char* nStr = LabelDB::Get().GetMoveName(nk);
-                const char* aStr = LabelDB::Get().GetAnimName(ak);
-                entry.name = nStr ? nStr : "";
-                entry.anim = aStr ? aStr : "";
+                if (const char* nStr = resolveRealName(nk))
+                    entry.name = nStr;
+                else
+                    entry.name = "move_" + std::to_string(mi);
+                if (const char* aStr = resolveRealName(ak))
+                    entry.anim = aStr;
+                else
+                    entry.anim = charaCode + "_anim_" + std::to_string(mi);
                 names.moves.push_back(std::move(entry));
                 motbinAnimKeys.push_back(ak);
                 motbinNameKeys.push_back(nk);

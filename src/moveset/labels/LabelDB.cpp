@@ -201,6 +201,26 @@ const char* LabelDB::GetAnimName(uint32_t key) const
     return it != m_animNames.end() ? it->second.c_str() : nullptr;
 }
 
+bool LabelDB::IsSizedKeyPlaceholder(const char* s)
+{
+    // "nk" / "ak" + 8 hex digits + optional trailing underscores only
+    if (!s || !s[0] || !s[1]) return false;
+    const bool nk = (s[0] == 'n' && s[1] == 'k');
+    const bool ak = (s[0] == 'a' && s[1] == 'k');
+    if (!nk && !ak) return false;
+    for (int i = 0; i < 8; ++i)
+    {
+        char c = s[2 + i];
+        if (!((c >= '0' && c <= '9') ||
+              (c >= 'A' && c <= 'F') ||
+              (c >= 'a' && c <= 'f')))
+            return false;
+    }
+    for (const char* p = s + 10; *p; ++p)
+        if (*p != '_') return false;
+    return true;
+}
+
 // -------------------------------------------------------------
 //  ParseBuffer  (memory-based counterpart to ParseFile)
 //  "id,label" per line, same rules as ParseFile.

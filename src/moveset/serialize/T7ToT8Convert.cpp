@@ -309,7 +309,9 @@ bool ConvertT7ToMotbin(const Moveset& src, uint32_t t7FighterId,
     uint32_t t8CharId = al.MapCharacterId(t7IdForMap);
     uint32_t encodedOrdinal2 = EncodeCharId(t8CharId);
 
-    // ---- String block offsets ----
+    // ---- String block (physical, gated by header 0x0C) ----
+    // Always rebuild: T7 anim names often end in "(DVD)" which must be stripped
+    // before hashing and before packing into the string block.
     std::string charName = src.characterName.empty() ? "CHAR" : src.characterName;
     if (charName.size() < 2 || charName.substr(charName.size() - 2) != "_n")
         charName += "_n";
@@ -317,19 +319,26 @@ bool ConvertT7ToMotbin(const Moveset& src, uint32_t t7FighterId,
     std::string date    = src.date.empty() ? "00000000.000000" : src.date;
     std::string fullDate= src.fullDate.empty() ? (date + " 00:00:00.000") : src.fullDate;
 
-    uint64_t strCur = 0;
-    auto addStr = [&](const std::string& s) -> uint64_t {
-        uint64_t off = strCur;
-        strCur += s.size() + 1;
-        return off;
-    };
-    addStr(charName);
-    uint64_t creatorOff  = addStr(creator);
-    uint64_t dateOff     = addStr(date);
-    uint64_t fullDateOff = addStr(fullDate);
-
-    std::vector<uint64_t> nameOffs(src.moves.size());
-    std::vector<uint64_t> animOffs(src.moves.size());
+    MotbinNameData nd;
+    nd.charName    = charName;
+    nd.charCreator = creator;
+    nd.date        = date;
+    nd.fullDate    = fullDate;
+    nd.moves.resize(src.moves.size());
+    for (size_t i = 0; i < src.moves.size(); ++i) {
+        nd.moves[i].name = (i < src.moveNames.size()) ? src.moveNames[i] : "";
+        nd.moves[i].anim = StripDvdSuffix(
+            (i < src.moveAnimNames.size()) ? src.moveAnimNames[i] : "");
+    }
+    MotbinStringBlockBuilt built = BuildMotbinStringBlock(nd);
+    out.stringBlock = std::move(built.bytes);
+    out.hasPhysicalStringBlock = !out.stringBlock.empty();
+    const uint64_t creatorOff  = built.creatorOff;
+    const uint64_t dateOff     = built.dateOff;
+    const uint64_t fullDateOff = built.fullDateOff;
+    const uint64_t strCur      = static_cast<uint64_t>(out.stringBlock.size());
+    const std::vector<uint64_t>& nameOffs = built.nameOff;
+    const std::vector<uint64_t>& animOffs = built.animOff;
 
     // ---- Moves ----
     out.moves.reserve(src.moves.size());
@@ -339,10 +348,9 @@ bool ConvertT7ToMotbin(const Moveset& src, uint32_t t7FighterId,
         ParsedMove m = {};
         uint32_t mi = static_cast<uint32_t>(i);
 
-        std::string nStr = (i < src.moveNames.size()) ? src.moveNames[i] : "";
-        std::string aStr = StripDvdSuffix((i < src.moveAnimNames.size()) ? src.moveAnimNames[i] : "");
-        nameOffs[i] = addStr(nStr);
-        animOffs[i] = addStr(aStr);
+        // Use the same strings we packed into the string block (anim already stripped).
+        const std::string& nStr = nd.moves[i].name;
+        const std::string& aStr = nd.moves[i].anim;
 
         uint32_t nameKey = static_cast<uint32_t>(KamuiHash::Compute(nStr));
         uint32_t animKey = static_cast<uint32_t>(KamuiHash::Compute(aStr));
@@ -352,13 +360,15 @@ bool ConvertT7ToMotbin(const Moveset& src, uint32_t t7FighterId,
         StoreXorBlock(m, 2, tm.vuln, mi);
         StoreXorBlock(m, 3, tm.hitlevel, mi);
         StoreXorBlock(m, 4, encodedOrdinal2, mi);
-        StoreXorBlock(m, 5, tm.ordinal_id, mi); // ordinal_id = move index
+        StoreXorBlock(m, 5, tm.ordinal_id, mi);
 
         // String offsets into anim_related[4..7]
-        m.anim_related[4] = static_cast<uint32_t>(nameOffs[i] & 0xFFFFFFFF);
-        m.anim_related[5] = static_cast<uint32_t>(nameOffs[i] >> 32);
-        m.anim_related[6] = static_cast<uint32_t>(animOffs[i] & 0xFFFFFFFF);
-        m.anim_related[7] = static_cast<uint32_t>(animOffs[i] >> 32);
+        uint64_t nOff = (i < nameOffs.size()) ? nameOffs[i] : 0;
+        uint64_t aOff = (i < animOffs.size()) ? animOffs[i] : 0;
+        m.anim_related[4] = static_cast<uint32_t>(nOff & 0xFFFFFFFF);
+        m.anim_related[5] = static_cast<uint32_t>(nOff >> 32);
+        m.anim_related[6] = static_cast<uint32_t>(aOff & 0xFFFFFFFF);
+        m.anim_related[7] = static_cast<uint32_t>(aOff >> 32);
 
         m.anmbin_body_idx = mi;
         m.anmbin_body_sub_idx = 0;
@@ -430,13 +440,17 @@ bool ConvertT7ToMotbin(const Moveset& src, uint32_t t7FighterId,
     out.rawBytes.assign(kHdr, 0);
     uint8_t* h = out.rawBytes.data();
 
-    // TEK signature
+    // TEK signature + physical string-block flag
     h[0x08] = 'T'; h[0x09] = 'E'; h[0x0A] = 'K'; h[0x0B] = '\0';
+    if (out.hasPhysicalStringBlock && strCur > 0) {
+        uint32_t flag = kMotbinPhysicalStringBlockFlag;
+        memcpy(h + kMotbinStringBlockFlagOff, &flag, 4);
+    }
 
     // String offsets
     auto w64 = [&](size_t off, uint64_t v) { memcpy(h + off, &v, 8); };
     auto w16 = [&](size_t off, uint16_t v) { memcpy(h + off, &v, 2); };
-    w64(0x10, 0);
+    w64(0x10, 0); // charName always at string-block offset 0
     w64(0x18, creatorOff);
     w64(0x20, dateOff);
     w64(0x28, fullDateOff);

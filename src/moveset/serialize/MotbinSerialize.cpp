@@ -43,6 +43,28 @@ void MotbinXorEncryptBlock(uint8_t* dest20, uint32_t value, uint32_t moveIdx)
     XorEncrypt(dest20, 0, value, moveIdx);
 }
 
+MotbinStringBlockBuilt BuildMotbinStringBlock(const MotbinNameData& names)
+{
+    MotbinStringBlockBuilt b;
+    auto addStr = [&](const std::string& s) -> uint64_t {
+        uint64_t off = static_cast<uint64_t>(b.bytes.size());
+        b.bytes.insert(b.bytes.end(), s.begin(), s.end());
+        b.bytes.push_back(0);
+        return off;
+    };
+    addStr(names.charName);
+    b.creatorOff  = addStr(names.charCreator);
+    b.dateOff     = addStr(names.date);
+    b.fullDateOff = addStr(names.fullDate);
+    b.nameOff.resize(names.moves.size());
+    b.animOff.resize(names.moves.size());
+    for (size_t i = 0; i < names.moves.size(); ++i) {
+        b.nameOff[i] = addStr(names.moves[i].name);
+        b.animOff[i] = addStr(names.moves[i].anim);
+    }
+    return b;
+}
+
 // -------------------------------------------------------------
 //  Game-memory decryption  (validateAndTransform64BitValue)
 //  Used to recover decrypted values from raw state-3 move blocks.
@@ -241,42 +263,14 @@ std::vector<uint8_t> ExportLoaderBin(const std::vector<uint8_t>& rawBytes,
     BL bl_thr    = ReadBL(src, srcSize, 0x290, 0x298, 0x10);
     BL bl_dia    = ReadBL(src, srcSize, 0x2A0, 0x2A8, 0x18);
 
-    // -- Virtual string-block offsets ---------------------------------
-    // charName is always at offset 0 in the virtual block (header 0x10 = 0).
-    // creatorOff / dateOff / fullDateOff -> header 0x18 / 0x20 / 0x28.
-    // totalSize -> header 0x170 (string_block_end_offset).
-    // nameOff[i] / animOff[i] -> move[i]+0x040 / move[i]+0x048.
-    struct VStrBlock {
-        uint64_t creatorOff  = 0;
-        uint64_t dateOff     = 0;
-        uint64_t fullDateOff = 0;
-        uint64_t totalSize   = 0;
-        std::vector<uint64_t> nameOff;
-        std::vector<uint64_t> animOff;
-    } vsb;
-    if (names) {
-        uint64_t cur = 0;
-        auto addStr = [&](const std::string& s) -> uint64_t {
-            uint64_t off = cur;
-            cur += static_cast<uint64_t>(s.size()) + 1;
-            return off;
-        };
-        addStr(names->charName);            // always at 0; advance cur past it
-        vsb.creatorOff  = addStr(names->charCreator);
-        vsb.dateOff     = addStr(names->date);
-        vsb.fullDateOff = addStr(names->fullDate);
-        const size_t nMoves = names->moves.size();
-        vsb.nameOff.resize(nMoves);
-        vsb.animOff.resize(nMoves);
-        for (size_t mi = 0; mi < nMoves; ++mi) {
-            vsb.nameOff[mi] = addStr(names->moves[mi].name);
-            vsb.animOff[mi] = addStr(names->moves[mi].anim);
-        }
-        vsb.totalSize = cur;
-    }
+    // -- Virtual / physical string-block --------------------------------
+    MotbinStringBlockBuilt vsb;
+    if (names)
+        vsb = BuildMotbinStringBlock(*names);
+    const size_t strSize = vsb.bytes.size();
 
-    // -- Compute output layout (blocks start at kBase = 0x318) ---------
-    size_t outSz = kBase;
+    // -- Compute output layout: header | [string block] | data ---------
+    size_t outSz = kBase + strSize;
     size_t o_react  = outSz; outSz += static_cast<size_t>(bl_react.cnt)  * 0x70;
     size_t o_req    = outSz; outSz += static_cast<size_t>(bl_req.cnt)    * 0x14;
     size_t o_hitc   = outSz; outSz += static_cast<size_t>(bl_hitc.cnt)   * 0x18;
@@ -308,21 +302,28 @@ std::vector<uint8_t> ExportLoaderBin(const std::vector<uint8_t>& rawBytes,
     W32(dst, 0x04, RAt<uint32_t>(src, srcSize, 0x04));
     // 0x08: TEK signature (copy from src)
     W32(dst, 0x08, RAt<uint32_t>(src, srcSize, 0x08));
+    // 0x0C: physical string-block flag (editor extension; stock game = 0)
+    if (names && strSize > 0)
+        W32(dst, kMotbinStringBlockFlagOff, kMotbinPhysicalStringBlockFlag);
     // 0x30-0x167: aliases (copy from src)
     {
         size_t aliasEnd = std::min(srcSize, size_t(0x168));
         if (aliasEnd > 0x30)
             memcpy(dst + 0x30, src + 0x30, aliasEnd - 0x30);
     }
-    // 0x168: reaction_list ptr (BASE-relative)
-    // 0x170: string_block_end_offset (total virtual string-block size)
+    // Physical string bytes live at file[0x318 .. 0x318+strSize)
+    if (strSize > 0)
+        memcpy(dst + kBase, vsb.bytes.data(), strSize);
+
+    // 0x168: reaction_list ptr (BASE-relative; past string block when present)
+    // 0x170: string_block_end_offset (size of string block)
     // 0x178: reaction_list count
-    // 0x18/0x20/0x28: char_creator / date / fulldate offsets in virtual string block
-    //   (0x10 = charName offset = 0, already zeroed by default)
+    // 0x10/0x18/0x20/0x28: charName / creator / date / fulldate offsets
     W64(dst, 0x168, static_cast<uint64_t>(o_react - kBase));
-    W64(dst, 0x170, names ? vsb.totalSize : UINT64_C(0));
+    W64(dst, 0x170, static_cast<uint64_t>(strSize));
     W64(dst, 0x178, bl_react.cnt);
     if (names) {
+        W64(dst, 0x10, 0); // charName always at string-block offset 0
         W64(dst, 0x18, vsb.creatorOff);
         W64(dst, 0x20, vsb.dateOff);
         W64(dst, 0x28, vsb.fullDateOff);

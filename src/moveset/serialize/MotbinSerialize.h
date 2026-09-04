@@ -4,16 +4,33 @@
 #include <vector>
 
 // -------------------------------------------------------------
+//  Physical string-block gate (Polaris / editor extension)
+//
+//  Header 0x0C is unused padding in stock Tekken 8.  We set it to
+//  kMotbinPhysicalStringBlockFlag when the file embeds the string
+//  block bytes immediately after the 0x318 header.  Old extracts
+//  leave 0x0C = 0, so LoadMotbin keeps the kamui-hashes name path.
+//
+//  Header 0x170 = string_block_end_offset (byte size of that block).
+//  Move +0x40 / +0x48 and header 0x10/0x18/0x20/0x28 are offsets
+//  into that block (0 = first string), not file offsets.
+// -------------------------------------------------------------
+static constexpr size_t   kMotbinHdrSize                 = 0x318;
+static constexpr size_t   kMotbinStringBlockFlagOff      = 0x0C;
+static constexpr uint32_t kMotbinPhysicalStringBlockFlag = 1u;
+static constexpr size_t   kMotbinStringBlockEndOff       = 0x170;
+
+// -------------------------------------------------------------
 //  MotbinNameData
 //
-//  String data extracted from the game's virtual string block.
+//  String data for the string block.
 //  In state-3 (game memory) the move name/anim fields (move+0x040,
 //  move+0x048) are absolute pointers into a SEPARATE game allocation
 //  that is NOT part of the motbin block itself.  ExportLoaderBin uses
-//  this struct to rebuild the virtual string-block byte offsets that
-//  the state-1 file format stores in those fields.
+//  this struct to rebuild string-block byte offsets and, when writing
+//  a gated file, the physical string bytes after the header.
 //
-//  Header virtual string-block layout (consecutive null-terminated):
+//  String-block layout (consecutive null-terminated):
 //    offset 0              : charName
 //    offset creatorOff     : charCreator   (header 0x18)
 //    offset dateOff        : date          (header 0x20)
@@ -32,33 +49,26 @@ struct MotbinNameData {
     std::vector<MoveNameEntry> moves;
 };
 
+// Build the packed \0-separated string-block bytes + per-string offsets.
+struct MotbinStringBlockBuilt {
+    std::vector<uint8_t> bytes;
+    uint64_t creatorOff  = 0;
+    uint64_t dateOff     = 0;
+    uint64_t fullDateOff = 0;
+    std::vector<uint64_t> nameOff;
+    std::vector<uint64_t> animOff;
+};
+MotbinStringBlockBuilt BuildMotbinStringBlock(const MotbinNameData& names);
+
 // -------------------------------------------------------------
 //  ExportLoaderBin
 //
 //  Converts a raw state-3 motbin dump (absolute pointers from game
-//  memory) to state-1 loader format (index-relative offsets) compatible
-//  with TK8 loaders.  Mirrors OldTool2 jsonToBin.py output.
+//  memory) to state-1 loader format (index-relative offsets).
 //
-//  State-3 (game memory): pointer fields hold absolute 64-bit addresses.
-//  State-1 (loader file): pointer fields hold element-index offsets into
-//    the target block array; header block ptrs are file_offset - 0x318.
-//    Move encrypted fields use XOR_KEYS scheme (8-key XOR).
-//
-//  rawBytes  : raw state-3 bytes (absolute pointers, no fixup applied)
-//  motbinBase: original game memory base address of the motbin
-//  names     : optional; when provided, move name_idx_abs/anim_idx_abs
-//              fields (move+0x040/0x048) and header string-block offsets
-//              (0x18/0x20/0x28) and string_block_end (0x170) are written.
-//  Returns   : state-1 binary, or empty on failure
-// -------------------------------------------------------------
-// -------------------------------------------------------------
-//  DecryptMotbinMoveKey
-//
-//  Decrypts one 16-byte XOR-encoded field block from a move buffer.
-//  moveBuf : pointer to the start of a single move (0x448 bytes)
-//  blockOff: byte offset of the block within the move
-//            (0x00 = name_key, 0x20 = anim_key, 0x58 = vuln, ...)
-//  Returns the decrypted uint32 value.
+//  When names is provided: writes string offsets, embeds the physical
+//  string block after 0x318, sets header 0x0C flag, and shifts all
+//  BASE-relative block ptrs past the string blob.
 // -------------------------------------------------------------
 uint32_t DecryptMotbinMoveKey(const uint8_t* moveBuf, size_t blockOff);
 

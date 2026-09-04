@@ -55,6 +55,10 @@ public:
     void LoadAnimNames(const std::string& jsonPath);
     const char* GetAnimName(uint32_t key) const;
 
+    // True for sized placeholders from supplement_name_keys / anim_keys
+    // (e.g. "nk0E8134F4__________", "ak0A27D720___") — not real names.
+    static bool IsSizedKeyPlaceholder(const char* s);
+
     bool IsLoaded() const { return m_loaded; }
 
     // Load from embedded RCDATA resources (fallback when disk files are absent).
