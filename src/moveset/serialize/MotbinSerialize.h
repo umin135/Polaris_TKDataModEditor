@@ -62,6 +62,11 @@ struct MotbinNameData {
 // -------------------------------------------------------------
 uint32_t DecryptMotbinMoveKey(const uint8_t* moveBuf, size_t blockOff);
 
+// Write one 0x20-byte XOR-encoded key block (8 × uint32) used by the
+// index-format .motbin file. Slot [moveIdx % 8] holds (value ^ key[slot]);
+// other slots hold ((0x765 + moveIdx) ^ key[j]).
+void MotbinXorEncryptBlock(uint8_t* dest20, uint32_t value, uint32_t moveIdx);
+
 std::vector<uint8_t> ExportLoaderBin(const std::vector<uint8_t>& rawBytes,
                                       uint64_t motbinBase,
                                       const MotbinNameData* names = nullptr);

@@ -6,15 +6,16 @@
 #include <vector>
 #pragma comment(lib, "psapi.lib")
 
-static constexpr wchar_t kProcessName[] = L"Polaris-Win64-Shipping.exe";
+static constexpr wchar_t kT8ProcessName[] = L"Polaris-Win64-Shipping.exe";
 
 // -------------------------------------------------------------
-//  FindGameProcess
+//  FindGameProcessByName
 // -------------------------------------------------------------
 
-bool FindGameProcess(GameProcessInfo& out)
+bool FindGameProcessByName(const wchar_t* processName, GameProcessInfo& out)
 {
     out = {};
+    if (!processName || !processName[0]) return false;
 
     // Snapshot of all running processes
     HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
@@ -27,7 +28,7 @@ bool FindGameProcess(GameProcessInfo& out)
     if (Process32FirstW(snap, &pe))
     {
         do {
-            if (_wcsicmp(pe.szExeFile, kProcessName) == 0)
+            if (_wcsicmp(pe.szExeFile, processName) == 0)
             {
                 foundPid = pe.th32ProcessID;
                 break;
@@ -85,6 +86,11 @@ bool FindGameProcess(GameProcessInfo& out)
     out.moduleSize = mainSize;
     out.valid      = true;
     return true;
+}
+
+bool FindGameProcess(GameProcessInfo& out)
+{
+    return FindGameProcessByName(kT8ProcessName, out);
 }
 
 // -------------------------------------------------------------

@@ -16,9 +16,11 @@ struct GameProcessInfo {
     bool        valid      = false;
 };
 
-// Find Polaris-Win64-Shipping.exe, open it for reading,
-// and resolve its main module base address.
-// Returns false if the process is not running or cannot be opened.
+// Find a process by executable name (e.g. L"Polaris-Win64-Shipping.exe"),
+// open it for reading, and resolve its main module base address.
+bool FindGameProcessByName(const wchar_t* processName, GameProcessInfo& out);
+
+// Find Polaris-Win64-Shipping.exe (Tekken 8). Convenience wrapper.
 bool FindGameProcess(GameProcessInfo& out);
 
 // Close the process handle. Safe to call multiple times.

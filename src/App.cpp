@@ -8,6 +8,7 @@
 #include "FbsDataDictUpdater.h"
 #include "moveset/labels/LabelDB.h"
 #include "moveset/data/MovesetDataDict.h"
+#include "moveset/data/T7AliasDict.h"
 #include "imgui/imgui.h"
 #include "imgui/imgui_internal.h"  // DockBuilder API
 #include <functional>
@@ -415,6 +416,14 @@ void App::RunInitThread()
                 if (f) { fclose(f); MovesetDataDict::Get().Load(p); }
             }
 
+            {
+                std::string p = resDir + "\\MovesetDatas\\t7_aliases.json";
+                FILE* f = nullptr; fopen_s(&f, p.c_str(), "rb");
+                if (f) { fclose(f); T7AliasDict::Get().Load(p); }
+            }
+            if (!T7AliasDict::Get().IsLoaded())
+                T7AliasDict::Get().EnsureLoaded();
+
             if (FbsDataDictCheckAndUpdate(resDir))
             {
                 std::string p = resDir + "\\fbsdatas\\data.json";
@@ -422,6 +431,8 @@ void App::RunInitThread()
                 if (f) { fclose(f); FbsDataDict::Get().Load(p); }
             }
         }
+        if (!T7AliasDict::Get().IsLoaded())
+            T7AliasDict::Get().EnsureLoaded();
     }
 
     m_initStatus.store("Checking for updates...");

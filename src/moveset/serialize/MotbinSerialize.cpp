@@ -38,6 +38,11 @@ static void XorEncrypt(uint8_t* moveBuf, size_t attrOff,
     }
 }
 
+void MotbinXorEncryptBlock(uint8_t* dest20, uint32_t value, uint32_t moveIdx)
+{
+    XorEncrypt(dest20, 0, value, moveIdx);
+}
+
 // -------------------------------------------------------------
 //  Game-memory decryption  (validateAndTransform64BitValue)
 //  Used to recover decrypted values from raw state-3 move blocks.

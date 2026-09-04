@@ -1,5 +1,6 @@
 ﻿#pragma once
 #include "MovesetExtractor.h"
+#include "T7MovesetExtractor.h"
 #include <string>
 #include <functional>
 #include <thread>
@@ -7,16 +8,18 @@
 
 // -------------------------------------------------------------
 //  ExtractorView
-//  Two-button panel: "Extract P1" / "Extract P2"
+//  Game-target dropdown (TEKKEN 8 / TEKKEN 7) + Extract P1 / P2.
 //  Each button auto-connects, refreshes slot info, and extracts.
 //  Extraction runs on a worker thread; call CheckThread() each
 //  frame before Render* so results are applied on the main thread.
 // -------------------------------------------------------------
 class ExtractorView {
 public:
+    enum class GameTarget { Tekken8 = 0, Tekken7 = 1 };
+
     explicit ExtractorView(const std::string& movesetRootDir);
 
-    // Render only the Extract P1 / Extract P2 buttons.
+    // Render game dropdown + Extract P1 / Extract P2 buttons.
     void RenderButtons();
 
     // Render the status log, slot info, and save-path hint.
@@ -38,8 +41,11 @@ public:
 private:
     // Pre-check + start worker thread.
     void StartExtract(int slotIndex);
+    void OnGameTargetChanged();
 
+    GameTarget            m_gameTarget = GameTarget::Tekken8;
     MovesetExtractor      m_extractor;
+    T7MovesetExtractor    m_t7Extractor;
     std::string           m_destFolder;
     std::string           m_lastMsg;
     bool                  m_lastOk  = false;

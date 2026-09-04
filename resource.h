@@ -18,3 +18,4 @@
 #define IDR_DATA_SUPPKEYS 306   // supplement_name_keys.json
 #define IDR_DATA_ANIMKEYS 307   // anim_keys.json
 #define IDR_DATA_FBSDICT  308   // data/fbsdatas/data.json
+#define IDR_DATA_T7ALIASES 309  // data/MovesetDatas/t7_aliases.json

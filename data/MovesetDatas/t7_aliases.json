@@ -1,0 +1,5101 @@
+{
+    "character_ids": {
+        "8": 35,
+        "9": 8,
+        "10": 9,
+        "11": 10,
+        "12": 11,
+        "13": 12,
+        "14": 13,
+        "15": 14,
+        "16": 15,
+        "17": 16,
+        "18": 17,
+        "19": 18,
+        "20": 19,
+        "23": 20,
+        "25": 24,
+        "28": 21,
+        "30": 22,
+        "31": 42,
+        "33": 23,
+        "34": 34,
+        "35": 33,
+        "38": 120,
+        "41": 35,
+        "45": 37,
+        "47": 39,
+        "51": 25,
+        "53": 26,
+        "54": 38,
+        "55": 41,
+        "56": 34
+    },
+    "t7_character_id_reqs": [
+        217,
+        218,
+        219,
+        220,
+        221,
+        222,
+        223,
+        224
+    ],
+    "t7_sound_props": [
+        33987,
+        33988,
+        33989,
+        33990
+    ],
+    "cancels": {
+        "commands": {
+            "0x800b": 32786,
+            "0x800c": 32787
+        },
+        "input_sequence_start": 32781,
+        "input_sequence_delta": 7
+    },
+    "requirement_aliases": {
+        "0": {
+            "alias": "0",
+            "desc": "Always true"
+        },
+        "1": {
+            "alias": "1",
+            "desc": "Practice Mode Demo"
+        },
+        "2": {
+            "alias": "2",
+            "desc": "Attack To Throw"
+        },
+        "3": {
+            "alias": "3",
+            "desc": "Throw Hit Forward (Standing)"
+        },
+        "4": {
+            "alias": "4",
+            "desc": "Throw Hit Backward (Standing)"
+        },
+        "5": {
+            "alias": "5",
+            "desc": "Throw Hit Left Side (Standing)"
+        },
+        "6": {
+            "alias": "6",
+            "desc": "Throw Hit Right Side (Standing)"
+        },
+        "7": {
+            "alias": "7",
+            "desc": "Throw Hit Forward (Crouching)"
+        },
+        "8": {
+            "alias": "8",
+            "desc": "Throw Hit Backward (Crouching)"
+        },
+        "9": {
+            "alias": "9",
+            "desc": "Throw Hit Left Side (Crouching)"
+        },
+        "10": {
+            "alias": "10",
+            "desc": "Throw Hit Right Side (Crouching)"
+        },
+        "11": {
+            "alias": "11",
+            "desc": "Throw Hit Forward (Face Up)"
+        },
+        "12": {
+            "alias": "12",
+            "desc": "Throw Hit Backward (Face Up)"
+        },
+        "13": {
+            "alias": "13",
+            "desc": "Throw Hit Left Side (Face Up)"
+        },
+        "14": {
+            "alias": "14",
+            "desc": "Throw Hit Right Side (Face Up)"
+        },
+        "15": {
+            "alias": "15",
+            "desc": "Throw Hit Forward (Face Down)"
+        },
+        "16": {
+            "alias": "16",
+            "desc": "Throw Hit Backward (Face Down)"
+        },
+        "17": {
+            "alias": "17",
+            "desc": "Throw Hit Left Side (Face Down)"
+        },
+        "18": {
+            "alias": "18",
+            "desc": "Throw Hit Right Side (Face Down)"
+        },
+        "19": {
+            "alias": "19",
+            "desc": ""
+        },
+        "20": {
+            "alias": "20",
+            "desc": ""
+        },
+        "21": {
+            "alias": "21",
+            "desc": ""
+        },
+        "22": {
+            "alias": "22",
+            "desc": ""
+        },
+        "23": {
+            "alias": "23",
+            "desc": "Attack To Throw (Forward)"
+        },
+        "24": {
+            "alias": "24",
+            "desc": "Attack To Throw (Backward)"
+        },
+        "25": {
+            "alias": "25",
+            "desc": "Attack To Throw (Left Side)"
+        },
+        "26": {
+            "alias": "26",
+            "desc": "Attack To Throw (Right Side)"
+        },
+        "27": {
+            "alias": "27",
+            "desc": "Airborne Throw Hit Forward (Face Up)"
+        },
+        "28": {
+            "alias": "28",
+            "desc": "Airborne Throw Hit Backward (Face Up)"
+        },
+        "29": {
+            "alias": "29",
+            "desc": "Airborne Throw Hit Left Side (Face Up)"
+        },
+        "30": {
+            "alias": "30",
+            "desc": "Airborne Throw Hit Right Side (Face Up)"
+        },
+        "31": {
+            "alias": "31",
+            "desc": "Airborne Throw Hit Forward (Face Down)"
+        },
+        "32": {
+            "alias": "32",
+            "desc": "Airborne Throw Hit Backward (Face Down)"
+        },
+        "33": {
+            "alias": "33",
+            "desc": "Airborne Throw Hit Left Side (Face Down)"
+        },
+        "34": {
+            "alias": "34",
+            "desc": "Airborne Throw Hit Right Side (Face Down)"
+        },
+        "35": {
+            "alias": "35",
+            "desc": "Opponent distance smaller or equal than"
+        },
+        "36": {
+            "alias": "36",
+            "desc": "Opponent distance greater or equal than"
+        },
+        "43": {
+            "alias": "43",
+            "desc": "On Hit or Block (?)"
+        },
+        "44": {
+            "alias": "44",
+            "desc": "On Hit"
+        },
+        "45": {
+            "alias": "45",
+            "desc": ""
+        },
+        "46": {
+            "alias": "46",
+            "desc": "On Hit"
+        },
+        "47": {
+            "alias": "47",
+            "desc": "On Block"
+        },
+        "48": {
+            "alias": "48",
+            "desc": "On Whiff"
+        },
+        "49": {
+            "alias": "49",
+            "desc": "On Hit / On Block"
+        },
+        "50": {
+            "alias": "50",
+            "desc": "Hit/Block related (?)"
+        },
+        "51": {
+            "alias": "51",
+            "desc": "On Hit"
+        },
+        "52": {
+            "alias": "52",
+            "desc": ""
+        },
+        "53": {
+            "alias": "53",
+            "desc": ""
+        },
+        "54": {
+            "alias": "54",
+            "desc": ""
+        },
+        "55": {
+            "alias": "55",
+            "desc": ""
+        },
+        "56": {
+            "alias": "56",
+            "desc": ""
+        },
+        "57": {
+            "alias": "57",
+            "desc": ""
+        },
+        "58": {
+            "alias": "58",
+            "desc": ""
+        },
+        "59": {
+            "alias": "59",
+            "desc": ""
+        },
+        "60": {
+            "alias": "60",
+            "desc": ""
+        },
+        "61": {
+            "alias": "61",
+            "desc": "Check Opponent VULN"
+        },
+        "62": {
+            "alias": "62",
+            "desc": "Opponent Current Attack has Damage"
+        },
+        "63": {
+            "alias": "63",
+            "desc": "Opponent Current Attack has Damage + Opp. Standing"
+        },
+        "64": {
+            "alias": "64",
+            "desc": "Opponent Current Attack has Damage + Opp. Crouching"
+        },
+        "65": {
+            "alias": "65",
+            "desc": "Opponent Current Attack has NO Damage"
+        },
+        "66": {
+            "alias": "66",
+            "desc": "Opponent Standing"
+        },
+        "67": {
+            "alias": "67",
+            "desc": "Opponent Crouching"
+        },
+        "68": {
+            "alias": "68",
+            "desc": "Incoming high attack"
+        },
+        "69": {
+            "alias": "69",
+            "desc": "Incoming mid attack"
+        },
+        "70": {
+            "alias": "70",
+            "desc": "Incoming low attack"
+        },
+        "71": {
+            "alias": "71",
+            "desc": "Incoming high/mid attack"
+        },
+        "72": {
+            "alias": "72",
+            "desc": "Character Backturned"
+        },
+        "73": {
+            "alias": "73",
+            "desc": "Character Not Backturned"
+        },
+        "74": {
+            "alias": "74",
+            "desc": ""
+        },
+        "75": {
+            "alias": "75",
+            "desc": ""
+        },
+        "76": {
+            "alias": "76",
+            "desc": "Character Facing Direction >= param"
+        },
+        "77": {
+            "alias": "77",
+            "desc": "Character Facing Direction < param"
+        },
+        "78": {
+            "alias": "78",
+            "desc": ""
+        },
+        "79": {
+            "alias": "79",
+            "desc": ""
+        },
+        "80": {
+            "alias": "80",
+            "desc": ""
+        },
+        "81": {
+            "alias": "81",
+            "desc": ""
+        },
+        "82": {
+            "alias": "82",
+            "desc": ""
+        },
+        "83": {
+            "alias": "83",
+            "desc": ""
+        },
+        "84": {
+            "alias": "84",
+            "desc": ""
+        },
+        "85": {
+            "alias": "85",
+            "desc": ""
+        },
+        "86": {
+            "alias": "86",
+            "desc": ""
+        },
+        "87": {
+            "alias": "87",
+            "desc": "Collide with opponent(?)"
+        },
+        "88": {
+            "alias": "88",
+            "desc": ""
+        },
+        "89": {
+            "alias": "89",
+            "desc": ""
+        },
+        "90": {
+            "alias": "90",
+            "desc": ""
+        },
+        "91": {
+            "alias": "91",
+            "desc": ""
+        },
+        "92": {
+            "alias": "92",
+            "desc": "Opponent facing Forward"
+        },
+        "93": {
+            "alias": "93",
+            "desc": "Opponent facing Left"
+        },
+        "94": {
+            "alias": "94",
+            "desc": "Opponent facing Right"
+        },
+        "95": {
+            "alias": "95",
+            "desc": "Opponent facing Backwards"
+        },
+        "96": {
+            "alias": "96",
+            "desc": "Opponent facing Forward"
+        },
+        "97": {
+            "alias": "97",
+            "desc": "Opponent facing Left"
+        },
+        "98": {
+            "alias": "98",
+            "desc": "Opponent facing Right"
+        },
+        "99": {
+            "alias": "99",
+            "desc": "Opponent facing Backwards"
+        },
+        "100": {
+            "alias": "100",
+            "desc": "Opponent is close, last active frame not reached, high attack"
+        },
+        "101": {
+            "alias": "101",
+            "desc": "Enemy first active frame - curr frame < X"
+        },
+        "102": {
+            "alias": "102",
+            "desc": "Enemy first active frame - curr frame >= X"
+        },
+        "103": {
+            "alias": "103",
+            "desc": "Enemy first active frame - curr frame = X"
+        },
+        "104": {
+            "alias": "104",
+            "desc": "Enemy last active frame - curr frame < X"
+        },
+        "105": {
+            "alias": "105",
+            "desc": "Enemy last active frame - curr frame >= X"
+        },
+        "106": {
+            "alias": "106",
+            "desc": "Enemy last active frame - curr frame = X"
+        },
+        "107": {
+            "alias": "107",
+            "desc": "Enemy current frame - last active frame <= X"
+        },
+        "108": {
+            "alias": "108",
+            "desc": "Player current frame - max anim length >= X"
+        },
+        "109": {
+            "alias": "109",
+            "desc": "Player move max anim length - Current frame > X"
+        },
+        "110": {
+            "alias": "110",
+            "desc": "Enemy move frame >= X"
+        },
+        "111": {
+            "alias": "111",
+            "desc": "Enemy move frame < X"
+        },
+        "112": {
+            "alias": "112",
+            "desc": "Enemy move frame == X"
+        },
+        "113": {
+            "alias": "113",
+            "desc": "Player state frame counter (field_3A4) ≥ X"
+        },
+        "114": {
+            "alias": "114",
+            "desc": "Player state frame counter < X"
+        },
+        "115": {
+            "alias": "115",
+            "desc": "Player state frame counter == X"
+        },
+        "116": {
+            "alias": "116",
+            "desc": ""
+        },
+        "117": {
+            "alias": "117",
+            "desc": ""
+        },
+        "118": {
+            "alias": "118",
+            "desc": ""
+        },
+        "119": {
+            "alias": "119",
+            "desc": ""
+        },
+        "120": {
+            "alias": "120",
+            "desc": ""
+        },
+        "121": {
+            "alias": "121",
+            "desc": ""
+        },
+        "122": {
+            "alias": "122",
+            "desc": "Always True"
+        },
+        "123": {
+            "alias": "123",
+            "desc": ""
+        },
+        "124": {
+            "alias": "124",
+            "desc": "Opponent is not airborne, up close (?)"
+        },
+        "125": {
+            "alias": "125",
+            "desc": ""
+        },
+        "126": {
+            "alias": "126",
+            "desc": "Opponent is downed"
+        },
+        "127": {
+            "alias": "127",
+            "desc": "Opponent is on their feet"
+        },
+        "128": {
+            "alias": "128",
+            "desc": "Opponent is downed, not airborne, up close (?)"
+        },
+        "129": {
+            "alias": "129",
+            "desc": ""
+        },
+        "130": {
+            "alias": "130",
+            "desc": "On Counter Hit"
+        },
+        "131": {
+            "alias": "131",
+            "desc": "Pressed ONLY Left Punch"
+        },
+        "132": {
+            "alias": "132",
+            "desc": "Pressed ONLY Right Punch"
+        },
+        "133": {
+            "alias": "133",
+            "desc": "Pressed ONLY Left + Right Punch"
+        },
+        "135": {
+            "alias": "137",
+            "desc": "On Death"
+        },
+        "136": {
+            "alias": "138",
+            "desc": "On Opponent's Death"
+        },
+        "137": {
+            "alias": "139",
+            "desc": "Opponent Health < 50%"
+        },
+        "138": {
+            "alias": "140",
+            "desc": "Player HP >= Param"
+        },
+        "139": {
+            "alias": "141",
+            "desc": "Player HP < Param"
+        },
+        "140": {
+            "alias": "142",
+            "desc": "Opponent HP >= Param"
+        },
+        "141": {
+            "alias": "143",
+            "desc": "Opponent HP < Param"
+        },
+        "142": {
+            "alias": "144",
+            "desc": "Player HP Percentage >= Param"
+        },
+        "143": {
+            "alias": "145",
+            "desc": "Player HP Percentage < Param"
+        },
+        "144": {
+            "alias": "146",
+            "desc": "Opponent HP <= Param"
+        },
+        "145": {
+            "alias": "147",
+            "desc": "Player HP <= Param"
+        },
+        "146": {
+            "alias": "148",
+            "desc": "Standing on the Left Side"
+        },
+        "147": {
+            "alias": "149",
+            "desc": "Standing on the Right Side"
+        },
+        "148": {
+            "alias": "150",
+            "desc": "Player on the Ground (Right Side)"
+        },
+        "149": {
+            "alias": "151",
+            "desc": "Player on the Ground (Left Side)"
+        },
+        "150": {
+            "alias": "152",
+            "desc": "Something related to which side player is standing (Left)"
+        },
+        "151": {
+            "alias": "153",
+            "desc": "Something related to which side player is standing (Right)"
+        },
+        "155": {
+            "alias": "157",
+            "desc": "If Player is Ki Charged"
+        },
+        "156": {
+            "alias": "158",
+            "desc": "If Player is NOT Ki Charged"
+        },
+        "157": {
+            "alias": "159",
+            "desc": "Player is in rage"
+        },
+        "158": {
+            "alias": "160",
+            "desc": "inferred (delta 2)"
+        },
+        "159": {
+            "alias": "161",
+            "desc": "inferred (delta 2)"
+        },
+        "161": {
+            "alias": "163",
+            "desc": "inferred (delta 2)"
+        },
+        "162": {
+            "alias": "164",
+            "desc": "inferred (delta 2)"
+        },
+        "163": {
+            "alias": "165",
+            "desc": "inferred (delta 2)"
+        },
+        "164": {
+            "alias": "166",
+            "desc": ""
+        },
+        "165": {
+            "alias": "167",
+            "desc": ""
+        },
+        "166": {
+            "alias": "168",
+            "desc": "inferred (delta 2): Something related to Speed & frame values of some unknown cancel"
+        },
+        "168": {
+            "alias": "170",
+            "desc": "inferred (delta 2)"
+        },
+        "169": {
+            "alias": "171",
+            "desc": "inferred (delta 2)"
+        },
+        "170": {
+            "alias": "172",
+            "desc": "inferred (delta 2)"
+        },
+        "172": {
+            "alias": "174",
+            "desc": "inferred (delta 2)"
+        },
+        "173": {
+            "alias": "175",
+            "desc": "inferred (delta 2)"
+        },
+        "174": {
+            "alias": "176",
+            "desc": ""
+        },
+        "175": {
+            "alias": "177",
+            "desc": "inferred (delta 2)"
+        },
+        "177": {
+            "alias": "179",
+            "desc": "inferred (delta 2)"
+        },
+        "178": {
+            "alias": "180",
+            "desc": "inferred (delta 2)"
+        },
+        "179": {
+            "alias": "181",
+            "desc": "inferred (delta 2)"
+        },
+        "180": {
+            "alias": "182",
+            "desc": "inferred (delta 2)"
+        },
+        "181": {
+            "alias": "183",
+            "desc": "inferred (delta 2)"
+        },
+        "182": {
+            "alias": "184",
+            "desc": "Near Wall"
+        },
+        "183": {
+            "alias": "185",
+            "desc": "Near Wall (Sensor 1)"
+        },
+        "184": {
+            "alias": "186",
+            "desc": "inferred (delta 2): Near Wall (Sensor 2)"
+        },
+        "185": {
+            "alias": "187",
+            "desc": "inferred (delta 2): Near Wall (Sensor 3)"
+        },
+        "186": {
+            "alias": "188",
+            "desc": "inferred (delta 2): Near Wall (Sensor 4)"
+        },
+        "187": {
+            "alias": "189",
+            "desc": "inferred (delta 2): Near Wall (Sensor 5)"
+        },
+        "188": {
+            "alias": "190",
+            "desc": "inferred (delta 2): Near Wall (Sensor 6)"
+        },
+        "189": {
+            "alias": "191",
+            "desc": "Near Wall (Opponent)"
+        },
+        "190": {
+            "alias": "192",
+            "desc": "Wallbreak Available"
+        },
+        "216": {
+            "alias": "219",
+            "desc": "Something Wallsplat Related (?)"
+        },
+        "217": {
+            "alias": "220",
+            "desc": "Player character ID"
+        },
+        "218": {
+            "alias": "221",
+            "desc": "Player NOT character ID"
+        },
+        "219": {
+            "alias": "222",
+            "desc": "Oppponent character ID"
+        },
+        "220": {
+            "alias": "223",
+            "desc": "Opponent NOT character ID"
+        },
+        "221": {
+            "alias": "224",
+            "desc": "Player character ID"
+        },
+        "222": {
+            "alias": "225",
+            "desc": "Player NOT character ID"
+        },
+        "223": {
+            "alias": "226",
+            "desc": "Oppponent character ID"
+        },
+        "224": {
+            "alias": "227",
+            "desc": "Oppponent NOT character ID"
+        },
+        "225": {
+            "alias": "228",
+            "desc": "Player Character Controller"
+        },
+        "226": {
+            "alias": "229",
+            "desc": "Opponent Character Controller"
+        },
+        "227": {
+            "alias": "230",
+            "desc": ""
+        },
+        "228": {
+            "alias": "231",
+            "desc": "inferred (delta 3)"
+        },
+        "229": {
+            "alias": "232",
+            "desc": "inferred (delta 3)"
+        },
+        "230": {
+            "alias": "233",
+            "desc": ""
+        },
+        "231": {
+            "alias": "234",
+            "desc": "inferred (delta 3)"
+        },
+        "233": {
+            "alias": "236",
+            "desc": "inferred (delta 3): Player is Eddy"
+        },
+        "235": {
+            "alias": "238",
+            "desc": "inferred (delta 3): Player is Eddy"
+        },
+        "236": {
+            "alias": "239",
+            "desc": "inferred (delta 3): Always True"
+        },
+        "239": {
+            "alias": "242",
+            "desc": ""
+        },
+        "244": {
+            "alias": "247",
+            "desc": "inferred (delta 3): Always True"
+        },
+        "251": {
+            "alias": "254",
+            "desc": "Prop 0x8092 >= Value"
+        },
+        "252": {
+            "alias": "255",
+            "desc": "Prop 0x8093 >= Value"
+        },
+        "253": {
+            "alias": "256",
+            "desc": "Buff Counter Value >= param"
+        },
+        "255": {
+            "alias": "258",
+            "desc": "Prop 0x807c Value >= param"
+        },
+        "265": {
+            "alias": "269",
+            "desc": ""
+        },
+        "266": {
+            "alias": "270",
+            "desc": "inferred (delta 4)"
+        },
+        "267": {
+            "alias": "271",
+            "desc": "inferred (delta 4)"
+        },
+        "268": {
+            "alias": "272",
+            "desc": "inferred (delta 4)"
+        },
+        "269": {
+            "alias": "273",
+            "desc": "inferred (delta 4)"
+        },
+        "270": {
+            "alias": "274",
+            "desc": "Devil Flag >= param"
+        },
+        "272": {
+            "alias": "276",
+            "desc": "Prop 0x80e4 >= Value"
+        },
+        "273": {
+            "alias": "277",
+            "desc": "Prop 0x80c8 >= param"
+        },
+        "274": {
+            "alias": "278",
+            "desc": "Prop 0x80cb >= param"
+        },
+        "275": {
+            "alias": "279",
+            "desc": "Prop 0x80ed >= Value"
+        },
+        "276": {
+            "alias": "280",
+            "desc": "Prop 0x80f0 >= Value"
+        },
+        "277": {
+            "alias": "281",
+            "desc": "Prop 0x80c5 >= Value"
+        },
+        "278": {
+            "alias": "282",
+            "desc": "Prop 0x80c8 >= Value"
+        },
+        "279": {
+            "alias": "283",
+            "desc": "Prop 0x80cb >= Value"
+        },
+        "280": {
+            "alias": "284",
+            "desc": ""
+        },
+        "281": {
+            "alias": "285",
+            "desc": ""
+        },
+        "282": {
+            "alias": "286",
+            "desc": ""
+        },
+        "283": {
+            "alias": "287",
+            "desc": "Wall splat related"
+        },
+        "284": {
+            "alias": "288",
+            "desc": "Player Flag >= param"
+        },
+        "285": {
+            "alias": "289",
+            "desc": "inferred (delta 4): Prop 0x810c >= param"
+        },
+        "286": {
+            "alias": "290",
+            "desc": "inferred (delta 4): Prop 0x80ed >= param (AI Combo route)"
+        },
+        "287": {
+            "alias": "291",
+            "desc": "inferred (delta 4)"
+        },
+        "288": {
+            "alias": "292",
+            "desc": "inferred (delta 4): Prop 0x8092 <= Value"
+        },
+        "289": {
+            "alias": "293",
+            "desc": "Prop 0x8093 <= Value"
+        },
+        "290": {
+            "alias": "294",
+            "desc": "Prop 0x8094 <= Value"
+        },
+        "292": {
+            "alias": "296",
+            "desc": "Prop 0x8098 <= Value"
+        },
+        "307": {
+            "alias": "312",
+            "desc": "Devil Flag <= Value"
+        },
+        "308": {
+            "alias": "999",
+            "desc": "Chloe Points <= Value. Deleted, should map to 313"
+        },
+        "309": {
+            "alias": "314",
+            "desc": "Prop 0x80e4 <= Value"
+        },
+        "310": {
+            "alias": "315",
+            "desc": "Prop 0x80e7 <= Value"
+        },
+        "311": {
+            "alias": "316",
+            "desc": "Prop 0x80ea <= Value"
+        },
+        "312": {
+            "alias": "317",
+            "desc": "Prop 0x80ed <= Value"
+        },
+        "313": {
+            "alias": "318",
+            "desc": "Prop 0x80f0 <= Value"
+        },
+        "314": {
+            "alias": "319",
+            "desc": "Prop 0x80c5 <= Value"
+        },
+        "315": {
+            "alias": "320",
+            "desc": "Prop 0x80c8 <= Value"
+        },
+        "316": {
+            "alias": "321",
+            "desc": "Prop 0x80cb <= Value"
+        },
+        "319": {
+            "alias": "324",
+            "desc": ""
+        },
+        "320": {
+            "alias": "325",
+            "desc": "inferred (delta 5)"
+        },
+        "321": {
+            "alias": "326",
+            "desc": "inferred (delta 5): Player Flag <= param"
+        },
+        "322": {
+            "alias": "327",
+            "desc": "inferred (delta 5): Prop 0x810c <= param"
+        },
+        "323": {
+            "alias": "328",
+            "desc": "inferred (delta 5): Prop 0x80ed <= param (AI Combo route)"
+        },
+        "324": {
+            "alias": "329",
+            "desc": "inferred (delta 5)"
+        },
+        "325": {
+            "alias": "330",
+            "desc": "inferred (delta 5): Prop 0x8092 == Value"
+        },
+        "326": {
+            "alias": "331",
+            "desc": "inferred (delta 5): Prop 0x8093 == Value"
+        },
+        "327": {
+            "alias": "332",
+            "desc": "inferred (delta 5): Prop 0x8094 == Value"
+        },
+        "329": {
+            "alias": "334",
+            "desc": "Prop 0x807c == param"
+        },
+        "330": {
+            "alias": "335",
+            "desc": "Prop 0x809b == Value"
+        },
+        "339": {
+            "alias": "345",
+            "desc": ""
+        },
+        "340": {
+            "alias": "346",
+            "desc": "inferred (delta 6)"
+        },
+        "341": {
+            "alias": "347",
+            "desc": "inferred (delta 6)"
+        },
+        "342": {
+            "alias": "348",
+            "desc": ""
+        },
+        "343": {
+            "alias": "349",
+            "desc": "inferred (delta 6)"
+        },
+        "344": {
+            "alias": "350",
+            "desc": "Devil Flag == param (Kazuya is in Devil Form)"
+        },
+        "346": {
+            "alias": "352",
+            "desc": "inferred (delta 6): Prop 0x80e4 == param (2D cancel)"
+        },
+        "347": {
+            "alias": "353",
+            "desc": "inferred (delta 6): Prop 0x80e7 == param"
+        },
+        "348": {
+            "alias": "354",
+            "desc": "inferred (delta 6): Prop 0x80ea == param"
+        },
+        "349": {
+            "alias": "355",
+            "desc": "inferred (delta 6): Prop 0x80ed == Value"
+        },
+        "350": {
+            "alias": "356",
+            "desc": "inferred (delta 6): Prop 0x80f0 == Value"
+        },
+        "351": {
+            "alias": "357",
+            "desc": "Claudio Starburst"
+        },
+        "352": {
+            "alias": "358",
+            "desc": "Prop 0x80a6 == param (Check Input/Wallsplat Flag)"
+        },
+        "353": {
+            "alias": "359",
+            "desc": "Prop 0x80a9 == param"
+        },
+        "354": {
+            "alias": "360",
+            "desc": "Prop 0x80cb == Value"
+        },
+        "355": {
+            "alias": "361",
+            "desc": "Prop 0x80ce == Value"
+        },
+        "356": {
+            "alias": "362",
+            "desc": ""
+        },
+        "357": {
+            "alias": "363",
+            "desc": ""
+        },
+        "358": {
+            "alias": "364",
+            "desc": "inferred (delta 6)"
+        },
+        "359": {
+            "alias": "365",
+            "desc": "Prop 0x8106 == param (Check Player Flag)"
+        },
+        "422": {
+            "alias": "431",
+            "desc": ""
+        },
+        "423": {
+            "alias": "432",
+            "desc": "inferred (delta 9)"
+        },
+        "424": {
+            "alias": "433",
+            "desc": ""
+        },
+        "425": {
+            "alias": "434",
+            "desc": "inferred (delta 9)"
+        },
+        "426": {
+            "alias": "435",
+            "desc": "inferred (delta 9)"
+        },
+        "427": {
+            "alias": "436",
+            "desc": "inferred (delta 9)"
+        },
+        "428": {
+            "alias": "437",
+            "desc": "inferred (delta 9)"
+        },
+        "429": {
+            "alias": "438",
+            "desc": "Opponent Short Flag == Value"
+        },
+        "532": {
+            "alias": "640",
+            "desc": "Player Speed >= param"
+        },
+        "533": {
+            "alias": "641",
+            "desc": "Player Speed <= param"
+        },
+        "534": {
+            "alias": "642",
+            "desc": "Player Speed == param"
+        },
+        "535": {
+            "alias": "643",
+            "desc": "inferred (delta 108)"
+        },
+        "536": {
+            "alias": "644",
+            "desc": "inferred (delta 108)"
+        },
+        "537": {
+            "alias": "645",
+            "desc": "inferred (delta 108)"
+        },
+        "538": {
+            "alias": "646",
+            "desc": "inferred (delta 108)"
+        },
+        "539": {
+            "alias": "647",
+            "desc": "inferred (delta 108)"
+        },
+        "540": {
+            "alias": "648",
+            "desc": "inferred (delta 108): Opponent Current Move == param"
+        },
+        "541": {
+            "alias": "649",
+            "desc": "inferred (delta 108): Opponent Next Move == param"
+        },
+        "542": {
+            "alias": "650",
+            "desc": "inferred (delta 108)"
+        },
+        "543": {
+            "alias": "651",
+            "desc": ""
+        },
+        "544": {
+            "alias": "652",
+            "desc": "inferred (delta 108): Random Number Generator (2-way)"
+        },
+        "545": {
+            "alias": "653",
+            "desc": "Random Number Generator (3-way)"
+        },
+        "546": {
+            "alias": "654",
+            "desc": "Random Number Generator (4-way)"
+        },
+        "547": {
+            "alias": "655",
+            "desc": "Random Number Generator (5-way)"
+        },
+        "548": {
+            "alias": "656",
+            "desc": "Random Number Generator (6-way)"
+        },
+        "549": {
+            "alias": "657",
+            "desc": "inferred (delta 108): Random Number Generator (7-way)"
+        },
+        "550": {
+            "alias": "658",
+            "desc": "inferred (delta 108): Random Number Generator (8-way)"
+        },
+        "551": {
+            "alias": "659",
+            "desc": "inferred (delta 108): Random Number Generator (9-way)"
+        },
+        "552": {
+            "alias": "660",
+            "desc": "inferred (delta 108): Random Number Generator (Uniform)"
+        },
+        "553": {
+            "alias": "661",
+            "desc": "Random Number Generator (Weighted)"
+        },
+        "558": {
+            "alias": "667",
+            "desc": "Story Mode"
+        },
+        "559": {
+            "alias": "668",
+            "desc": "Story Battle Number"
+        },
+        "560": {
+            "alias": "669",
+            "desc": "inferred (delta 109): Customization Mode Sequence"
+        },
+        "561": {
+            "alias": "670",
+            "desc": "inferred (delta 109)"
+        },
+        "562": {
+            "alias": "671",
+            "desc": "inferred (delta 109)"
+        },
+        "563": {
+            "alias": "672",
+            "desc": "Game Mode"
+        },
+        "564": {
+            "alias": "673",
+            "desc": "Round Type?"
+        },
+        "566": {
+            "alias": "675",
+            "desc": ""
+        },
+        "567": {
+            "alias": "675",
+            "desc": ""
+        },
+        "569": {
+            "alias": "678",
+            "desc": "inferred (delta 109): Round Number?"
+        },
+        "570": {
+            "alias": "679",
+            "desc": ""
+        },
+        "571": {
+            "alias": "680",
+            "desc": ""
+        },
+        "572": {
+            "alias": "681",
+            "desc": "inferred (delta 109)"
+        },
+        "573": {
+            "alias": "682",
+            "desc": "Stage ID"
+        },
+        "574": {
+            "alias": "683",
+            "desc": "Stage NOT ID"
+        },
+        "575": {
+            "alias": "684",
+            "desc": "inferred (delta 109)"
+        },
+        "576": {
+            "alias": "685",
+            "desc": ""
+        },
+        "578": {
+            "alias": "687",
+            "desc": "inferred (delta 109): Player is a Bear"
+        },
+        "579": {
+            "alias": "688",
+            "desc": "inferred (delta 109): Player Check"
+        },
+        "580": {
+            "alias": "689",
+            "desc": "inferred (delta 109): Player is a male character"
+        },
+        "581": {
+            "alias": "690",
+            "desc": "inferred (delta 109): Player is a female character"
+        },
+        "582": {
+            "alias": "691",
+            "desc": "inferred (delta 109): Player is a big character"
+        },
+        "583": {
+            "alias": "692",
+            "desc": "Character is Male"
+        },
+        "584": {
+            "alias": "693",
+            "desc": "Character is Female"
+        },
+        "585": {
+            "alias": "694",
+            "desc": "Opponent is a big character"
+        },
+        "586": {
+            "alias": "695",
+            "desc": "Opponent is a Bear"
+        },
+        "587": {
+            "alias": "696",
+            "desc": "Pre-round animation"
+        },
+        "589": {
+            "alias": "698",
+            "desc": ""
+        },
+        "590": {
+            "alias": "699",
+            "desc": "inferred (delta 109): Always True"
+        },
+        "591": {
+            "alias": "700",
+            "desc": ""
+        },
+        "592": {
+            "alias": "701",
+            "desc": "inferred (delta 109)"
+        },
+        "593": {
+            "alias": "702",
+            "desc": "inferred (delta 109)"
+        },
+        "594": {
+            "alias": "703",
+            "desc": "inferred (delta 109)"
+        },
+        "595": {
+            "alias": "704",
+            "desc": "inferred (delta 109)"
+        },
+        "596": {
+            "alias": "705",
+            "desc": "inferred (delta 109)"
+        },
+        "597": {
+            "alias": "706",
+            "desc": "inferred (delta 109)"
+        },
+        "598": {
+            "alias": "707",
+            "desc": ""
+        },
+        "599": {
+            "alias": "708",
+            "desc": "inferred (delta 109)"
+        },
+        "600": {
+            "alias": "709",
+            "desc": "inferred (delta 109)"
+        },
+        "601": {
+            "alias": "710",
+            "desc": "Wall splat related"
+        },
+        "602": {
+            "alias": "711",
+            "desc": "inferred (delta 109)"
+        },
+        "603": {
+            "alias": "712",
+            "desc": "inferred (delta 109)"
+        },
+        "604": {
+            "alias": "713",
+            "desc": ""
+        },
+        "605": {
+            "alias": "714",
+            "desc": "inferred (delta 109)"
+        },
+        "606": {
+            "alias": "715",
+            "desc": "inferred (delta 109)"
+        },
+        "607": {
+            "alias": "716",
+            "desc": "Opponent is Airborne"
+        },
+        "608": {
+            "alias": "717",
+            "desc": "Opponent is Not Airborne"
+        },
+        "609": {
+            "alias": "718",
+            "desc": "Has Item"
+        },
+        "610": {
+            "alias": "719",
+            "desc": ""
+        },
+        "611": {
+            "alias": "720",
+            "desc": "Yoshimitsu Sword Sheathed"
+        },
+        "612": {
+            "alias": "721",
+            "desc": "inferred (delta 109)"
+        },
+        "613": {
+            "alias": "722",
+            "desc": "inferred (delta 109)"
+        },
+        "614": {
+            "alias": "723",
+            "desc": "Opponent is in juggle"
+        },
+        "615": {
+            "alias": "724",
+            "desc": "Screw available"
+        },
+        "619": {
+            "alias": "728",
+            "desc": "inferred (delta 109)"
+        },
+        "620": {
+            "alias": "729",
+            "desc": ""
+        },
+        "634": {
+            "alias": "999",
+            "desc": "Treasure Battle Special Match (removed in T8)"
+        },
+        "640": {
+            "alias": "749",
+            "desc": ""
+        },
+        "641": {
+            "alias": "750",
+            "desc": "inferred (delta 109): Once Per Match"
+        },
+        "642": {
+            "alias": "751",
+            "desc": "Leroy Install Unavailable"
+        },
+        "741": {
+            "alias": "953",
+            "desc": "Always True"
+        },
+        "765": {
+            "alias": "999",
+            "desc": "Arcade Mode Cutscene (removed in T8)"
+        },
+        "777": {
+            "alias": "989",
+            "desc": "inferred (delta 212)"
+        },
+        "778": {
+            "alias": "990",
+            "desc": "inferred (delta 212)"
+        },
+        "779": {
+            "alias": "991",
+            "desc": "inferred (delta 212)"
+        },
+        "780": {
+            "alias": "992",
+            "desc": "inferred (delta 212)"
+        },
+        "785": {
+            "alias": "997",
+            "desc": "Projectile on-hit"
+        },
+        "786": {
+            "alias": "998",
+            "desc": "Projectile on-block"
+        },
+        "798": {
+            "alias": "1010",
+            "desc": "inferred (delta 212)"
+        },
+        "799": {
+            "alias": "1011",
+            "desc": "inferred (delta 212)"
+        },
+        "800": {
+            "alias": "1012",
+            "desc": "inferred (delta 212)"
+        },
+        "801": {
+            "alias": "1013",
+            "desc": "inferred (delta 212)"
+        },
+        "802": {
+            "alias": "1014",
+            "desc": "inferred (delta 212)"
+        },
+        "803": {
+            "alias": "1015",
+            "desc": "inferred (delta 212)"
+        },
+        "804": {
+            "alias": "1016",
+            "desc": "inferred (delta 212): Something-RNG-Related == X - 1"
+        },
+        "806": {
+            "alias": "1018",
+            "desc": ""
+        },
+        "807": {
+            "alias": "1019",
+            "desc": "inferred (delta 212): Prop 0x8414 >= param"
+        },
+        "808": {
+            "alias": "1020",
+            "desc": "inferred (delta 212): Prop 0x8414 <= param"
+        },
+        "809": {
+            "alias": "1021",
+            "desc": "Prop 0x8414 == param (Check Assist Combo Value)"
+        },
+        "815": {
+            "alias": "1034",
+            "desc": "Parry Low"
+        },
+        "816": {
+            "alias": "1035",
+            "desc": "Parry High and Mid"
+        },
+        "817": {
+            "alias": "1036",
+            "desc": "inferred (delta 219): Parry Group"
+        },
+        "818": {
+            "alias": "1037",
+            "desc": "inferred (delta 219)"
+        },
+        "819": {
+            "alias": "1038",
+            "desc": "inferred (delta 219): Parry High"
+        },
+        "820": {
+            "alias": "1039",
+            "desc": "inferred (delta 219): Parry Mid"
+        },
+        "821": {
+            "alias": "1040",
+            "desc": "inferred (delta 219): Parry Low"
+        },
+        "822": {
+            "alias": "1041",
+            "desc": "inferred (delta 219): Parry High and Mid"
+        },
+        "823": {
+            "alias": "1042",
+            "desc": "inferred (delta 219): Parry Group"
+        },
+        "824": {
+            "alias": "1043",
+            "desc": "inferred (delta 219)"
+        },
+        "825": {
+            "alias": "1044",
+            "desc": "inferred (delta 219)"
+        },
+        "826": {
+            "alias": "1045",
+            "desc": "inferred (delta 219)"
+        },
+        "827": {
+            "alias": "1046",
+            "desc": "inferred (delta 219)"
+        },
+        "828": {
+            "alias": "1047",
+            "desc": "inferred (delta 219)"
+        },
+        "829": {
+            "alias": "1048",
+            "desc": "inferred (delta 219)"
+        },
+        "830": {
+            "alias": "1049",
+            "desc": "Attack Absorption During Power Crush"
+        },
+        "841": {
+            "alias": "1060",
+            "desc": "inferred (delta 219)"
+        },
+        "842": {
+            "alias": "1061",
+            "desc": "Parry High"
+        },
+        "843": {
+            "alias": "1062",
+            "desc": "Parry Mid"
+        },
+        "844": {
+            "alias": "1063",
+            "desc": "Parry Low"
+        },
+        "845": {
+            "alias": "1064",
+            "desc": "inferred (delta 219): Parry High and Mid"
+        },
+        "846": {
+            "alias": "1065",
+            "desc": "Parry Group"
+        },
+        "847": {
+            "alias": "1066",
+            "desc": "inferred (delta 219)"
+        },
+        "848": {
+            "alias": "1067",
+            "desc": "inferred (delta 219): Parry High"
+        },
+        "849": {
+            "alias": "1068",
+            "desc": "inferred (delta 219): Parry Mid"
+        },
+        "850": {
+            "alias": "1069",
+            "desc": "inferred (delta 219): Parry Low"
+        },
+        "851": {
+            "alias": "1070",
+            "desc": "inferred (delta 219): Parry High and Mid"
+        },
+        "852": {
+            "alias": "1071",
+            "desc": "inferred (delta 219): Parry Group"
+        },
+        "853": {
+            "alias": "1072",
+            "desc": "inferred (delta 219)"
+        },
+        "854": {
+            "alias": "1073",
+            "desc": "inferred (delta 219)"
+        },
+        "855": {
+            "alias": "1074",
+            "desc": "inferred (delta 219)"
+        },
+        "856": {
+            "alias": "1075",
+            "desc": "inferred (delta 219)"
+        },
+        "857": {
+            "alias": "1076",
+            "desc": "inferred (delta 219)"
+        },
+        "858": {
+            "alias": "1077",
+            "desc": "inferred (delta 219)"
+        },
+        "859": {
+            "alias": "1078",
+            "desc": "Parry High (Special)"
+        },
+        "860": {
+            "alias": "1079",
+            "desc": "Parry Mid (Special)"
+        },
+        "861": {
+            "alias": "1080",
+            "desc": "Parry Low (Special)"
+        },
+        "863": {
+            "alias": "1090",
+            "desc": "Parry High"
+        },
+        "864": {
+            "alias": "1091",
+            "desc": "Parry Mid"
+        },
+        "871": {
+            "alias": "1078",
+            "desc": "Parry High"
+        },
+        "872": {
+            "alias": "1079",
+            "desc": "Parry Mid"
+        },
+        "881": {
+            "alias": "1100",
+            "desc": "End"
+        },
+        "0x8001": {
+            "alias": "0x8001",
+            "desc": "Camera Shake: Lightest"
+        },
+        "0x8002": {
+            "alias": "0x8002",
+            "desc": "Camera Shake: Light"
+        },
+        "0x8003": {
+            "alias": "0x8003",
+            "desc": "Camera Shake: Medium"
+        },
+        "0x8004": {
+            "alias": "0x8004",
+            "desc": "Camera Shake: Heavy"
+        },
+        "0x8005": {
+            "alias": "0x8005",
+            "desc": "inferred (delta 0): Camera Shake: Custom"
+        },
+        "0x8006": {
+            "alias": "0x8006",
+            "desc": "Camera Shake: Lightest"
+        },
+        "0x8007": {
+            "alias": "0x8007",
+            "desc": "Camera Shake: Light"
+        },
+        "0x8008": {
+            "alias": "0x8008",
+            "desc": "Camera Shake: Medium"
+        },
+        "0x8009": {
+            "alias": "0x8009",
+            "desc": "Camera Shake: Heavy"
+        },
+        "0x800a": {
+            "alias": "0x800a",
+            "desc": "inferred (delta 0): Camera Shake: Custom"
+        },
+        "0x800b": {
+            "alias": "0x800b",
+            "desc": "Ground Ripple"
+        },
+        "0x800c": {
+            "alias": "0x800c",
+            "desc": "inferred (delta 0)"
+        },
+        "0x800d": {
+            "alias": "0x800d",
+            "desc": "inferred (delta 0)"
+        },
+        "0x800e": {
+            "alias": "0x800e",
+            "desc": "Break Tile"
+        },
+        "0x800f": {
+            "alias": "0x800f",
+            "desc": "Medium Ground Ripple"
+        },
+        "0x8010": {
+            "alias": "0x8010",
+            "desc": "inferred (delta 0): Heavy Ground Ripple"
+        },
+        "0x8011": {
+            "alias": "0x8011",
+            "desc": "Fire Burn Effect on self"
+        },
+        "0x8012": {
+            "alias": "0x8012",
+            "desc": "inferred (delta 0): Fire Burn Effect on opponent"
+        },
+        "0x8013": {
+            "alias": "0x8013",
+            "desc": "inferred (delta 0)"
+        },
+        "0x8014": {
+            "alias": "0x8014",
+            "desc": "inferred (delta 0)"
+        },
+        "0x8015": {
+            "alias": "0x8015",
+            "desc": "inferred (delta 0)"
+        },
+        "0x8016": {
+            "alias": "0x8016",
+            "desc": "inferred (delta 0)"
+        },
+        "0x8017": {
+            "alias": "0x8017",
+            "desc": "inferred (delta 0): Hit Effect on self"
+        },
+        "0x8018": {
+            "alias": "0x8018",
+            "desc": "inferred (delta 0)"
+        },
+        "0x8019": {
+            "alias": "0x8019",
+            "desc": "inferred (delta 0): Electric Effect on self"
+        },
+        "0x801a": {
+            "alias": "0x801a",
+            "desc": "inferred (delta 0): Electric Effect on opponent"
+        },
+        "0x801b": {
+            "alias": "0x801b",
+            "desc": "Rage Drive Visual Effects"
+        },
+        "0x801c": {
+            "alias": "0x801c",
+            "desc": "inferred (delta 0)"
+        },
+        "0x801d": {
+            "alias": "0x801d",
+            "desc": "inferred (delta 0)"
+        },
+        "0x801e": {
+            "alias": "0x801e",
+            "desc": "Mouth Fog VFX"
+        },
+        "0x801f": {
+            "alias": "0x801f",
+            "desc": ""
+        },
+        "0x802e": {
+            "alias": "0x8031",
+            "desc": "Char Hit Spark on Self"
+        },
+        "0x802f": {
+            "alias": "0x8032",
+            "desc": "inferred (delta 3): Char Hit Spark on Self"
+        },
+        "0x8030": {
+            "alias": "0x8033",
+            "desc": "inferred (delta 3)"
+        },
+        "0x8031": {
+            "alias": "0x8034",
+            "desc": "inferred (delta 3)"
+        },
+        "0x8032": {
+            "alias": "0x8035",
+            "desc": "inferred (delta 3): Hit Sparks (?)"
+        },
+        "0x8033": {
+            "alias": "0x8036",
+            "desc": ""
+        },
+        "0x8034": {
+            "alias": "0x8037",
+            "desc": "inferred (delta 3): Hit Effect on self"
+        },
+        "0x8035": {
+            "alias": "0x8038",
+            "desc": "inferred (delta 3): Hit Effect on opponent"
+        },
+        "0x8036": {
+            "alias": "0x8039",
+            "desc": "Play Character Trail VFX"
+        },
+        "0x8037": {
+            "alias": "0x803a",
+            "desc": "inferred (delta 3): Player Hit Sparks"
+        },
+        "0x8038": {
+            "alias": "0x803b",
+            "desc": "Special Trail VFX (?)"
+        },
+        "0x8039": {
+            "alias": "0x803c",
+            "desc": "Opponent Hit Spark VFX on Player"
+        },
+        "0x803a": {
+            "alias": "0x803d",
+            "desc": "Opponent char Trail VFX on Player"
+        },
+        "0x803b": {
+            "alias": "0x803e",
+            "desc": "Hit Spark on Self"
+        },
+        "0x803c": {
+            "alias": "0x803f",
+            "desc": "inferred (delta 3): Hit Spark on Opponent"
+        },
+        "0x803d": {
+            "alias": "0x8040",
+            "desc": "Heavy Sparks on Self"
+        },
+        "0x803e": {
+            "alias": "0x8041",
+            "desc": "inferred (delta 3): Heavy Sparks on Opponent"
+        },
+        "0x803f": {
+            "alias": "0x8042",
+            "desc": "Heavy Spark w/ char Hit Spark (self)"
+        },
+        "0x8040": {
+            "alias": "0x8043",
+            "desc": "inferred (delta 3): Heavy Spark w/ char Hit Spark (opp)"
+        },
+        "0x8041": {
+            "alias": "0x8044",
+            "desc": "inferred (delta 3): Throw Effect on self"
+        },
+        "0x8042": {
+            "alias": "0x8045",
+            "desc": "Smoke Effect on self"
+        },
+        "0x8043": {
+            "alias": "0x8046",
+            "desc": "Faint Smoke Effect on self"
+        },
+        "0x8044": {
+            "alias": "0x8047",
+            "desc": "Block Effect on self"
+        },
+        "0x8045": {
+            "alias": "0x8048",
+            "desc": "inferred (delta 3)"
+        },
+        "0x8046": {
+            "alias": "0x8049",
+            "desc": "Common VFX (Blue sparks, powercrush)"
+        },
+        "0x8047": {
+            "alias": "0x804a",
+            "desc": "inferred (delta 3): Common VFX (Blue sparks, powercrush)"
+        },
+        "0x8048": {
+            "alias": "0x804b",
+            "desc": "Tile Break VFX on self"
+        },
+        "0x8049": {
+            "alias": "0x804c",
+            "desc": "VFX on Items"
+        },
+        "0x804a": {
+            "alias": "0x804d",
+            "desc": ""
+        },
+        "0x804b": {
+            "alias": "0x804e",
+            "desc": "inferred (delta 3)"
+        },
+        "0x804c": {
+            "alias": "0x804f",
+            "desc": "Fire Explosion Effect on self"
+        },
+        "0x8056": {
+            "alias": "0x8072",
+            "desc": ""
+        },
+        "0x8057": {
+            "alias": "0x8073",
+            "desc": "inferred (delta 28)"
+        },
+        "0x8058": {
+            "alias": "0x8074",
+            "desc": ""
+        },
+        "0x8059": {
+            "alias": "0x8075",
+            "desc": ""
+        },
+        "0x805a": {
+            "alias": "0x8076",
+            "desc": ""
+        },
+        "0x805b": {
+            "alias": "0x8077",
+            "desc": ""
+        },
+        "0x805c": {
+            "alias": "0x8078",
+            "desc": "inferred (delta 28): Hit Spark on Self"
+        },
+        "0x805d": {
+            "alias": "0x8079",
+            "desc": "inferred (delta 28): Throw Effect on self"
+        },
+        "0x805e": {
+            "alias": "0x807a",
+            "desc": "inferred (delta 28): Smoke Effect on self"
+        },
+        "0x805f": {
+            "alias": "0x807b",
+            "desc": "inferred (delta 28)"
+        },
+        "0x8060": {
+            "alias": "0x807c",
+            "desc": "inferred (delta 28): Block Effect on self"
+        },
+        "0x8061": {
+            "alias": "0x807d",
+            "desc": "Sparks on self (?)"
+        },
+        "0x8062": {
+            "alias": "0x807e",
+            "desc": "inferred (delta 28)"
+        },
+        "0x8063": {
+            "alias": "0x807f",
+            "desc": "Small Sparks on self"
+        },
+        "0x8064": {
+            "alias": "0x8080",
+            "desc": "inferred (delta 28)"
+        },
+        "0x8065": {
+            "alias": "0x8081",
+            "desc": "inferred (delta 28)"
+        },
+        "0x8066": {
+            "alias": "0x8082",
+            "desc": "inferred (delta 28)"
+        },
+        "0x8067": {
+            "alias": "0x8083",
+            "desc": "inferred (delta 28)"
+        },
+        "0x8068": {
+            "alias": "0x8084",
+            "desc": "inferred (delta 28): Reset Cloth Physics?"
+        },
+        "0x8069": {
+            "alias": "0x8085",
+            "desc": "inferred (delta 28): Reset Cloth Physics?"
+        },
+        "0x806a": {
+            "alias": "0x8086",
+            "desc": "Hit with Fixed Damage"
+        },
+        "0x806b": {
+            "alias": "0x8087",
+            "desc": "Inflict self damage"
+        },
+        "0x806c": {
+            "alias": "0x8088",
+            "desc": "Increase Health"
+        },
+        "0x806d": {
+            "alias": "0x8089",
+            "desc": "inferred (delta 28)"
+        },
+        "0x806e": {
+            "alias": "0x808a",
+            "desc": "inferred (delta 28): Inflict self damage"
+        },
+        "0x806f": {
+            "alias": "0x808b",
+            "desc": "inferred (delta 28)"
+        },
+        "0x8070": {
+            "alias": "0x808c",
+            "desc": "inferred (delta 28)"
+        },
+        "0x8071": {
+            "alias": "0x808d",
+            "desc": "inferred (delta 28): Inflict Self Damage (unscaled)"
+        },
+        "0x8072": {
+            "alias": "0x808e",
+            "desc": "inferred (delta 28): Inflict Self Damage (unscaled)"
+        },
+        "0x8073": {
+            "alias": "0x808f",
+            "desc": "inferred (delta 28)"
+        },
+        "0x8074": {
+            "alias": "0x8090",
+            "desc": ""
+        },
+        "0x8075": {
+            "alias": "0x8091",
+            "desc": "inferred (delta 28)"
+        },
+        "0x8076": {
+            "alias": "0x8092",
+            "desc": "Store Value"
+        },
+        "0x8077": {
+            "alias": "0x8093",
+            "desc": "Store Value"
+        },
+        "0x8078": {
+            "alias": "0x8094",
+            "desc": "Set \"Buffed\" Frame Counter (Player)"
+        },
+        "0x8079": {
+            "alias": "0x8095",
+            "desc": "inferred (delta 28): Store Value 0x8092 (Opponent)"
+        },
+        "0x807a": {
+            "alias": "0x8096",
+            "desc": "inferred (delta 28): Store Value 0x8093 (Opponent)"
+        },
+        "0x807b": {
+            "alias": "0x8097",
+            "desc": "inferred (delta 28): Set \"Buffed\" Frame Counter (Opponent)"
+        },
+        "0x807c": {
+            "alias": "0x8098",
+            "desc": "Move Value Store"
+        },
+        "0x807d": {
+            "alias": "0x8099",
+            "desc": "inferred (delta 28): Add Value into 0x807c"
+        },
+        "0x807e": {
+            "alias": "0x809a",
+            "desc": "inferred (delta 28): Substract Value from 0x807c"
+        },
+        "0x807f": {
+            "alias": "0x809b",
+            "desc": "Store Value"
+        },
+        "0x8094": {
+            "alias": "0x80b3",
+            "desc": ""
+        },
+        "0x8095": {
+            "alias": "0x80b4",
+            "desc": "inferred (delta 31)"
+        },
+        "0x8096": {
+            "alias": "0x80b5",
+            "desc": "inferred (delta 31)"
+        },
+        "0x8097": {
+            "alias": "0x80b6",
+            "desc": ""
+        },
+        "0x8098": {
+            "alias": "0x80b7",
+            "desc": "inferred (delta 31)"
+        },
+        "0x8099": {
+            "alias": "0x80b8",
+            "desc": "inferred (delta 31)"
+        },
+        "0x809a": {
+            "alias": "0x80b9",
+            "desc": "inferred (delta 31)"
+        },
+        "0x809b": {
+            "alias": "0x80ba",
+            "desc": "inferred (delta 31)"
+        },
+        "0x809c": {
+            "alias": "0x80bb",
+            "desc": "inferred (delta 31)"
+        },
+        "0x809d": {
+            "alias": "0x80bc",
+            "desc": "inferred (delta 31)"
+        },
+        "0x809e": {
+            "alias": "0x80bd",
+            "desc": "inferred (delta 31)"
+        },
+        "0x809f": {
+            "alias": "0x80be",
+            "desc": "inferred (delta 31)"
+        },
+        "0x80a0": {
+            "alias": "0x80bf",
+            "desc": "inferred (delta 31)"
+        },
+        "0x80a1": {
+            "alias": "0x80c0",
+            "desc": "inferred (delta 31)"
+        },
+        "0x80a2": {
+            "alias": "0x80c1",
+            "desc": "inferred (delta 31)"
+        },
+        "0x80a3": {
+            "alias": "0x80c2",
+            "desc": ""
+        },
+        "0x80a4": {
+            "alias": "0x80c3",
+            "desc": "inferred (delta 31)"
+        },
+        "0x80a5": {
+            "alias": "0x80c4",
+            "desc": "inferred (delta 31)"
+        },
+        "0x80a6": {
+            "alias": "0x80c5",
+            "desc": "Input Value Store"
+        },
+        "0x80a7": {
+            "alias": "0x80c6",
+            "desc": "inferred (delta 31): Add value into Input Flag"
+        },
+        "0x80a8": {
+            "alias": "0x80c7",
+            "desc": "inferred (delta 31): Substract value from Input Flag"
+        },
+        "0x80a9": {
+            "alias": "0x80c8",
+            "desc": "Input Value Store (Input Flag # 2)"
+        },
+        "0x80aa": {
+            "alias": "0x80c9",
+            "desc": "inferred (delta 31): Add value into Input Flag"
+        },
+        "0x80ab": {
+            "alias": "0x80ca",
+            "desc": "inferred (delta 31): Substract value from Input Flag"
+        },
+        "0x80ac": {
+            "alias": "0x80cb",
+            "desc": "Store Value"
+        },
+        "0x80ad": {
+            "alias": "0x80cc",
+            "desc": "inferred (delta 31): Add value to prop 0x80cb"
+        },
+        "0x80ae": {
+            "alias": "0x80cd",
+            "desc": "inferred (delta 31): Add value to prop 0x80ce"
+        },
+        "0x80af": {
+            "alias": "0x80ce",
+            "desc": "Store Value"
+        },
+        "0x80b0": {
+            "alias": "0x80cf",
+            "desc": "inferred (delta 31): Subtract value from prop 0x80ce"
+        },
+        "0x80b1": {
+            "alias": "0x80d0",
+            "desc": "inferred (delta 31)"
+        },
+        "0x80b2": {
+            "alias": "0x80d1",
+            "desc": ""
+        },
+        "0x80b3": {
+            "alias": "0x80d2",
+            "desc": "inferred (delta 31)"
+        },
+        "0x80b4": {
+            "alias": "0x80d3",
+            "desc": "inferred (delta 31)"
+        },
+        "0x80b5": {
+            "alias": "0x80d4",
+            "desc": "inferred (delta 31)"
+        },
+        "0x80b6": {
+            "alias": "0x80d5",
+            "desc": "inferred (delta 31)"
+        },
+        "0x80b7": {
+            "alias": "0x80d6",
+            "desc": "inferred (delta 31)"
+        },
+        "0x80b8": {
+            "alias": "0x80d7",
+            "desc": "inferred (delta 31)"
+        },
+        "0x80b9": {
+            "alias": "0x80d8",
+            "desc": "inferred (delta 31)"
+        },
+        "0x80ba": {
+            "alias": "0x80d9",
+            "desc": "inferred (delta 31)"
+        },
+        "0x80bb": {
+            "alias": "0x80da",
+            "desc": "inferred (delta 31)"
+        },
+        "0x80bc": {
+            "alias": "0x80db",
+            "desc": "inferred (delta 31)"
+        },
+        "0x80bd": {
+            "alias": "0x80dc",
+            "desc": "inferred (delta 31): Kazuya Devil State"
+        },
+        "0x80be": {
+            "alias": "0x80dd",
+            "desc": "inferred (delta 31): Add to Devil Flag"
+        },
+        "0x80bf": {
+            "alias": "0x80de",
+            "desc": "inferred (delta 31): Subtract from Devil Flag"
+        },
+        "0x80c0": {
+            "alias": "0x80df",
+            "desc": "inferred (delta 31): Bitwise OR from Devil Flag"
+        },
+        "0x80c1": {
+            "alias": "0x80e0",
+            "desc": "inferred (delta 31): Bitwise AND from Devil Flag"
+        },
+        "0x80c2": {
+            "alias": "0x80e1",
+            "desc": "inferred (delta 31): Store Chloe Points"
+        },
+        "0x80c3": {
+            "alias": "0x80e2",
+            "desc": "inferred (delta 31): Add Chloe Points"
+        },
+        "0x80c4": {
+            "alias": "0x80e3",
+            "desc": "inferred (delta 31): Subtract Chloe Points"
+        },
+        "0x80c5": {
+            "alias": "0x80e4",
+            "desc": "inferred (delta 31): 2D Cancel Value Store"
+        },
+        "0x80c6": {
+            "alias": "0x80e5",
+            "desc": "inferred (delta 31): Add Value to 0x80c5"
+        },
+        "0x80c7": {
+            "alias": "0x80e6",
+            "desc": "inferred (delta 31): Subtract from 0x80c5"
+        },
+        "0x80c8": {
+            "alias": "0x80e7",
+            "desc": "inferred (delta 31): Value Store"
+        },
+        "0x80c9": {
+            "alias": "0x80e8",
+            "desc": "inferred (delta 31): Add Value to 0x80c8"
+        },
+        "0x80ca": {
+            "alias": "0x80e9",
+            "desc": "inferred (delta 31): Subtract from 0x80c8"
+        },
+        "0x80cb": {
+            "alias": "0x80ea",
+            "desc": "inferred (delta 31): Value Store"
+        },
+        "0x80cc": {
+            "alias": "0x80eb",
+            "desc": "inferred (delta 31): Add Value to 0x80cb"
+        },
+        "0x80cd": {
+            "alias": "0x80ec",
+            "desc": "inferred (delta 31): Subtract from 0x80cb"
+        },
+        "0x80ce": {
+            "alias": "0x80ed",
+            "desc": "inferred (delta 31): Store Value"
+        },
+        "0x80cf": {
+            "alias": "0x80ee",
+            "desc": "inferred (delta 31): Add value to prop 0x80ed"
+        },
+        "0x80d0": {
+            "alias": "0x80ef",
+            "desc": "inferred (delta 31): Subtract value from prop 0x80ed"
+        },
+        "0x80d1": {
+            "alias": "0x80f0",
+            "desc": "inferred (delta 31): Store Value"
+        },
+        "0x80d2": {
+            "alias": "0x80f1",
+            "desc": "inferred (delta 31): Add value to prop 0x80f0"
+        },
+        "0x80d3": {
+            "alias": "0x80f2",
+            "desc": "inferred (delta 31): Subtract value from prop 0x80f0"
+        },
+        "0x80d4": {
+            "alias": "0x80f3",
+            "desc": ""
+        },
+        "0x80db": {
+            "alias": "0x80fc",
+            "desc": "Set wall combo counter"
+        },
+        "0x80dc": {
+            "alias": "0x80fb",
+            "desc": "Add to wall combo counter"
+        },
+        "0x80dd": {
+            "alias": "0x80fd",
+            "desc": "Subtract from wall combo counter"
+        },
+        "0x80fc": {
+            "alias": "0x811e",
+            "desc": ""
+        },
+        "0x80fd": {
+            "alias": "0x811f",
+            "desc": "inferred (delta 34)"
+        },
+        "0x80fe": {
+            "alias": "0x8120",
+            "desc": "inferred (delta 34)"
+        },
+        "0x80ff": {
+            "alias": "0x8121",
+            "desc": "inferred (delta 34)"
+        },
+        "0x8100": {
+            "alias": "0x8122",
+            "desc": "inferred (delta 34)"
+        },
+        "0x8101": {
+            "alias": "0x8123",
+            "desc": "inferred (delta 34): Kazuya Devil State (Opponent)"
+        },
+        "0x8102": {
+            "alias": "0x8124",
+            "desc": "inferred (delta 34): Add to Devil State (Opp.)"
+        },
+        "0x8103": {
+            "alias": "0x8125",
+            "desc": "inferred (delta 34): Sub from Devil State (Opp.)"
+        },
+        "0x8104": {
+            "alias": "0x8126",
+            "desc": "inferred (delta 34): Bitwise OR from Devil Flag (Opp.)"
+        },
+        "0x8105": {
+            "alias": "0x8127",
+            "desc": "inferred (delta 34): Bitwise AND from Devil Flag (Opp.)"
+        },
+        "0x8106": {
+            "alias": "0x8128",
+            "desc": "Activate Player Flags"
+        },
+        "0x8107": {
+            "alias": "0x8129",
+            "desc": "Add Value to Player Flags"
+        },
+        "0x8108": {
+            "alias": "0x812a",
+            "desc": "inferred (delta 34): Sub value from Player Flags"
+        },
+        "0x8109": {
+            "alias": "0x812b",
+            "desc": "inferred (delta 34): Activate Opponent Flags"
+        },
+        "0x810a": {
+            "alias": "0x812c",
+            "desc": "inferred (delta 34): Add value to Opponent Flags"
+        },
+        "0x810b": {
+            "alias": "0x812d",
+            "desc": "inferred (delta 34): Sub value from Opponent Flags"
+        },
+        "0x810c": {
+            "alias": "0x812e",
+            "desc": "Activate Player Flags # 2"
+        },
+        "0x817c": {
+            "alias": "0x81ec",
+            "desc": "Allow Player To Block"
+        },
+        "0x817d": {
+            "alias": "0x81ed",
+            "desc": "Give CH property"
+        },
+        "0x817e": {
+            "alias": "0x81ee",
+            "desc": ""
+        },
+        "0x817f": {
+            "alias": "0x81ef",
+            "desc": ""
+        },
+        "0x8180": {
+            "alias": "0x81f0",
+            "desc": ""
+        },
+        "0x8181": {
+            "alias": "0x81f1",
+            "desc": "Stop Pushback"
+        },
+        "0x8182": {
+            "alias": "0x81f2",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8183": {
+            "alias": "0x81f3",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8184": {
+            "alias": "0x81f4",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8185": {
+            "alias": "0x81f5",
+            "desc": "Detach height (smoothly)"
+        },
+        "0x8186": {
+            "alias": "0x81f6",
+            "desc": "inferred (delta 112): Detach height (instantly)"
+        },
+        "0x8187": {
+            "alias": "0x81f7",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8188": {
+            "alias": "0x81f8",
+            "desc": "Give Parry immunity"
+        },
+        "0x8189": {
+            "alias": "0x81f9",
+            "desc": ""
+        },
+        "0x818a": {
+            "alias": "0x81fa",
+            "desc": "Add Tracking/Alignment (Player)"
+        },
+        "0x818b": {
+            "alias": "0x81fb",
+            "desc": "inferred (delta 112): Add Tracking/Alignment (Opponent)"
+        },
+        "0x818c": {
+            "alias": "0x81fc",
+            "desc": "Change Player Status/Vulnerability"
+        },
+        "0x818d": {
+            "alias": "0x81fd",
+            "desc": "Detach characters"
+        },
+        "0x818e": {
+            "alias": "0x81fe",
+            "desc": "Change Collision Status"
+        },
+        "0x818f": {
+            "alias": "0x81ff",
+            "desc": ""
+        },
+        "0x8190": {
+            "alias": "0x8200",
+            "desc": ""
+        },
+        "0x8191": {
+            "alias": "0x8201",
+            "desc": ""
+        },
+        "0x8192": {
+            "alias": "0x8202",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8193": {
+            "alias": "0x8203",
+            "desc": "Footstep SFX & VFX"
+        },
+        "0x8194": {
+            "alias": "0x8204",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8195": {
+            "alias": "0x8205",
+            "desc": ""
+        },
+        "0x8196": {
+            "alias": "0x8206",
+            "desc": ""
+        },
+        "0x8197": {
+            "alias": "0x8207",
+            "desc": ""
+        },
+        "0x8198": {
+            "alias": "0x8208",
+            "desc": ""
+        },
+        "0x8199": {
+            "alias": "0x8209",
+            "desc": ""
+        },
+        "0x819a": {
+            "alias": "0x820a",
+            "desc": "inferred (delta 112)"
+        },
+        "0x819b": {
+            "alias": "0x820b",
+            "desc": "inferred (delta 112)"
+        },
+        "0x819c": {
+            "alias": "0x820c",
+            "desc": "inferred (delta 112)"
+        },
+        "0x819d": {
+            "alias": "0x820d",
+            "desc": "inferred (delta 112)"
+        },
+        "0x819e": {
+            "alias": "0x820e",
+            "desc": "inferred (delta 112)"
+        },
+        "0x819f": {
+            "alias": "0x820f",
+            "desc": "inferred (delta 112)"
+        },
+        "0x81a0": {
+            "alias": "0x8210",
+            "desc": "inferred (delta 112)"
+        },
+        "0x81a1": {
+            "alias": "0x8211",
+            "desc": "inferred (delta 112)"
+        },
+        "0x81a2": {
+            "alias": "0x8212",
+            "desc": "inferred (delta 112)"
+        },
+        "0x81a3": {
+            "alias": "0x8213",
+            "desc": "Start back turn"
+        },
+        "0x81a4": {
+            "alias": "0x8214",
+            "desc": "Change Collision Status"
+        },
+        "0x81a5": {
+            "alias": "0x8215",
+            "desc": ""
+        },
+        "0x81a6": {
+            "alias": "0x8216",
+            "desc": ""
+        },
+        "0x81a7": {
+            "alias": "0x8217",
+            "desc": "Align Player To Wall (?)"
+        },
+        "0x81a8": {
+            "alias": "0x8218",
+            "desc": ""
+        },
+        "0x81a9": {
+            "alias": "0x8219",
+            "desc": ""
+        },
+        "0x81ac": {
+            "alias": "0x8051",
+            "desc": "Trigger Wall / Balcony break"
+        },
+        "0x81ad": {
+            "alias": "0x821d",
+            "desc": "Put Player at Position 0"
+        },
+        "0x81ae": {
+            "alias": "0x821e",
+            "desc": "inferred (delta 112)"
+        },
+        "0x81af": {
+            "alias": "0x821f",
+            "desc": ""
+        },
+        "0x81b0": {
+            "alias": "0x8220",
+            "desc": "inferred (delta 112)"
+        },
+        "0x81b1": {
+            "alias": "0x8221",
+            "desc": "inferred (delta 112)"
+        },
+        "0x81b2": {
+            "alias": "0x8222",
+            "desc": "inferred (delta 112)"
+        },
+        "0x81b3": {
+            "alias": "0x8223",
+            "desc": "inferred (delta 112)"
+        },
+        "0x81b4": {
+            "alias": "0x8224",
+            "desc": "inferred (delta 112)"
+        },
+        "0x81b5": {
+            "alias": "0x8225",
+            "desc": "inferred (delta 112)"
+        },
+        "0x81b6": {
+            "alias": "0x8226",
+            "desc": "inferred (delta 112)"
+        },
+        "0x81b7": {
+            "alias": "0x8227",
+            "desc": "inferred (delta 112)"
+        },
+        "0x81b8": {
+            "alias": "0x8228",
+            "desc": "inferred (delta 112)"
+        },
+        "0x81b9": {
+            "alias": "0x8229",
+            "desc": "inferred (delta 112)"
+        },
+        "0x81ba": {
+            "alias": "0x822a",
+            "desc": ""
+        },
+        "0x81bb": {
+            "alias": "0x822b",
+            "desc": "inferred (delta 112)"
+        },
+        "0x81bc": {
+            "alias": "0x822c",
+            "desc": "inferred (delta 112)"
+        },
+        "0x81bd": {
+            "alias": "0x822d",
+            "desc": "Power Crush Properties"
+        },
+        "0x81be": {
+            "alias": "0x822e",
+            "desc": "Rage Art FX"
+        },
+        "0x81bf": {
+            "alias": "0x822f",
+            "desc": "Claudio Starbust Properties"
+        },
+        "0x81c0": {
+            "alias": "0x8230",
+            "desc": "inferred (delta 112)"
+        },
+        "0x81c1": {
+            "alias": "0x8231",
+            "desc": "inferred (delta 112)"
+        },
+        "0x81c2": {
+            "alias": "0x8232",
+            "desc": "inferred (delta 112): Modify Meter"
+        },
+        "0x81c3": {
+            "alias": "0x8233",
+            "desc": "inferred (delta 112): Set Player Origin"
+        },
+        "0x81c4": {
+            "alias": "0x8234",
+            "desc": "inferred (delta 112): Start Player Backturned"
+        },
+        "0x81c5": {
+            "alias": "0x8235",
+            "desc": "inferred (delta 112)"
+        },
+        "0x81c6": {
+            "alias": "0x8236",
+            "desc": "inferred (delta 112): Disable Meter Build"
+        },
+        "0x81c7": {
+            "alias": "0x8237",
+            "desc": "inferred (delta 112): Modify Meter"
+        },
+        "0x81c8": {
+            "alias": "0x8238",
+            "desc": "Skip Frames of Move (=N)"
+        },
+        "0x81c9": {
+            "alias": "0x8239",
+            "desc": "Skip Frames of Move (+N)"
+        },
+        "0x81ca": {
+            "alias": "0x823a",
+            "desc": "inferred (delta 112): Skip Frames of move (-N)"
+        },
+        "0x81cb": {
+            "alias": "0x823b",
+            "desc": "Skip frames of move (= N + 0x1000)"
+        },
+        "0x81cc": {
+            "alias": "0x823c",
+            "desc": "Skip frames of move (= N + 0x2000)"
+        },
+        "0x81cd": {
+            "alias": "0x823d",
+            "desc": ""
+        },
+        "0x81ce": {
+            "alias": "0x823e",
+            "desc": "inferred (delta 112)"
+        },
+        "0x81cf": {
+            "alias": "0x823f",
+            "desc": "inferred (delta 112): Skip frames of move (= N + 0x4000)"
+        },
+        "0x81d0": {
+            "alias": "0x8240",
+            "desc": "inferred (delta 112): Skip frames of move (= N + 0x8000)"
+        },
+        "0x81d1": {
+            "alias": "0x8241",
+            "desc": "inferred (delta 112)"
+        },
+        "0x81d2": {
+            "alias": "0x8242",
+            "desc": "inferred (delta 112)"
+        },
+        "0x81d3": {
+            "alias": "0x8243",
+            "desc": "inferred (delta 112)"
+        },
+        "0x81d4": {
+            "alias": "0x8244",
+            "desc": "Force Move on Opponent"
+        },
+        "0x81d5": {
+            "alias": "0x8245",
+            "desc": "inferred (delta 112): Force Move on Opponent"
+        },
+        "0x81d6": {
+            "alias": "0x8246",
+            "desc": "Set Player Speed"
+        },
+        "0x81d7": {
+            "alias": "0x8247",
+            "desc": "Add to Player Speed (modifier)"
+        },
+        "0x81d8": {
+            "alias": "0x8248",
+            "desc": "inferred (delta 112): Set Opponent Speed"
+        },
+        "0x81d9": {
+            "alias": "0x8249",
+            "desc": "inferred (delta 112): Add to Opponent Speed (modifier)"
+        },
+        "0x81da": {
+            "alias": "0x824a",
+            "desc": "inferred (delta 112): Set Maximum Player Speed"
+        },
+        "0x81db": {
+            "alias": "0x824b",
+            "desc": "Set Minimum Player Speed"
+        },
+        "0x81dc": {
+            "alias": "0x824c",
+            "desc": "inferred (delta 112): Change Animation"
+        },
+        "0x81dd": {
+            "alias": "0x824d",
+            "desc": "Blend With Move"
+        },
+        "0x81de": {
+            "alias": "0x824e",
+            "desc": "Blend With Move Each Frame"
+        },
+        "0x81df": {
+            "alias": "0x824f",
+            "desc": ""
+        },
+        "0x81e0": {
+            "alias": "0x8250",
+            "desc": "Blending Duration"
+        },
+        "0x81e1": {
+            "alias": "0x8251",
+            "desc": "Horizontal Animation Distance Multiplier (Eased Horizontal Movement)"
+        },
+        "0x81e2": {
+            "alias": "0x8252",
+            "desc": "Vertical Animation Distance Multiplier (Eased Vertical Movement)"
+        },
+        "0x81e3": {
+            "alias": "0x8253",
+            "desc": ""
+        },
+        "0x81e4": {
+            "alias": "0x837a",
+            "desc": "Break Floor Function"
+        },
+        "0x81e5": {
+            "alias": "0x8255",
+            "desc": ""
+        },
+        "0x81e6": {
+            "alias": "0x8256",
+            "desc": "inferred (delta 112)"
+        },
+        "0x81e7": {
+            "alias": "0x8257",
+            "desc": ""
+        },
+        "0x81e8": {
+            "alias": "0x8258",
+            "desc": "Inflict Pushback"
+        },
+        "0x81e9": {
+            "alias": "0x800d",
+            "desc": ""
+        },
+        "0x81ea": {
+            "alias": "0x825a",
+            "desc": "Align pushback with self"
+        },
+        "0x81eb": {
+            "alias": "0x825b",
+            "desc": "Align pushback with self (backwards)"
+        },
+        "0x81ec": {
+            "alias": "0x825c",
+            "desc": "Enable/Disable Gravity"
+        },
+        "0x81ed": {
+            "alias": "0x825d",
+            "desc": "inferred (delta 112): Inflict Pushback"
+        },
+        "0x81ee": {
+            "alias": "0x825e",
+            "desc": "inferred (delta 112)"
+        },
+        "0x81ef": {
+            "alias": "0x825f",
+            "desc": "Align opponent pushback with self"
+        },
+        "0x81f0": {
+            "alias": "0x8260",
+            "desc": "Inflict Pushback"
+        },
+        "0x81f1": {
+            "alias": "0x8261",
+            "desc": "inferred (delta 112)"
+        },
+        "0x81f2": {
+            "alias": "0x8262",
+            "desc": "Select VFX for Laser"
+        },
+        "0x81f3": {
+            "alias": "0x8263",
+            "desc": "Activate Laser"
+        },
+        "0x81f4": {
+            "alias": "0x8264",
+            "desc": "Deactivate Laser"
+        },
+        "0x81f5": {
+            "alias": "0x8265",
+            "desc": "inferred (delta 112)"
+        },
+        "0x81f6": {
+            "alias": "0x8266",
+            "desc": "inferred (delta 112)"
+        },
+        "0x81f7": {
+            "alias": "0x8267",
+            "desc": "inferred (delta 112)"
+        },
+        "0x81f8": {
+            "alias": "0x8268",
+            "desc": "inferred (delta 112)"
+        },
+        "0x81f9": {
+            "alias": "0x8269",
+            "desc": "inferred (delta 112)"
+        },
+        "0x81fa": {
+            "alias": "0x826a",
+            "desc": ""
+        },
+        "0x81fb": {
+            "alias": "0x826b",
+            "desc": "inferred (delta 112)"
+        },
+        "0x81fc": {
+            "alias": "0x826c",
+            "desc": "inferred (delta 112)"
+        },
+        "0x81fd": {
+            "alias": "0x826d",
+            "desc": "inferred (delta 112)"
+        },
+        "0x81fe": {
+            "alias": "0x826e",
+            "desc": "inferred (delta 112): Reset Upwards Vector"
+        },
+        "0x81ff": {
+            "alias": "0x826f",
+            "desc": "Slide Player"
+        },
+        "0x8200": {
+            "alias": "0x8270",
+            "desc": "Set Player Sliding Direction"
+        },
+        "0x8201": {
+            "alias": "0x8271",
+            "desc": "inferred (delta 112): Slide Player on world axis"
+        },
+        "0x8202": {
+            "alias": "0x8272",
+            "desc": "Rotate Player"
+        },
+        "0x8203": {
+            "alias": "0x8273",
+            "desc": "inferred (delta 112): Rotate Opponent"
+        },
+        "0x8204": {
+            "alias": "0x8274",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8205": {
+            "alias": "0x8275",
+            "desc": "inferred (delta 112): Push Player in Z-axis"
+        },
+        "0x8206": {
+            "alias": "0x8276",
+            "desc": "inferred (delta 112): Push Player in X-axis"
+        },
+        "0x8207": {
+            "alias": "0x8277",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8208": {
+            "alias": "0x8278",
+            "desc": "inferred (delta 112): Push Player in Y-axis (height)"
+        },
+        "0x8209": {
+            "alias": "0x8279",
+            "desc": "Push Player in Y-axis (height)"
+        },
+        "0x820a": {
+            "alias": "0x827a",
+            "desc": ""
+        },
+        "0x820b": {
+            "alias": "0x827b",
+            "desc": "inferred (delta 112): Spawn Projectile"
+        },
+        "0x820c": {
+            "alias": "0x827c",
+            "desc": "inferred (delta 112): Projectile Spawn Limb"
+        },
+        "0x820d": {
+            "alias": "0x827d",
+            "desc": "inferred (delta 112): Projectile Spawn Horizontal Distance"
+        },
+        "0x820e": {
+            "alias": "0x827e",
+            "desc": "inferred (delta 112): Projectile Spawn Vertical Distance"
+        },
+        "0x820f": {
+            "alias": "0x827f",
+            "desc": "inferred (delta 112): Projectile Spawn Lateral Distance"
+        },
+        "0x8210": {
+            "alias": "0x8280",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8211": {
+            "alias": "0x8281",
+            "desc": ""
+        },
+        "0x8212": {
+            "alias": "0x8282",
+            "desc": ""
+        },
+        "0x8213": {
+            "alias": "0x8283",
+            "desc": "inferred (delta 112): Neutralising Projectile"
+        },
+        "0x8214": {
+            "alias": "0x8284",
+            "desc": "inferred (delta 112): Deflect Projecile"
+        },
+        "0x8215": {
+            "alias": "0x8285",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8216": {
+            "alias": "0x8286",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8217": {
+            "alias": "0x8287",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8218": {
+            "alias": "0x8288",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8219": {
+            "alias": "0x8289",
+            "desc": "inferred (delta 112)"
+        },
+        "0x821a": {
+            "alias": "0x828a",
+            "desc": "inferred (delta 112)"
+        },
+        "0x821b": {
+            "alias": "0x828b",
+            "desc": "Enable Scaled Damage"
+        },
+        "0x821c": {
+            "alias": "0x828c",
+            "desc": "Hit with Scaled Damage (Opponent)"
+        },
+        "0x821d": {
+            "alias": "0x828d",
+            "desc": "Hit with Scaled Damage (Self)"
+        },
+        "0x821e": {
+            "alias": "0x828e",
+            "desc": "inferred (delta 112)"
+        },
+        "0x821f": {
+            "alias": "0x828f",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8220": {
+            "alias": "0x8290",
+            "desc": "Hit with Scaled Damage (Self)"
+        },
+        "0x8221": {
+            "alias": "0x8291",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8222": {
+            "alias": "0x8292",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8223": {
+            "alias": "0x8293",
+            "desc": "Inflict Self Damage"
+        },
+        "0x8224": {
+            "alias": "0x8294",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8225": {
+            "alias": "0x8295",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8226": {
+            "alias": "0x8296",
+            "desc": "inferred (delta 112): 2D Jump Height"
+        },
+        "0x8227": {
+            "alias": "0x8297",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8228": {
+            "alias": "0x8298",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8229": {
+            "alias": "0x8299",
+            "desc": "inferred (delta 112): EX Effect"
+        },
+        "0x822a": {
+            "alias": "0x829a",
+            "desc": "inferred (delta 112)"
+        },
+        "0x822b": {
+            "alias": "0x829b",
+            "desc": "inferred (delta 112)"
+        },
+        "0x822c": {
+            "alias": "0x829c",
+            "desc": "inferred (delta 112)"
+        },
+        "0x822d": {
+            "alias": "0x829d",
+            "desc": "inferred (delta 112)"
+        },
+        "0x822e": {
+            "alias": "0x829e",
+            "desc": "inferred (delta 112)"
+        },
+        "0x822f": {
+            "alias": "0x829f",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8230": {
+            "alias": "0x82a0",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8231": {
+            "alias": "0x82a1",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8232": {
+            "alias": "0x82a2",
+            "desc": "inferred (delta 112): EX Effect Enabled"
+        },
+        "0x8233": {
+            "alias": "0x82a3",
+            "desc": "inferred (delta 112): Set Rage Drive Background Effect Color"
+        },
+        "0x8234": {
+            "alias": "0x82a4",
+            "desc": "inferred (delta 112): Rage Drive Background Effect"
+        },
+        "0x8235": {
+            "alias": "0x82a5",
+            "desc": "inferred (delta 112): Set Chip Damage"
+        },
+        "0x8236": {
+            "alias": "0x82a6",
+            "desc": ""
+        },
+        "0x8237": {
+            "alias": "0x82a7",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8238": {
+            "alias": "0x82a8",
+            "desc": ""
+        },
+        "0x8239": {
+            "alias": "0x82a9",
+            "desc": "Add scaling (downed)"
+        },
+        "0x8242": {
+            "alias": "0x80d1",
+            "desc": ""
+        },
+        "0x8245": {
+            "alias": "0x82b5",
+            "desc": ""
+        },
+        "0x8246": {
+            "alias": "0x82b6",
+            "desc": "Add to Combo Counter"
+        },
+        "0x8247": {
+            "alias": "0x82b7",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8248": {
+            "alias": "0x82b8",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8249": {
+            "alias": "0x82b9",
+            "desc": "inferred (delta 112)"
+        },
+        "0x824a": {
+            "alias": "0x82ba",
+            "desc": "AI Input (Practice Mode Only)"
+        },
+        "0x824b": {
+            "alias": "0x82bb",
+            "desc": "Ai Input(?)"
+        },
+        "0x824c": {
+            "alias": "0x82bc",
+            "desc": "Reset Combo Meter"
+        },
+        "0x824d": {
+            "alias": "0x82bd",
+            "desc": "AI Input(?)"
+        },
+        "0x824e": {
+            "alias": "0x82be",
+            "desc": "Add to Combo Counter"
+        },
+        "0x824f": {
+            "alias": "0x82bf",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8250": {
+            "alias": "0x82c0",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8251": {
+            "alias": "0x82c1",
+            "desc": "Player Visibilty"
+        },
+        "0x8252": {
+            "alias": "0x82c2",
+            "desc": "inferred (delta 112): Opponent Visibilty"
+        },
+        "0x8253": {
+            "alias": "0x82c3",
+            "desc": ""
+        },
+        "0x8254": {
+            "alias": "0x82c4",
+            "desc": ""
+        },
+        "0x8255": {
+            "alias": "0x82c5",
+            "desc": "Spend Screw"
+        },
+        "0x8256": {
+            "alias": "0x82c6",
+            "desc": "inferred (delta 112): Reset Combo Damage Scaling"
+        },
+        "0x8257": {
+            "alias": "0x82c7",
+            "desc": "Extend Left Shoulder Hurtbox"
+        },
+        "0x8258": {
+            "alias": "0x82c8",
+            "desc": ""
+        },
+        "0x8259": {
+            "alias": "0x82c9",
+            "desc": ""
+        },
+        "0x825a": {
+            "alias": "0x82ca",
+            "desc": ""
+        },
+        "0x825b": {
+            "alias": "0x82cb",
+            "desc": "inferred (delta 112)"
+        },
+        "0x825c": {
+            "alias": "0x82cc",
+            "desc": "inferred (delta 112)"
+        },
+        "0x825d": {
+            "alias": "0x82cd",
+            "desc": ""
+        },
+        "0x825e": {
+            "alias": "0x82ce",
+            "desc": "inferred (delta 112)"
+        },
+        "0x825f": {
+            "alias": "0x82cf",
+            "desc": ""
+        },
+        "0x8260": {
+            "alias": "0x82d0",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8261": {
+            "alias": "0x82d1",
+            "desc": ""
+        },
+        "0x8262": {
+            "alias": "0x82d2",
+            "desc": "Wing Flap Animation"
+        },
+        "0x8263": {
+            "alias": "0x82d3",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8264": {
+            "alias": "0x82d4",
+            "desc": "inferred (delta 112): Yoshimitsu's Sword Related?"
+        },
+        "0x8265": {
+            "alias": "0x82d5",
+            "desc": "Yoshimitsu's Sword Related?"
+        },
+        "0x8266": {
+            "alias": "0x82d6",
+            "desc": "inferred (delta 112): Master Raven's Sword Related?"
+        },
+        "0x8267": {
+            "alias": "0x82d7",
+            "desc": "inferred (delta 112): Master Raven's Sword Related?"
+        },
+        "0x8268": {
+            "alias": "0x82d8",
+            "desc": "Yoshimitsu's main sword effect"
+        },
+        "0x8269": {
+            "alias": "0x82d9",
+            "desc": "inferred (delta 112): Yoshimitsu's second sword effect"
+        },
+        "0x826a": {
+            "alias": "0x82da",
+            "desc": "inferred (delta 112): Homing Particle (Left Hand)"
+        },
+        "0x826b": {
+            "alias": "0x82db",
+            "desc": "inferred (delta 112): Homing Particle (Right Hand)"
+        },
+        "0x826c": {
+            "alias": "0x82dc",
+            "desc": "inferred (delta 112): Homing Particle Effect (Left Foot)"
+        },
+        "0x826d": {
+            "alias": "0x82dd",
+            "desc": "inferred (delta 112): Homing Particle Effect (Right Foot)"
+        },
+        "0x826e": {
+            "alias": "0x82de",
+            "desc": "inferred (delta 112)"
+        },
+        "0x826f": {
+            "alias": "0x82df",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8270": {
+            "alias": "0x82e0",
+            "desc": "inferred (delta 112): Activates Rage"
+        },
+        "0x8271": {
+            "alias": "0x82e1",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8272": {
+            "alias": "0x82e2",
+            "desc": "Spend Rage"
+        },
+        "0x8273": {
+            "alias": "0x82e3",
+            "desc": ""
+        },
+        "0x8274": {
+            "alias": "0x82e4",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8275": {
+            "alias": "0x82e5",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8276": {
+            "alias": "0x82e6",
+            "desc": ""
+        },
+        "0x8277": {
+            "alias": "0x82e7",
+            "desc": "inferred (delta 112): Trigger Opponent Rage"
+        },
+        "0x8278": {
+            "alias": "0x82e8",
+            "desc": "Heat Related?"
+        },
+        "0x8279": {
+            "alias": "0x82e9",
+            "desc": "inferred (delta 112)"
+        },
+        "0x827a": {
+            "alias": "0x82ea",
+            "desc": "inferred (delta 112)"
+        },
+        "0x827b": {
+            "alias": "0x82eb",
+            "desc": "inferred (delta 112)"
+        },
+        "0x827c": {
+            "alias": "0x82ec",
+            "desc": "inferred (delta 112)"
+        },
+        "0x827d": {
+            "alias": "0x82ed",
+            "desc": "inferred (delta 112)"
+        },
+        "0x827e": {
+            "alias": "0x82ee",
+            "desc": ""
+        },
+        "0x827f": {
+            "alias": "0x82ef",
+            "desc": ""
+        },
+        "0x8280": {
+            "alias": "0x82f0",
+            "desc": "Enable/Disable Neck Tracking"
+        },
+        "0x8281": {
+            "alias": "0x82f1",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8282": {
+            "alias": "0x82f2",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8283": {
+            "alias": "0x82f3",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8284": {
+            "alias": "0x82f4",
+            "desc": ""
+        },
+        "0x8285": {
+            "alias": "0x82f5",
+            "desc": ""
+        },
+        "0x8286": {
+            "alias": "0x82f6",
+            "desc": ""
+        },
+        "0x8287": {
+            "alias": "0x82f7",
+            "desc": ""
+        },
+        "0x8288": {
+            "alias": "0x82f8",
+            "desc": ""
+        },
+        "0x8289": {
+            "alias": "0x82f9",
+            "desc": ""
+        },
+        "0x828a": {
+            "alias": "0x82fa",
+            "desc": ""
+        },
+        "0x828b": {
+            "alias": "0x83d6",
+            "desc": "Adjust Game Speed"
+        },
+        "0x828d": {
+            "alias": "0x82fd",
+            "desc": "Slow Down Effect Immunity"
+        },
+        "0x828e": {
+            "alias": "0x82fe",
+            "desc": "inferred (delta 112)"
+        },
+        "0x828f": {
+            "alias": "0x82ff",
+            "desc": "inferred (delta 112): Play Kazumi's tiger anim"
+        },
+        "0x8290": {
+            "alias": "0x8300",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8291": {
+            "alias": "0x8301",
+            "desc": ""
+        },
+        "0x8292": {
+            "alias": "0x8302",
+            "desc": "Player Stop Motion Effect"
+        },
+        "0x8293": {
+            "alias": "0x8303",
+            "desc": "Opponent Stop Motion Effect"
+        },
+        "0x8294": {
+            "alias": "0x8304",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8295": {
+            "alias": "0x8305",
+            "desc": ""
+        },
+        "0x8296": {
+            "alias": "0x8306",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8297": {
+            "alias": "0x8307",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8298": {
+            "alias": "0x8308",
+            "desc": ""
+        },
+        "0x8299": {
+            "alias": "0x8309",
+            "desc": "inferred (delta 112)"
+        },
+        "0x829a": {
+            "alias": "0x830a",
+            "desc": ""
+        },
+        "0x829f": {
+            "alias": "0x83ad",
+            "desc": "Play Subtitles Text"
+        },
+        "0x82ab": {
+            "alias": "0x831b",
+            "desc": ""
+        },
+        "0x82ac": {
+            "alias": "0x831c",
+            "desc": ""
+        },
+        "0x82ad": {
+            "alias": "0x831d",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82ae": {
+            "alias": "0x831e",
+            "desc": "inferred (delta 112): Noctis Warp Effect"
+        },
+        "0x82af": {
+            "alias": "0x831f",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82b0": {
+            "alias": "0x8320",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82b1": {
+            "alias": "0x8321",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82b2": {
+            "alias": "0x8322",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82b3": {
+            "alias": "0x8323",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82b4": {
+            "alias": "0x8324",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82b5": {
+            "alias": "0x8325",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82b6": {
+            "alias": "0x8326",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82b7": {
+            "alias": "0x8327",
+            "desc": ""
+        },
+        "0x82b8": {
+            "alias": "0x8328",
+            "desc": ""
+        },
+        "0x82b9": {
+            "alias": "0x8329",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82ba": {
+            "alias": "0x832a",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82bb": {
+            "alias": "0x832b",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82bc": {
+            "alias": "0x832c",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82bd": {
+            "alias": "0x832d",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82be": {
+            "alias": "0x832e",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82bf": {
+            "alias": "0x832f",
+            "desc": "inferred (delta 112): Assist Button Pressed VFX"
+        },
+        "0x82c0": {
+            "alias": "0x8330",
+            "desc": ""
+        },
+        "0x82c1": {
+            "alias": "0x8331",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82c2": {
+            "alias": "0x8332",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82c3": {
+            "alias": "0x8333",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82c4": {
+            "alias": "0x8334",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82c5": {
+            "alias": "0x8335",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82c6": {
+            "alias": "0x8336",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82c7": {
+            "alias": "0x8337",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82c8": {
+            "alias": "0x8338",
+            "desc": "Use \"Fake\" Frame Advantage"
+        },
+        "0x82c9": {
+            "alias": "0x8339",
+            "desc": "Add \"Fake\" Startup Frames"
+        },
+        "0x82ca": {
+            "alias": "0x833a",
+            "desc": ""
+        },
+        "0x82cb": {
+            "alias": "0x833b",
+            "desc": "Special Cancellable (?)"
+        },
+        "0x82cc": {
+            "alias": "0x833c",
+            "desc": "Activate Azazel hand"
+        },
+        "0x82cd": {
+            "alias": "0x833d",
+            "desc": "Spend Azazel hand"
+        },
+        "0x82ce": {
+            "alias": "0x833e",
+            "desc": ""
+        },
+        "0x82cf": {
+            "alias": "0x833f",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82d0": {
+            "alias": "0x8340",
+            "desc": ""
+        },
+        "0x82d1": {
+            "alias": "0x8341",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82d2": {
+            "alias": "0x8342",
+            "desc": ""
+        },
+        "0x82d3": {
+            "alias": "0x8343",
+            "desc": ""
+        },
+        "0x82d4": {
+            "alias": "0x8344",
+            "desc": ""
+        },
+        "0x82d5": {
+            "alias": "0x8345",
+            "desc": ""
+        },
+        "0x82d6": {
+            "alias": "0x8346",
+            "desc": ""
+        },
+        "0x82d7": {
+            "alias": "0x8347",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82d8": {
+            "alias": "0x8348",
+            "desc": "inferred (delta 112): Set partner's move (Sugar)"
+        },
+        "0x82d9": {
+            "alias": "0x8349",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82da": {
+            "alias": "0x834a",
+            "desc": ""
+        },
+        "0x82db": {
+            "alias": "0x834b",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82dc": {
+            "alias": "0x834c",
+            "desc": ""
+        },
+        "0x82dd": {
+            "alias": "0x834d",
+            "desc": ""
+        },
+        "0x82de": {
+            "alias": "0x834e",
+            "desc": ""
+        },
+        "0x82df": {
+            "alias": "0x834f",
+            "desc": ""
+        },
+        "0x82e0": {
+            "alias": "0x8350",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82e1": {
+            "alias": "0x8351",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82e2": {
+            "alias": "0x8352",
+            "desc": ""
+        },
+        "0x82e3": {
+            "alias": "0x8353",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82e4": {
+            "alias": "0x8354",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82e5": {
+            "alias": "0x8355",
+            "desc": ""
+        },
+        "0x82e6": {
+            "alias": "0x8356",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82e7": {
+            "alias": "0x8357",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82e8": {
+            "alias": "0x8358",
+            "desc": ""
+        },
+        "0x82e9": {
+            "alias": "0x8359",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82ea": {
+            "alias": "0x835a",
+            "desc": ""
+        },
+        "0x82eb": {
+            "alias": "0x835b",
+            "desc": "inferred (delta 112): Spend One Per Match Move"
+        },
+        "0x82ec": {
+            "alias": "0x835c",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82ed": {
+            "alias": "0x835d",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82ee": {
+            "alias": "0x835e",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82ef": {
+            "alias": "0x835f",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82f0": {
+            "alias": "0x8360",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82f1": {
+            "alias": "0x8361",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82f2": {
+            "alias": "0x8362",
+            "desc": ""
+        },
+        "0x82f3": {
+            "alias": "0x8363",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82f4": {
+            "alias": "0x8364",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82f5": {
+            "alias": "0x8365",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82f6": {
+            "alias": "0x8366",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82f7": {
+            "alias": "0x8367",
+            "desc": ""
+        },
+        "0x82f8": {
+            "alias": "0x8368",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82f9": {
+            "alias": "0x8369",
+            "desc": ""
+        },
+        "0x82fa": {
+            "alias": "0x836a",
+            "desc": "inferred (delta 112): Fahkumram Skin Pulse"
+        },
+        "0x82fb": {
+            "alias": "0x836b",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82fc": {
+            "alias": "0x836c",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82fd": {
+            "alias": "0x836d",
+            "desc": ""
+        },
+        "0x82fe": {
+            "alias": "0x836e",
+            "desc": "inferred (delta 112)"
+        },
+        "0x82ff": {
+            "alias": "0x836f",
+            "desc": "inferred (delta 112)"
+        },
+        "0x8300": {
+            "alias": "0x8370",
+            "desc": "Attach Kunimitsu's Items"
+        },
+        "0x8301": {
+            "alias": "0x8371",
+            "desc": "De-attach Kunimitsu's Items"
+        },
+        "0x8302": {
+            "alias": "0x8372",
+            "desc": "inferred (delta 112): Kunimitsu Throwing Knife Trail VFX (?)"
+        },
+        "0x8303": {
+            "alias": "0x8373",
+            "desc": ""
+        },
+        "0x8328": {
+            "alias": "0x846f",
+            "desc": ""
+        },
+        "0x8329": {
+            "alias": "0x8470",
+            "desc": "inferred (delta 327)"
+        },
+        "0x832a": {
+            "alias": "0x8471",
+            "desc": "inferred (delta 327)"
+        },
+        "0x832b": {
+            "alias": "0x8472",
+            "desc": ""
+        },
+        "0x832c": {
+            "alias": "0x8473",
+            "desc": "Projectile Draw / Lifespan"
+        },
+        "0x832d": {
+            "alias": "0x8474",
+            "desc": "Projectile Damage"
+        },
+        "0x832e": {
+            "alias": "0x8475",
+            "desc": "Projectile Hit Level"
+        },
+        "0x832f": {
+            "alias": "0x8476",
+            "desc": ""
+        },
+        "0x8330": {
+            "alias": "0x8477",
+            "desc": "Projectile Hit Recovery(?)"
+        },
+        "0x8331": {
+            "alias": "0x8478",
+            "desc": "Projectile Grounded Reaction List"
+        },
+        "0x8332": {
+            "alias": "0x8479",
+            "desc": "Projectile Airborne Reaction List"
+        },
+        "0x8333": {
+            "alias": "0x847a",
+            "desc": "Attach Item to Limb"
+        },
+        "0x8334": {
+            "alias": "0x847b",
+            "desc": "inferred (delta 327)"
+        },
+        "0x8335": {
+            "alias": "0x847c",
+            "desc": ""
+        },
+        "0x8336": {
+            "alias": "0x847d",
+            "desc": "Projectile 30 Degrees"
+        },
+        "0x8337": {
+            "alias": "0x847f",
+            "desc": "Projectile Horizontal Velocity"
+        },
+        "0x8338": {
+            "alias": "0x8480",
+            "desc": "Projectile Vertical Velocity"
+        },
+        "0x8339": {
+            "alias": "0x8481",
+            "desc": ""
+        },
+        "0x833a": {
+            "alias": "0x8482",
+            "desc": ""
+        },
+        "0x833b": {
+            "alias": "0x8483",
+            "desc": ""
+        },
+        "0x833c": {
+            "alias": "0x8484",
+            "desc": ""
+        },
+        "0x833d": {
+            "alias": "0x8485",
+            "desc": ""
+        },
+        "0x833e": {
+            "alias": "0x8486",
+            "desc": "Projectile Spawn"
+        },
+        "0x833f": {
+            "alias": "0x8487",
+            "desc": ""
+        },
+        "0x8340": {
+            "alias": "0x8488",
+            "desc": "Grounded Projectile"
+        },
+        "0x8341": {
+            "alias": "0x8489",
+            "desc": ""
+        },
+        "0x8342": {
+            "alias": "0x848a",
+            "desc": ""
+        },
+        "0x8343": {
+            "alias": "0x848b",
+            "desc": "Attach Item(?)"
+        },
+        "0x8344": {
+            "alias": "0x848c",
+            "desc": "Detach Item(?)"
+        },
+        "0x8348": {
+            "alias": "0x8491",
+            "desc": ""
+        },
+        "0x8349": {
+            "alias": "0x8492",
+            "desc": ""
+        },
+        "0x835f": {
+            "alias": "0x83f5",
+            "desc": ""
+        },
+        "0x8360": {
+            "alias": "0x84a9",
+            "desc": ""
+        },
+        "0x8361": {
+            "alias": "0x84aa",
+            "desc": "inferred (delta 329)"
+        },
+        "0x8362": {
+            "alias": "0x84ab",
+            "desc": "inferred (delta 329)"
+        },
+        "0x8363": {
+            "alias": "0x84ac",
+            "desc": ""
+        },
+        "0x8364": {
+            "alias": "0x84ad",
+            "desc": ""
+        },
+        "0x8365": {
+            "alias": "0x84ae",
+            "desc": "inferred (delta 329)"
+        },
+        "0x8366": {
+            "alias": "0x84af",
+            "desc": ""
+        },
+        "0x8367": {
+            "alias": "0x84b0",
+            "desc": ""
+        },
+        "0x8368": {
+            "alias": "0x84b1",
+            "desc": ""
+        },
+        "0x8369": {
+            "alias": "0x84b2",
+            "desc": "inferred (delta 329)"
+        },
+        "0x836a": {
+            "alias": "0x84b3",
+            "desc": "inferred (delta 329)"
+        },
+        "0x836b": {
+            "alias": "0x84b4",
+            "desc": "inferred (delta 329)"
+        },
+        "0x836c": {
+            "alias": "0x84b5",
+            "desc": "inferred (delta 329)"
+        },
+        "0x836d": {
+            "alias": "0x84b6",
+            "desc": "inferred (delta 329)"
+        },
+        "0x836e": {
+            "alias": "0x84b7",
+            "desc": "inferred (delta 329)"
+        },
+        "0x836f": {
+            "alias": "0x84b8",
+            "desc": "inferred (delta 329)"
+        },
+        "0x8370": {
+            "alias": "0x84b9",
+            "desc": "inferred (delta 329)"
+        },
+        "0x8371": {
+            "alias": "0x84ba",
+            "desc": "inferred (delta 329)"
+        },
+        "0x8372": {
+            "alias": "0x84bb",
+            "desc": "inferred (delta 329)"
+        },
+        "0x8373": {
+            "alias": "0x84bc",
+            "desc": "inferred (delta 329)"
+        },
+        "0x8374": {
+            "alias": "0x84bd",
+            "desc": "inferred (delta 329)"
+        },
+        "0x8375": {
+            "alias": "0x84be",
+            "desc": "inferred (delta 329)"
+        },
+        "0x8376": {
+            "alias": "0x84bf",
+            "desc": "inferred (delta 329)"
+        },
+        "0x8377": {
+            "alias": "0x84c0",
+            "desc": "inferred (delta 329)"
+        },
+        "0x8378": {
+            "alias": "0x84c1",
+            "desc": "inferred (delta 329)"
+        },
+        "0x8379": {
+            "alias": "0x84c2",
+            "desc": "inferred (delta 329)"
+        },
+        "0x837a": {
+            "alias": "0x84c3",
+            "desc": "inferred (delta 329)"
+        },
+        "0x837b": {
+            "alias": "0x84c4",
+            "desc": "inferred (delta 329)"
+        },
+        "0x837c": {
+            "alias": "0x84c5",
+            "desc": "inferred (delta 329)"
+        },
+        "0x837d": {
+            "alias": "0x84c6",
+            "desc": "inferred (delta 329)"
+        },
+        "0x837e": {
+            "alias": "0x84c7",
+            "desc": "inferred (delta 329): Select Limb for Resizing"
+        },
+        "0x837f": {
+            "alias": "0x84c8",
+            "desc": "inferred (delta 329): Set Player Model Size"
+        },
+        "0x8380": {
+            "alias": "0x84c9",
+            "desc": "inferred (delta 329)"
+        },
+        "0x8381": {
+            "alias": "0x84ca",
+            "desc": "inferred (delta 329)"
+        },
+        "0x8382": {
+            "alias": "0x84cb",
+            "desc": "inferred (delta 329)"
+        },
+        "0x8383": {
+            "alias": "0x84cc",
+            "desc": "inferred (delta 329)"
+        },
+        "0x8384": {
+            "alias": "0x84cd",
+            "desc": "inferred (delta 329)"
+        },
+        "0x8385": {
+            "alias": "0x84ce",
+            "desc": "inferred (delta 329)"
+        },
+        "0x8386": {
+            "alias": "0x84cf",
+            "desc": "inferred (delta 329)"
+        },
+        "0x8387": {
+            "alias": "0x84d0",
+            "desc": ""
+        },
+        "0x8388": {
+            "alias": "0x84d1",
+            "desc": ""
+        },
+        "0x8389": {
+            "alias": "0x84d2",
+            "desc": ""
+        },
+        "0x838a": {
+            "alias": "0x84d3",
+            "desc": ""
+        },
+        "0x838b": {
+            "alias": "0x84d4",
+            "desc": ""
+        },
+        "0x838c": {
+            "alias": "0x84d5",
+            "desc": ""
+        },
+        "0x838d": {
+            "alias": "0x84d6",
+            "desc": ""
+        },
+        "0x838e": {
+            "alias": "0x84d7",
+            "desc": ""
+        },
+        "0x838f": {
+            "alias": "0x84d8",
+            "desc": "inferred (delta 329)"
+        },
+        "0x8390": {
+            "alias": "0x84d9",
+            "desc": ""
+        },
+        "0x8391": {
+            "alias": "0x84da",
+            "desc": "inferred (delta 329)"
+        },
+        "0x8392": {
+            "alias": "0x84db",
+            "desc": ""
+        },
+        "0x8393": {
+            "alias": "0x84dc",
+            "desc": "inferred (delta 329)"
+        },
+        "0x8394": {
+            "alias": "0x84dd",
+            "desc": "inferred (delta 329)"
+        },
+        "0x8395": {
+            "alias": "0x84de",
+            "desc": "inferred (delta 329)"
+        },
+        "0x8396": {
+            "alias": "0x84df",
+            "desc": "inferred (delta 329)"
+        },
+        "0x8397": {
+            "alias": "0x84e0",
+            "desc": "inferred (delta 329)"
+        },
+        "0x8398": {
+            "alias": "0x84e1",
+            "desc": "inferred (delta 329)"
+        },
+        "0x8399": {
+            "alias": "0x84e2",
+            "desc": "inferred (delta 329)"
+        },
+        "0x839a": {
+            "alias": "0x84e3",
+            "desc": "inferred (delta 329)"
+        },
+        "0x839b": {
+            "alias": "0x84e4",
+            "desc": "inferred (delta 329)"
+        },
+        "0x839c": {
+            "alias": "0x84e5",
+            "desc": "inferred (delta 329)"
+        },
+        "0x839d": {
+            "alias": "0x84e6",
+            "desc": "inferred (delta 329)"
+        },
+        "0x839e": {
+            "alias": "0x84e7",
+            "desc": "inferred (delta 329)"
+        },
+        "0x839f": {
+            "alias": "0x84e8",
+            "desc": "inferred (delta 329)"
+        },
+        "0x83a0": {
+            "alias": "0x84e9",
+            "desc": "inferred (delta 329)"
+        },
+        "0x83a1": {
+            "alias": "0x84ea",
+            "desc": "inferred (delta 329)"
+        },
+        "0x83a2": {
+            "alias": "0x84eb",
+            "desc": "Lazy Camera-man Toggle"
+        },
+        "0x83b0": {
+            "alias": "0x82bb",
+            "desc": ""
+        },
+        "0x83b4": {
+            "alias": "0x84fd",
+            "desc": ""
+        },
+        "0x83b5": {
+            "alias": "0x84fe",
+            "desc": "inferred (delta 329)"
+        },
+        "0x83b6": {
+            "alias": "0x84ff",
+            "desc": "inferred (delta 329)"
+        },
+        "0x83b7": {
+            "alias": "0x8500",
+            "desc": "inferred (delta 329)"
+        },
+        "0x83b8": {
+            "alias": "0x8501",
+            "desc": "inferred (delta 329)"
+        },
+        "0x83b9": {
+            "alias": "0x8502",
+            "desc": "inferred (delta 329)"
+        },
+        "0x83ba": {
+            "alias": "0x8503",
+            "desc": "inferred (delta 329)"
+        },
+        "0x83bb": {
+            "alias": "0x8504",
+            "desc": "inferred (delta 329)"
+        },
+        "0x83bc": {
+            "alias": "0x8505",
+            "desc": "inferred (delta 329)"
+        },
+        "0x83bd": {
+            "alias": "0x8506",
+            "desc": "inferred (delta 329)"
+        },
+        "0x83be": {
+            "alias": "0x8507",
+            "desc": "inferred (delta 329)"
+        },
+        "0x83bf": {
+            "alias": "0x8508",
+            "desc": "inferred (delta 329)"
+        },
+        "0x83c0": {
+            "alias": "0x8509",
+            "desc": "inferred (delta 329)"
+        },
+        "0x83c1": {
+            "alias": "0x850a",
+            "desc": "inferred (delta 329)"
+        },
+        "0x83c2": {
+            "alias": "0x850b",
+            "desc": "inferred (delta 329): Set opponent's floor level"
+        },
+        "0x83c3": {
+            "alias": "0x850c",
+            "desc": "inferred (delta 329): Set opponent's move"
+        },
+        "0x83c4": {
+            "alias": "0x850d",
+            "desc": "Force New Default Stance (32768)"
+        },
+        "0x83c5": {
+            "alias": "0x850e",
+            "desc": "Force New Standing Move (32769)"
+        },
+        "0x83c6": {
+            "alias": "0x850f",
+            "desc": "Force New Crouching Move (32770)"
+        },
+        "0x83c7": {
+            "alias": "0x8510",
+            "desc": "Force New Death Move (32771)"
+        },
+        "0x83c8": {
+            "alias": "0x8511",
+            "desc": "Change Alias (32772)"
+        },
+        "0x83c9": {
+            "alias": "0x8512",
+            "desc": "Change Alias (32773)"
+        },
+        "0x83ca": {
+            "alias": "0x8513",
+            "desc": "Change Alias (32774)"
+        },
+        "0x83cb": {
+            "alias": "0x8514",
+            "desc": "Change Alias (32775)"
+        },
+        "0x83cc": {
+            "alias": "0x8515",
+            "desc": "Change Alias (32776)"
+        },
+        "0x83cd": {
+            "alias": "0x8516",
+            "desc": "Change Alias (32777)"
+        },
+        "0x83ce": {
+            "alias": "0x8517",
+            "desc": "Change Alias (32778)"
+        },
+        "0x83cf": {
+            "alias": "0x8518",
+            "desc": "Change Alias (32779)"
+        },
+        "0x83d0": {
+            "alias": "0x8519",
+            "desc": "Change Alias (32780)"
+        },
+        "0x83d1": {
+            "alias": "0x851a",
+            "desc": "Change Alias (32781)"
+        },
+        "0x83d2": {
+            "alias": "0x851b",
+            "desc": "Change Alias (32782)"
+        },
+        "0x83d3": {
+            "alias": "0x851c",
+            "desc": "Change Alias (32783)"
+        },
+        "0x83d4": {
+            "alias": "0x851d",
+            "desc": "Change Alias (32784)"
+        },
+        "0x83d5": {
+            "alias": "0x851e",
+            "desc": "Change Alias (32785)"
+        },
+        "0x83d6": {
+            "alias": "0x851f",
+            "desc": "Change Alias (32786)"
+        },
+        "0x83d7": {
+            "alias": "0x8520",
+            "desc": "Change Alias (32787)"
+        },
+        "0x83d8": {
+            "alias": "0x8521",
+            "desc": "Change Alias (32788)"
+        },
+        "0x83d9": {
+            "alias": "0x8522",
+            "desc": "Change Alias (32789)"
+        },
+        "0x83da": {
+            "alias": "0x8523",
+            "desc": "Change Alias (32790)"
+        },
+        "0x83db": {
+            "alias": "0x8524",
+            "desc": "Change Alias (32791)"
+        },
+        "0x83dc": {
+            "alias": "0x8525",
+            "desc": "Change Alias (32792)"
+        },
+        "0x83dd": {
+            "alias": "0x8526",
+            "desc": "Change Alias (32793)"
+        },
+        "0x83de": {
+            "alias": "0x8527",
+            "desc": "Change Alias (32794)"
+        },
+        "0x83df": {
+            "alias": "0x8528",
+            "desc": "Change Alias (32795)"
+        },
+        "0x83e0": {
+            "alias": "0x8529",
+            "desc": "Change Alias (32796)"
+        },
+        "0x83e1": {
+            "alias": "0x852a",
+            "desc": "Change Alias (32797)"
+        },
+        "0x83e2": {
+            "alias": "0x852b",
+            "desc": "Change Alias (32798)"
+        },
+        "0x83e3": {
+            "alias": "0x852c",
+            "desc": "Change Alias (32799)"
+        },
+        "0x83e4": {
+            "alias": "0x852d",
+            "desc": "Change Alias (32800)"
+        },
+        "0x83e5": {
+            "alias": "0x852e",
+            "desc": "Revert Alias: Default Stance (32768)"
+        },
+        "0x83e6": {
+            "alias": "0x852f",
+            "desc": "inferred (delta 329): Revert Aliases (32769 - 32800)"
+        },
+        "0x83e7": {
+            "alias": "0x8530",
+            "desc": "inferred (delta 329)"
+        },
+        "0x83e8": {
+            "alias": "0x8531",
+            "desc": "inferred (delta 329)"
+        },
+        "0x83e9": {
+            "alias": "0x8532",
+            "desc": "inferred (delta 329)"
+        },
+        "0x83ea": {
+            "alias": "0x8533",
+            "desc": "inferred (delta 329)"
+        },
+        "0x83eb": {
+            "alias": "0x8534",
+            "desc": "inferred (delta 329)"
+        },
+        "0x83ec": {
+            "alias": "0x8535",
+            "desc": "inferred (delta 329)"
+        },
+        "0x83ed": {
+            "alias": "0x8536",
+            "desc": "inferred (delta 329)"
+        },
+        "0x83ee": {
+            "alias": "0x8537",
+            "desc": "inferred (delta 329)"
+        },
+        "0x83ef": {
+            "alias": "0x8538",
+            "desc": "inferred (delta 329)"
+        },
+        "0x83f0": {
+            "alias": "0x8539",
+            "desc": "inferred (delta 329)"
+        },
+        "0x83f1": {
+            "alias": "0x853a",
+            "desc": "inferred (delta 329)"
+        },
+        "0x83f2": {
+            "alias": "0x853b",
+            "desc": "inferred (delta 329)"
+        },
+        "0x83f3": {
+            "alias": "0x853c",
+            "desc": "inferred (delta 329)"
+        },
+        "0x83f4": {
+            "alias": "0x853d",
+            "desc": "inferred (delta 329)"
+        },
+        "0x83f5": {
+            "alias": "0x853e",
+            "desc": "inferred (delta 329)"
+        },
+        "0x83f6": {
+            "alias": "0x853f",
+            "desc": "inferred (delta 329)"
+        },
+        "0x83f7": {
+            "alias": "0x8540",
+            "desc": "inferred (delta 329)"
+        },
+        "0x83f8": {
+            "alias": "0x8541",
+            "desc": "inferred (delta 329)"
+        },
+        "0x83f9": {
+            "alias": "0x8542",
+            "desc": "inferred (delta 329)"
+        },
+        "0x83fa": {
+            "alias": "0x8543",
+            "desc": "inferred (delta 329)"
+        },
+        "0x83fb": {
+            "alias": "0x8544",
+            "desc": "inferred (delta 329)"
+        },
+        "0x83fc": {
+            "alias": "0x8545",
+            "desc": "inferred (delta 329)"
+        },
+        "0x83fd": {
+            "alias": "0x8546",
+            "desc": "inferred (delta 329)"
+        },
+        "0x83fe": {
+            "alias": "0x8547",
+            "desc": "inferred (delta 329)"
+        },
+        "0x83ff": {
+            "alias": "0x8548",
+            "desc": "inferred (delta 329)"
+        },
+        "0x8400": {
+            "alias": "0x8549",
+            "desc": "inferred (delta 329)"
+        },
+        "0x8401": {
+            "alias": "0x854a",
+            "desc": "inferred (delta 329)"
+        },
+        "0x8402": {
+            "alias": "0x854b",
+            "desc": "inferred (delta 329)"
+        },
+        "0x8403": {
+            "alias": "0x854c",
+            "desc": "inferred (delta 329)"
+        },
+        "0x8404": {
+            "alias": "0x854d",
+            "desc": "inferred (delta 329)"
+        },
+        "0x8405": {
+            "alias": "0x854e",
+            "desc": "inferred (delta 329)"
+        },
+        "0x8406": {
+            "alias": "0x854f",
+            "desc": "inferred (delta 329): Rotate Player's Direction"
+        },
+        "0x8407": {
+            "alias": "0x8550",
+            "desc": "inferred (delta 329): Put Opponent Next to Player"
+        },
+        "0x8408": {
+            "alias": "0x8551",
+            "desc": ""
+        },
+        "0x8414": {
+            "alias": "0x855c",
+            "desc": "Store Assist Combo Value"
+        },
+        "0x8428": {
+            "alias": "0x860a",
+            "desc": "Both Hands Pose"
+        },
+        "0x8429": {
+            "alias": "0x860b",
+            "desc": "Left Hand Pose"
+        },
+        "0x842a": {
+            "alias": "0x860c",
+            "desc": "Right Hand Pose"
+        },
+        "0x842b": {
+            "alias": "0x860d",
+            "desc": "inferred (delta 482)"
+        },
+        "0x842c": {
+            "alias": "0x860e",
+            "desc": "Both Hands Mot Related"
+        },
+        "0x842d": {
+            "alias": "0x860f",
+            "desc": "inferred (delta 482): Play Both Hands Animation"
+        },
+        "0x842e": {
+            "alias": "0x8610",
+            "desc": "Play Left Hand Animation"
+        },
+        "0x842f": {
+            "alias": "0x8611",
+            "desc": "Play Right Hand Animation"
+        },
+        "0x8438": {
+            "alias": "0x868b",
+            "desc": "Cinematic Camera (mirror position)"
+        },
+        "0x8439": {
+            "alias": "0x838e",
+            "desc": "Cinematic Camera for Left Side"
+        },
+        "0x843a": {
+            "alias": "0x838e",
+            "desc": "Cinematic Camera for Right Side",
+            "note": "Tekken 8 doesn't have separate left & right side props."
+        },
+        "0x843c": {
+            "alias": "0x868f",
+            "desc": "Throw Camera"
+        },
+        "0x843d": {
+            "alias": "0x8690",
+            "desc": "inferred (delta 595): Throw Camera (for Rage Arts only)"
+        },
+        "0x843e": {
+            "alias": "0x8691",
+            "desc": "inferred (delta 595): Forced Throw Camera"
+        },
+        "0x843f": {
+            "alias": "0x8692",
+            "desc": "inferred (delta 595)"
+        },
+        "0x8440": {
+            "alias": "0x8693",
+            "desc": "inferred (delta 595)"
+        },
+        "0x8441": {
+            "alias": "0x8694",
+            "desc": ""
+        },
+        "0x8442": {
+            "alias": "0x8695",
+            "desc": "Camera Zoom Focal Point"
+        },
+        "0x8443": {
+            "alias": "0x8696",
+            "desc": "Camera Zoom Effect"
+        },
+        "0x8444": {
+            "alias": "0x8697",
+            "desc": "Move Camera Position"
+        },
+        "0x845a": {
+            "alias": "0x86ac",
+            "desc": ""
+        },
+        "0x845b": {
+            "alias": "0x86ad",
+            "desc": "inferred (delta 594): Focus Camera on Player"
+        },
+        "0x845c": {
+            "alias": "0x86ae",
+            "desc": "inferred (delta 594): Unfocus Camera on Player"
+        },
+        "0x845d": {
+            "alias": "0x86af",
+            "desc": "Preset Angled Camera"
+        },
+        "0x84c1": {
+            "alias": "0x8779",
+            "desc": "Facial Expression"
+        },
+        "0x84c3": {
+            "alias": "0x87ef",
+            "desc": "Play Sound from System"
+        },
+        "0x84c4": {
+            "alias": "0x87f0",
+            "desc": "Play Sound from Player"
+        },
+        "0x84c5": {
+            "alias": "0x87f1",
+            "desc": "inferred (delta 812): Play Sound from Player"
+        },
+        "0x84c6": {
+            "alias": "0x87f2",
+            "desc": "Play Sound from Opponent"
+        },
+        "0x84cc": {
+            "alias": "0x87f9",
+            "desc": "Camera Zoom"
+        },
+        "0x84cd": {
+            "alias": "0x87fa",
+            "desc": "inferred (delta 813)"
+        },
+        "0x84ce": {
+            "alias": "0x87fb",
+            "desc": ""
+        },
+        "0x84cf": {
+            "alias": "0x87fc",
+            "desc": "inferred (delta 813)"
+        },
+        "0x84d0": {
+            "alias": "0x87fd",
+            "desc": "inferred (delta 813)"
+        },
+        "0x84d1": {
+            "alias": "0x87fe",
+            "desc": ""
+        },
+        "0x84d2": {
+            "alias": "0x87ff",
+            "desc": ""
+        },
+        "0x853c": {
+            "alias": "0x88cd",
+            "desc": ""
+        },
+        "0x853d": {
+            "alias": "0x88ce",
+            "desc": ""
+        },
+        "0x853e": {
+            "alias": "0x88cf",
+            "desc": "inferred (delta 913)"
+        },
+        "0x853f": {
+            "alias": "0x88d0",
+            "desc": "inferred (delta 913)"
+        },
+        "0x8540": {
+            "alias": "0x88d1",
+            "desc": "inferred (delta 913)"
+        },
+        "0x8541": {
+            "alias": "0x88d2",
+            "desc": "inferred (delta 913)"
+        },
+        "0x8542": {
+            "alias": "0x88d3",
+            "desc": "inferred (delta 913)"
+        },
+        "0x8543": {
+            "alias": "0x88d4",
+            "desc": "inferred (delta 913)"
+        },
+        "0x8544": {
+            "alias": "0x88d5",
+            "desc": "inferred (delta 913)"
+        },
+        "0x8545": {
+            "alias": "0x88d6",
+            "desc": "inferred (delta 913)"
+        },
+        "0x8546": {
+            "alias": "0x88d7",
+            "desc": "inferred (delta 913)"
+        },
+        "0x8547": {
+            "alias": "0x88d8",
+            "desc": "inferred (delta 913)"
+        },
+        "0x8548": {
+            "alias": "0x88d9",
+            "desc": "inferred (delta 913)"
+        },
+        "0x8549": {
+            "alias": "0x88da",
+            "desc": "inferred (delta 913)"
+        },
+        "0x854a": {
+            "alias": "0x88db",
+            "desc": "inferred (delta 913)"
+        },
+        "0x854b": {
+            "alias": "0x88dc",
+            "desc": "inferred (delta 913)"
+        },
+        "0x854c": {
+            "alias": "0x88dd",
+            "desc": "inferred (delta 913)"
+        },
+        "0x854d": {
+            "alias": "0x88de",
+            "desc": "inferred (delta 913)"
+        },
+        "0x854e": {
+            "alias": "0x88df",
+            "desc": "inferred (delta 913)"
+        },
+        "0x854f": {
+            "alias": "0x88e0",
+            "desc": "inferred (delta 913)"
+        },
+        "0x8550": {
+            "alias": "0x88e1",
+            "desc": "inferred (delta 913)"
+        },
+        "0x8551": {
+            "alias": "0x88e2",
+            "desc": "inferred (delta 913)"
+        },
+        "0x8552": {
+            "alias": "0x88e3",
+            "desc": "inferred (delta 913)"
+        },
+        "0x8553": {
+            "alias": "0x88e4",
+            "desc": "inferred (delta 913)"
+        },
+        "0x8554": {
+            "alias": "0x88e5",
+            "desc": "inferred (delta 913)"
+        },
+        "0x8555": {
+            "alias": "0x88e6",
+            "desc": "inferred (delta 913)"
+        },
+        "0x8556": {
+            "alias": "0x88e7",
+            "desc": "inferred (delta 913)"
+        },
+        "0x8557": {
+            "alias": "0x88e8",
+            "desc": "inferred (delta 913)"
+        },
+        "0x8558": {
+            "alias": "0x88e9",
+            "desc": "inferred (delta 913)"
+        },
+        "0x8559": {
+            "alias": "0x88ea",
+            "desc": "inferred (delta 913)"
+        },
+        "0x855a": {
+            "alias": "0x88eb",
+            "desc": "inferred (delta 913)"
+        },
+        "0x855b": {
+            "alias": "0x88ec",
+            "desc": "inferred (delta 913)"
+        },
+        "0x855c": {
+            "alias": "0x88ed",
+            "desc": "inferred (delta 913)"
+        },
+        "0x855d": {
+            "alias": "0x88ee",
+            "desc": "inferred (delta 913)"
+        },
+        "0x855e": {
+            "alias": "0x88ef",
+            "desc": "inferred (delta 913)"
+        },
+        "0x855f": {
+            "alias": "0x88f0",
+            "desc": "inferred (delta 913)"
+        },
+        "0x8560": {
+            "alias": "0x88f1",
+            "desc": "inferred (delta 913)"
+        },
+        "0x8561": {
+            "alias": "0x88f2",
+            "desc": "inferred (delta 913)"
+        },
+        "0x8562": {
+            "alias": "0x88f3",
+            "desc": "inferred (delta 913)"
+        },
+        "0x8563": {
+            "alias": "0x88f4",
+            "desc": "inferred (delta 913)"
+        },
+        "0x8564": {
+            "alias": "0x88f5",
+            "desc": "inferred (delta 913)"
+        },
+        "0x8565": {
+            "alias": "0x88f6",
+            "desc": "inferred (delta 913)"
+        },
+        "0x8566": {
+            "alias": "0x88f7",
+            "desc": "inferred (delta 913)"
+        },
+        "0x8567": {
+            "alias": "0x88f8",
+            "desc": ""
+        }
+    },
+    "sound_param_aliases": {
+        "0x3000000": {
+            "value": 16,
+            "value2": 100,
+            "value3": 38979,
+            "value4": 0
+        },
+        "0x3000001": {
+            "value": 16,
+            "value2": 100,
+            "value3": 38980,
+            "value4": 0
+        },
+        "0x3000002": {
+            "value": 16,
+            "value2": 100,
+            "value3": 38981,
+            "value4": 0
+        },
+        "0x3000003": {
+            "value": 16,
+            "value2": 100,
+            "value3": 38982,
+            "value4": 0
+        },
+        "0x3000004": {
+            "value": 16,
+            "value2": 100,
+            "value3": 38983,
+            "value4": 0
+        },
+        "0x3000005": {
+            "value": 16,
+            "value2": 100,
+            "value3": 38984,
+            "value4": 0
+        },
+        "0x3000006": {
+            "value": 16,
+            "value2": 100,
+            "value3": 38985,
+            "value4": 0
+        },
+        "0x3000007": {
+            "value": 16,
+            "value2": 100,
+            "value3": 38986,
+            "value4": 0
+        },
+        "0x3000008": {
+            "value": 16,
+            "value2": 100,
+            "value3": 38987,
+            "value4": 0
+        },
+        "0x3000009": {
+            "value": 16,
+            "value2": 100,
+            "value3": 38988,
+            "value4": 0
+        },
+        "0x300000a": {
+            "value": 16,
+            "value2": 100,
+            "value3": 38988,
+            "value4": 0
+        },
+        "0x4000000": {
+            "value": 16,
+            "value2": 100,
+            "value3": 39002,
+            "value4": 0
+        },
+        "0x4000001": {
+            "value": 16,
+            "value2": 100,
+            "value3": 39003,
+            "value4": 0
+        }
+    },
+    "hitbox_aliases": {
+        "146": 188,
+        "147": 189
+    }
+}
