@@ -408,7 +408,7 @@ bool T7MovesetExtractor::ExtractToFile(int slotIndex,
         if (f) {
             fprintf(f, "[Info]\n");
             fprintf(f, "OriginalCharacter=%s\n", orig.c_str());
-            fprintf(f, "Version=TK7\n");
+            fprintf(f, "Version=%s\n", kMovesetIniVersion);
             fprintf(f, "DefaultTarget=%s\n", orig.c_str());
             fprintf(f, "SourceGame=TK7\n");
             fprintf(f, "SourceFighterId=%u\n", slot.charaId);

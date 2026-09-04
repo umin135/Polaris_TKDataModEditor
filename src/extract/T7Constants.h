@@ -11,14 +11,14 @@ namespace T7 {
 static constexpr wchar_t kProcessName[] = L"TekkenGame-Win64-Shipping.exe";
 
 // Player layout (static, adjacent)
-static constexpr uintptr_t kP1Rva            = 0x34DF630;
+static constexpr uintptr_t kP1Rva            = 0x34EA7D0;
 static constexpr uintptr_t kPlayerSize       = 0x3670;
 static constexpr uintptr_t kFighterIdOffset  = 0xD8;
 static constexpr uintptr_t kMovesetOffset    = 0x1520;
 
 // MovesetInfo
 static constexpr size_t kMovesetInfoSize     = 0x2E8;   // header / name-block base
-static constexpr size_t kMagicOffset         = 0x00;    // "HID\0"
+static constexpr size_t kMagicOffset         = 0x04;    // "HID\0"
 static constexpr char   kMagic[4]            = { 'H', 'I', 'D', '\0' };
 static constexpr size_t kIsInitializedOff    = 0x02;
 static constexpr size_t kOrigAliasesOff      = 0x28;    // uint16[56]
@@ -34,6 +34,9 @@ static constexpr size_t kAliasCountT8        = 60;
 static constexpr size_t kUnknownAliasCount   = 36;
 
 static constexpr uint32_t kPlaceholderCharId = 999;
+
+// Hardcoded into moveset.ini Version= on extract (final Steam build).
+static constexpr char kMovesetIniVersion[] = "5.01.01";
 
 // Character ID encode/decode (shared formula T7/T8)
 inline uint32_t DecodeCharId(uint32_t encoded)

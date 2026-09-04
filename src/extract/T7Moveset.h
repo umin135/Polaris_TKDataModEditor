@@ -51,10 +51,12 @@ struct Reactions {
     uint16_t right_side_direction;
     uint16_t front_counterhit_direction;
     uint16_t downed_direction;
-    uint32_t _0x44;
-    uint32_t _0x48;
+    uint16_t front_rotation;
+    uint16_t back_rotation;
+    uint16_t left_side_rotation;
+    uint16_t right_side_rotation;
     uint16_t vertical_pushback;
-    uint16_t downed_rotation;   // misnamed standing_moveid in t7_struct.h
+    uint16_t downed_rotation;
     uint16_t standing;
     uint16_t crouch;
     uint16_t ch;
@@ -69,13 +71,13 @@ struct Reactions {
     uint16_t crouch_block;
     uint16_t wallslump;
     uint16_t downed;
-    uint32_t _pad_0x6C;  // C padding to 0x70
+    uint32_t _pad_0x6C;  // layout pad to 0x70 — required for binary size
 };
 
 struct HitCondition {
     uint64_t requirements_addr;
     uint32_t damage;
-    uint32_t _0xC; // Padding can be removed.
+    uint32_t _0x0C;  // unknown (same slot as MotbinData::_0x0C); keep for layout
     uint64_t reactions_addr;
 };
 
@@ -102,7 +104,7 @@ struct Input {
 struct InputSequence {
     uint16_t input_window_frames;
     uint16_t input_amount;
-    int32_t  _0x4; // Padding
+    int32_t  _0x4;  // often unused; still present in memory / MotbinData::_0x4
     uint64_t input_addr;
 };
 
@@ -111,11 +113,11 @@ struct Projectile {
 };
 
 struct CameraData {
-    uint32_t _0x0;
-    uint16_t _0x4;
+    uint32_t pick_probability;
+    uint16_t camera_type;
     uint16_t left_side_camera_data;
     uint16_t right_side_camera_data;
-    uint16_t _0xA;
+    uint16_t additional_rotation;
 };
 
 struct ThrowCamera {
@@ -136,16 +138,15 @@ struct Move {
     uint64_t cancel_addr;
     uint64_t _0x28_cancel_addr;
     int32_t  _0x30;
-    int32_t  _0x34; // padding
+    int32_t  _pad_0x34;           // layout pad after _0x30
     uint64_t _0x38_cancel_addr;
     int32_t  _0x40;
-    int32_t  _0x44; // padding
+    int32_t  _pad_0x44;           // layout pad after _0x40
     uint64_t _0x48_cancel_addr;
     uint32_t _0x50;
     uint16_t transition;
-    int16_t  _0x56; // I think move_end_rotation
-    uint16_t moveId_val1;
-    uint16_t moveId_val2;
+    int16_t  move_end_rotation;   // → MotbinData::_0xCE
+    uint32_t ordinal_id;
     int16_t  _0x5C;
     int16_t  _0x5E;
     uint64_t hit_condition_addr;
@@ -157,13 +158,13 @@ struct Move {
     uint64_t extra_move_property_addr;
     uint64_t move_start_extraprop_addr;
     uint64_t move_end_extraprop_addr;
-    int32_t  _0x98; // u15
+    int32_t  u15;                 // → MotbinData::u15 (facing/extras)
     uint32_t hitbox_location;
     uint32_t first_active_frame;
     uint32_t last_active_frame;
-    int16_t  _0xA8;       // collision
+    int16_t  collision;           // → MotbinData::collision
     uint16_t distance;
-    int32_t  _0xAC;
+    int32_t  _0xAC;               // unknown; not converted yet
 };
 
 #pragma pack(pop)

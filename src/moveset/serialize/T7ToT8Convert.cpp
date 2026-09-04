@@ -13,6 +13,20 @@ using namespace T7;
 static constexpr size_t kHdr = 0x318;
 static constexpr uint32_t kNullIdx = 0xFFFFFFFF;
 
+// T7 anim names are usually suffixed with "(DVD)"; strip before hash / string block.
+static std::string StripDvdSuffix(std::string s)
+{
+    static constexpr char kTag[] = "(DVD)";
+    for (;;) {
+        size_t p = s.find(kTag);
+        if (p == std::string::npos) break;
+        s.erase(p, sizeof(kTag) - 1);
+    }
+    while (!s.empty() && (s.back() == ' ' || s.back() == '\t'))
+        s.pop_back();
+    return s;
+}
+
 static void StoreXorBlock(ParsedMove& m, size_t which, uint32_t value, uint32_t moveIdx)
 {
     // which: 0=name, 1=anim, 2=vuln, 3=hitlevel, 4=ordinal2, 5=ordinal
@@ -158,16 +172,12 @@ bool ConvertT7ToMotbin(const Moveset& src, uint32_t t7FighterId,
         rl.right_side_direction = r.right_side_direction;
         rl.front_ch_direction   = r.front_counterhit_direction;
         rl.downed_direction     = r.downed_direction;
-        {
-            uint16_t rot[4];
-            memcpy(rot, &r._0x44, 8);
-            rl.front_rotation      = rot[0];
-            rl.back_rotation       = rot[1];
-            rl.left_side_rotation  = rot[2];
-            rl.right_side_rotation = rot[3];
-        }
-        rl.vertical_pushback = r.vertical_pushback;
-        rl.downed_rotation   = r.downed_rotation;
+        rl.front_rotation       = r.front_rotation;
+        rl.back_rotation        = r.back_rotation;
+        rl.left_side_rotation   = r.left_side_rotation;
+        rl.right_side_rotation  = r.right_side_rotation;
+        rl.vertical_pushback    = r.vertical_pushback;
+        rl.downed_rotation      = r.downed_rotation;
         rl.standing          = r.standing;
         rl.crouch            = r.crouch;
         rl.ch                = r.ch;
@@ -190,7 +200,7 @@ bool ConvertT7ToMotbin(const Moveset& src, uint32_t t7FighterId,
     for (size_t i = 0; i < src.hitConditions.size(); ++i) {
         ParsedHitCondition h = {};
         h.damage = src.hitConditions[i].damage;
-        h._0x0C  = src.hitConditions[i]._0xC;
+        h._0x0C  = src.hitConditions[i]._0x0C;
         h.req_list_idx = (i < src.hitCondReqIdx.size()) ? src.hitCondReqIdx[i] : kNullIdx;
         h.reaction_list_idx = (i < src.hitCondReactIdx.size()) ? src.hitCondReactIdx[i] : kNullIdx;
         out.hitConditionBlock.push_back(h);
@@ -278,11 +288,11 @@ bool ConvertT7ToMotbin(const Moveset& src, uint32_t t7FighterId,
     out.throwExtraBlock.reserve(src.cameraData.size());
     for (const auto& c : src.cameraData) {
         ParsedThrowExtra te = {};
-        te.pick_probability       = c._0x0;
-        te.camera_type            = c._0x4;
+        te.pick_probability       = c.pick_probability;
+        te.camera_type            = c.camera_type;
         te.left_side_camera_data  = c.left_side_camera_data;
         te.right_side_camera_data = c.right_side_camera_data;
-        te.additional_rotation    = c._0xA;
+        te.additional_rotation    = c.additional_rotation;
         out.throwExtraBlock.push_back(te);
     }
     out.throwBlock.reserve(src.throwCameras.size());
@@ -330,7 +340,7 @@ bool ConvertT7ToMotbin(const Moveset& src, uint32_t t7FighterId,
         uint32_t mi = static_cast<uint32_t>(i);
 
         std::string nStr = (i < src.moveNames.size()) ? src.moveNames[i] : "";
-        std::string aStr = (i < src.moveAnimNames.size()) ? src.moveAnimNames[i] : "";
+        std::string aStr = StripDvdSuffix((i < src.moveAnimNames.size()) ? src.moveAnimNames[i] : "");
         nameOffs[i] = addStr(nStr);
         animOffs[i] = addStr(aStr);
 
@@ -342,7 +352,7 @@ bool ConvertT7ToMotbin(const Moveset& src, uint32_t t7FighterId,
         StoreXorBlock(m, 2, tm.vuln, mi);
         StoreXorBlock(m, 3, tm.hitlevel, mi);
         StoreXorBlock(m, 4, encodedOrdinal2, mi);
-        StoreXorBlock(m, 5, mi, mi); // ordinal_id = move index
+        StoreXorBlock(m, 5, tm.ordinal_id, mi); // ordinal_id = move index
 
         // String offsets into anim_related[4..7]
         m.anim_related[4] = static_cast<uint32_t>(nameOffs[i] & 0xFFFFFFFF);
@@ -363,18 +373,18 @@ bool ConvertT7ToMotbin(const Moveset& src, uint32_t t7FighterId,
         m.end_prop_idx = (i < src.moveEndPropIdx.size()) ? src.moveEndPropIdx[i] : kNullIdx;
 
         m.transition = tm.transition;
-        m._0xCE = tm._0x56;
+        m._0xCE = tm.move_end_rotation;
         m._0x118 = 0xFFFF;
         m._0x11C = 1;
         m.anim_len = static_cast<int32_t>(tm.anim_len);
         m.airborne_start = tm.airborne_start;
         m.airborne_end = tm.airborne_end;
         m.ground_fall = tm.ground_fall;
-        m.u15 = static_cast<uint32_t>(tm._0x98);
+        m.u15 = static_cast<uint32_t>(tm.u15);
         m._0x154 = 0;
         m.startup = tm.first_active_frame;
         m.recovery = tm.last_active_frame;
-        m.collision = static_cast<uint16_t>(tm._0xA8);
+        m.collision = static_cast<uint16_t>(tm.collision);
         m.distance = tm.distance;
 
         // Hitboxes: u32 → 4 bytes
