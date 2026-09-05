@@ -467,16 +467,19 @@ bool ConvertT7ToMotbin(const Moveset& src, uint32_t t7FighterId,
     w64(0x28, fullDateOff);
     w64(0x170, strCur);
 
-    // Aliases: copy 56, pad 4 with aliases[1]
-    uint16_t idle = src.origAliases[1];
-    for (size_t i = 0; i < kAliasCountT7; ++i)
-        w16(0x30 + i * 2, src.origAliases[i]);
-    for (size_t i = kAliasCountT7; i < kAliasCountT8; ++i)
-        w16(0x30 + i * 2, idle);
-    for (size_t i = 0; i < kAliasCountT7; ++i)
-        w16(0xA8 + i * 2, src.currentAliases[i]);
-    for (size_t i = kAliasCountT7; i < kAliasCountT8; ++i)
-        w16(0xA8 + i * 2, idle);
+    auto t7IndexForT8 = [](size_t i) -> size_t
+    {
+        if (i <= 25) return i;
+        if (i <= 57) return i - 3;
+        if (i == 58) return 1;
+        return kAliasCountT7 - 1; // i == 59
+    };
+
+    // Aliases: t7: 56, t8: 60.
+    for (size_t t8Index = 0; t8Index < kAliasCountT8; ++t8Index)
+        w16(0x30 + t8Index * 2, src.origAliases[t7IndexForT8(t8Index)]);
+    for (size_t t8Index = 0; t8Index < kAliasCountT8; ++t8Index)
+        w16(0xA8 + t8Index * 2, src.currentAliases[t7IndexForT8(t8Index)]);
     for (size_t i = 0; i < kUnknownAliasCount; ++i)
         w16(0x120 + i * 2, src.unknownAliases[i]);
 
