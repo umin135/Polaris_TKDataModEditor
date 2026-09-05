@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <unordered_set>
 
 // -------------------------------------------------------------
 //  AnimNameDB  --  persistent name <-> motbin_anim_key mapping
@@ -41,10 +42,32 @@ public:
     bool NameToAnimKey(const std::string& name, uint32_t& outKey) const;
 
     // Add a single name→key mapping and persist to disk immediately.
-    // No-op if the name is already mapped to the same key.
-    // Returns false if the save fails.
+    // No-op if the name is already mapped to the same key. Clears any stale
+    // reverse mapping (old name of this key / old key of this name) so the
+    // bidirectional maps stay consistent. Returns false if the save fails.
     bool AddEntry(const std::string& folderPath,
                   const std::string& name, uint32_t key);
+
+    // Remove the mapping for a motbin anim_key (both directions) and persist.
+    // Returns true if nothing to remove or the save succeeds.
+    bool RemoveKey(const std::string& folderPath, uint32_t key);
+
+    // Rename oldName -> newName for the same key and persist.
+    // Fails if oldName is unknown, or newName is already used by a different key.
+    bool Rename(const std::string& folderPath,
+                const std::string& oldName, const std::string& newName);
+
+    // True if the name is already mapped.
+    bool HasName(const std::string& name) const { return m_nameToKey.count(name) > 0; }
+
+    // Returns `base` if unused, otherwise base_1, base_2, ... until unused.
+    std::string MakeUniqueName(const std::string& base) const;
+
+    // Remove name<->key mappings whose key is NOT in validKeys -- orphaned entries
+    // left in the JSON after their animation was removed from the anmbin. Persists
+    // only if anything was removed. Returns the number of entries removed.
+    int PruneToValidKeys(const std::string& folderPath,
+                         const std::unordered_set<uint32_t>& validKeys);
 
 private:
     bool Save(const std::string& jsonPath);

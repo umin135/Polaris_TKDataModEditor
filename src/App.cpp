@@ -1,14 +1,17 @@
 ﻿// Main application rendering logic
 #include "App.h"
 #include "Config.h"
+#include "LayoutStore.h"
 #include "GameStatic.h"
 #include "KamuiDictUpdater.h"
 #include "MovesetDataDictUpdater.h"
 #include "FbsDataDict.h"
 #include "FbsDataDictUpdater.h"
+#include "fbsdata/data/ExternalItemIdIndex.h"
 #include "moveset/labels/LabelDB.h"
 #include "moveset/data/MovesetDataDict.h"
 #include "moveset/data/T7AliasDict.h"
+#include "moveset/editor/ListKeybinds.h"
 #include "imgui/imgui.h"
 #include "imgui/imgui_internal.h"  // DockBuilder API
 #include <functional>
@@ -321,7 +324,16 @@ void App::RunInitThread()
 {
     m_initStatus.store("Loading config...");
     Config::Get().Load();
+    LayoutStore::Get().Load();
     GameStatic::Get().Load();
+
+    // Apply persisted list-edit keybindings (falling back to defaults for any unset chord).
+    {
+        ListKeybinds& kb = ListKeybinds::Get();
+        const std::string* lk = Config::Get().data.listKeys;
+        for (int i = 0; i < (int)ListShortcut::COUNT; ++i)
+            if (!lk[i].empty()) kb.Decode((ListShortcut)i, lk[i]);
+    }
 
     // Auto-detect game root if not set or if tkdata.bin is no longer found there
     AppConfig& cfg = Config::Get().data;
@@ -364,6 +376,11 @@ void App::RunInitThread()
         else
             FbsDataDict::Get().LoadFromResources();
     }
+
+    // Index item ids used by other tkmods in the manager directory (startup-only),
+    // so the fbsdata editors can warn about cross-tkmod id collisions.
+    m_initStatus.store("Indexing tkmod item ids...");
+    ExternalItemIdIndex::Get().BuildFromDir(Config::Get().data.tkmodManagerDir);
 
     m_initStatus.store("Loading label database...");
     {
@@ -442,6 +459,7 @@ App::~App()
 {
     if (m_initThread.joinable())
         m_initThread.join();
+    LayoutStore::Get().Save();   // persist layout on app exit (editors may still be open)
     if (m_logoTex) { m_logoTex->Release(); m_logoTex = nullptr; }
 }
 
@@ -858,8 +876,8 @@ void App::Render()
     if (m_pendingEditor.valid() &&
         m_pendingEditor.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
     {
-        m_editorWindows.push_back(m_pendingEditor.get());
-        m_editorWindows.back().SetD3DContext(m_d3dDev, m_d3dCtx);
+        m_editorWindows.push_back(std::make_unique<MovesetEditorWindow>(m_pendingEditor.get()));
+        m_editorWindows.back()->SetD3DContext(m_d3dDev, m_d3dCtx);
         m_loadingActive = false;
     }
 
@@ -870,8 +888,11 @@ void App::Render()
     auto it = m_editorWindows.begin();
     while (it != m_editorWindows.end())
     {
-        if (!it->Render())
+        if (!(*it)->Render())
+        {
+            LayoutStore::Get().Save();   // persist window sizes / section widths on close
             it = m_editorWindows.erase(it);
+        }
         else
             ++it;
     }
@@ -1284,6 +1305,15 @@ void App::ApplyAndSaveSettings()
 {
     AppConfig& cfg   = Config::Get().data;
     cfg.gameRootDir  = m_settingsGameRoot;
+    cfg.cinematicExportRoot = m_settingsCineExport;
+
+    // Persist the current list-edit keybindings as encoded chord strings.
+    {
+        const ListKeybinds& kb = ListKeybinds::Get();
+        for (int i = 0; i < (int)ListShortcut::COUNT; ++i)
+            cfg.listKeys[i] = kb.Encode((ListShortcut)i);
+    }
+
     Config::Get().Save();
     m_movesetView.ForceRefresh();
     m_extractorView.SetDestFolder(cfg.MovesetDir());
@@ -1347,6 +1377,7 @@ void App::RenderSettingsWindow()
     if (!m_showSettings)
     {
         m_settingsInitialized = false;
+        m_capturingKey = -1;
         return;
     }
 
@@ -1357,6 +1388,8 @@ void App::RenderSettingsWindow()
         const AppConfig& cfg = Config::Get().data;
         strncpy_s(m_settingsGameRoot, sizeof(m_settingsGameRoot),
                   cfg.gameRootDir.c_str(), _TRUNCATE);
+        strncpy_s(m_settingsCineExport, sizeof(m_settingsCineExport),
+                  cfg.cinematicExportRoot.c_str(), _TRUNCATE);
         m_settingsCat = 1;  // default to moveset category
     }
 
@@ -1445,6 +1478,120 @@ void App::RenderSettingsWindow()
                                    "tkdata.bin: Not found");
                 if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
                     ImGui::SetTooltip("%s", tkPath.c_str());
+            }
+
+            // -- Cinematic export root ---------------------------
+            ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
+            ImGui::TextUnformatted("Cinematic Export Root (optional)");
+            ImGui::Spacing();
+            ImGui::TextDisabled(
+                "Root of a ripped cinematics dump (...\\Exports\\Polaris\\Content\\cinematics).\n"
+                "When set, extraction resolves each sequence's real season folder\n"
+                "(polaris / polaris01 / ...) and existence against the dump.");
+            ImGui::Spacing();
+
+            ImGui::SetNextItemWidth(-76.0f);
+            ImGui::InputText("##cineExport", m_settingsCineExport, sizeof(m_settingsCineExport));
+            ImGui::SameLine();
+            if (ImGui::Button("Browse##cine", ImVec2(68.0f, 0.0f)))
+            {
+                std::string folder = BrowseForFolder();
+                if (!folder.empty())
+                    strncpy_s(m_settingsCineExport, sizeof(m_settingsCineExport),
+                              folder.c_str(), _TRUNCATE);
+            }
+            ImGui::Spacing();
+            if (m_settingsCineExport[0] == '\0')
+            {
+                ImGui::TextDisabled("cinematics dump: (not set -> folder assumed \"polaris\")");
+            }
+            else
+            {
+                std::string gameDir = std::string(m_settingsCineExport) + "\\game";
+                DWORD a = GetFileAttributesA(gameDir.c_str());
+                if (a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY))
+                    ImGui::TextColored(ImVec4(0.35f, 1.0f, 0.50f, 1.0f), "cinematics dump: Found");
+                else
+                    ImGui::TextColored(ImVec4(1.0f, 0.40f, 0.40f, 1.0f),
+                                       "cinematics dump: 'game' subfolder not found");
+            }
+
+            // -- List edit shortcuts -----------------------------
+            ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
+            ImGui::TextUnformatted("List Edit Shortcuts");
+            ImGui::Spacing();
+            ImGui::TextDisabled(
+                "Shortcuts for the per-row controls in moveset list sub-windows.\n"
+                "They fire only while that specific list window is focused and hovered.\n"
+                "Click a shortcut, then press the desired key combo (Esc cancels).");
+            ImGui::Spacing();
+
+            ListKeybinds& kb = ListKeybinds::Get();
+
+            // Resolve an in-progress capture from this frame's key presses.
+            if (m_capturingKey >= 0)
+            {
+                if (ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+                {
+                    m_capturingKey = -1;
+                }
+                else
+                {
+                    for (int k = ImGuiKey_NamedKey_BEGIN; k < ImGuiKey_NamedKey_END; ++k)
+                    {
+                        ImGuiKey key = (ImGuiKey)k;
+                        if (key == ImGuiKey_LeftCtrl  || key == ImGuiKey_RightCtrl  ||
+                            key == ImGuiKey_LeftShift || key == ImGuiKey_RightShift ||
+                            key == ImGuiKey_LeftAlt   || key == ImGuiKey_RightAlt   ||
+                            key == ImGuiKey_LeftSuper || key == ImGuiKey_RightSuper)
+                            continue;   // ignore the modifier keys themselves
+                        if (ImGui::IsKeyPressed(key, false))
+                        {
+                            KeyBind b;
+                            b.key   = key;
+                            b.ctrl  = ImGui::GetIO().KeyCtrl;
+                            b.shift = ImGui::GetIO().KeyShift;
+                            b.alt   = ImGui::GetIO().KeyAlt;
+                            kb.binds[m_capturingKey] = b;
+                            m_capturingKey = -1;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (ImGui::BeginTable("##kbtbl", 2,
+                                  ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerH))
+            {
+                ImGui::TableSetupColumn("Action",   ImGuiTableColumnFlags_WidthFixed, 130.0f);
+                ImGui::TableSetupColumn("Shortcut", ImGuiTableColumnFlags_WidthStretch);
+                for (int i = 0; i < (int)ListShortcut::COUNT; ++i)
+                {
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::AlignTextToFramePadding();
+                    ImGui::TextUnformatted(ListKeybinds::Label((ListShortcut)i));
+                    ImGui::TableSetColumnIndex(1);
+                    ImGui::PushID(i);
+                    const bool capturing = (m_capturingKey == i);
+                    std::string chord = capturing ? "Press a key..." : kb.Encode((ListShortcut)i);
+                    if (ImGui::Button(chord.c_str(), ImVec2(150.0f, 0.0f)))
+                        m_capturingKey = capturing ? -1 : i;
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("Clear"))
+                    {
+                        kb.binds[i].key = ImGuiKey_None;
+                        if (capturing) m_capturingKey = -1;
+                    }
+                    ImGui::PopID();
+                }
+                ImGui::EndTable();
+            }
+            ImGui::Spacing();
+            if (ImGui::Button("Reset shortcuts to defaults"))
+            {
+                kb.SetDefaults();
+                m_capturingKey = -1;
             }
         }
 

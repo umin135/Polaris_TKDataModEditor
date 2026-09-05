@@ -83,6 +83,16 @@ void Config::Load()
             data.gameRootDir = val;
         else if (section == "FbsData" && key == "TkmodManagerDir")
             data.tkmodManagerDir = val;
+        else if (section == "Cinematics" && key == "ExportRoot")
+            data.cinematicExportRoot = val;
+        else if (section == "Keybindings")
+        {
+            if      (key == "Insert")    data.listKeys[0] = val;
+            else if (key == "Duplicate") data.listKeys[1] = val;
+            else if (key == "Remove")    data.listKeys[2] = val;
+            else if (key == "MoveUp")    data.listKeys[3] = val;
+            else if (key == "MoveDown")  data.listKeys[4] = val;
+        }
     }
 
     fclose(f);
@@ -109,6 +119,16 @@ void Config::Save() const
 
     fprintf(f, "\n[FbsData]\n");
     fprintf(f, "TkmodManagerDir=%s\n", data.tkmodManagerDir.c_str());
+
+    fprintf(f, "\n[Cinematics]\n");
+    fprintf(f, "ExportRoot=%s\n", data.cinematicExportRoot.c_str());
+
+    fprintf(f, "\n[Keybindings]\n");
+    fprintf(f, "Insert=%s\n",    data.listKeys[0].c_str());
+    fprintf(f, "Duplicate=%s\n", data.listKeys[1].c_str());
+    fprintf(f, "Remove=%s\n",    data.listKeys[2].c_str());
+    fprintf(f, "MoveUp=%s\n",    data.listKeys[3].c_str());
+    fprintf(f, "MoveDown=%s\n",  data.listKeys[4].c_str());
 
     fclose(f);
 }

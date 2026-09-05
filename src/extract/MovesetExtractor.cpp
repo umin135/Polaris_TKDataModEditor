@@ -5,13 +5,181 @@
 #include "TkdataExtractor.h"
 #include "moveset/data/AnmbinData.h"
 #include "moveset/data/AnimNameDB.h"
+#include "moveset/data/MotbinData.h"
+#include "moveset/data/CinematicPaths.h"
+#include "Config.h"
 #include "moveset/labels/LabelDB.h"
 #include "moveset/serialize/MotbinSerialize.h"
 #include "FbsDataDict.h"
 #include <windows.h>
 #include <cstring>
 #include <cstdio>
+#include <cstdarg>
 #include <algorithm>
+
+// -------------------------------------------------------------
+//  Season-folder data chain (RE'd, see _references/CinematicSequence_Paths_RE.md §7).
+//  base+0x9881DE0 (global) -> subsystem -> category-4 container -> FNV1a(charId) map -> charData.
+//  Four std::vector<int32> at +0x70/+0xA0/+0x88/+0xB8 (side 0..3) hold season numbers; value>0 ->
+//  "polaris%02d", else "polaris". side/index per category (from the builders):
+//    rage -> (0,0)   outro(win) -> (1,no)   intro(sta) -> (2,no)   throw -> (3,throwNN)
+// -------------------------------------------------------------
+static const size_t kCineSideOff[4] = { 0x70, 0xA0, 0x88, 0xB8 };
+
+static uintptr_t GetCharCinematicData(const GameProcessInfo& proc, uint32_t charId)
+{
+    uintptr_t subsystem = 0, p1 = 0, container = 0;
+    if (!ReadGamePointer(proc, proc.moduleBase + 0x9881DE0, subsystem) || !subsystem) return 0;
+    if (!ReadGamePointer(proc, subsystem + 8, p1) || !p1) return 0;
+    if (!ReadGamePointer(proc, p1 + 8 * 4, container) || !container) return 0;
+
+    uint64_t h = 0xCBF29CE484222325ULL; // FNV-1a over the 4 bytes of charId (little-endian order)
+    for (int i = 0; i < 4; ++i) { uint8_t b = (uint8_t)(charId >> (8 * i)); h = 0x100000001B3ULL * (b ^ h); }
+
+    uintptr_t endSentinel = 0, buckets = 0, mask = 0;
+    ReadGameValue(proc, container + 40, endSentinel); // a1[5]
+    ReadGameValue(proc, container + 56, buckets);     // a1[7]
+    ReadGameValue(proc, container + 80, mask);        // a1[10]
+    if (!buckets || !mask) return 0;
+
+    uintptr_t bucket = buckets + 16 * (h & mask), node = 0, first = 0;
+    ReadGamePointer(proc, bucket + 8, node);
+    ReadGamePointer(proc, bucket + 0, first);
+    if (!node || node == endSentinel) return 0;
+
+    uint32_t key = 0; bool found = false;
+    for (int g = 0; g < 4096; ++g) {
+        if (!ReadGameValue(proc, node + 16, key)) break;
+        if (key == charId) { found = true; break; }
+        if (node == first) break;
+        if (!ReadGamePointer(proc, node + 8, node) || !node) break;
+    }
+    if (!found) return 0;
+    uintptr_t charData = 0;
+    ReadGamePointer(proc, node + 24, charData);
+    return charData;
+}
+
+// Returns "polaris"/"polarisNN" for a (side,index), or "" if the data can't be read.
+static std::string SeasonFolderFromData(const GameProcessInfo& proc, uintptr_t charData, int side, int index)
+{
+    if (!charData || side < 0 || side > 3 || index < 0) return {};
+    uintptr_t begin = 0, end = 0;
+    ReadGamePointer(proc, charData + kCineSideOff[side], begin);
+    ReadGamePointer(proc, charData + kCineSideOff[side] + 8, end);
+    if (!begin || !end || end < begin) return {};
+    if ((long)index >= (long)((end - begin) / 4)) return {};
+    int32_t v = 0; ReadGameValue(proc, begin + 4LL * index, v);
+    char buf[16];
+    if (v > 0) snprintf(buf, sizeof(buf), "polaris%02d", v);
+    else       snprintf(buf, sizeof(buf), "polaris");
+    return buf;
+}
+
+// -------------------------------------------------------------
+//  DiagnoseCinematicFolderData (verification step "B")
+//  Walks the live-game data chain that drives the season-folder suffix
+//  (polaris / polaris01 / …) and writes a human-readable report to
+//  .tkedit/cinematic_diag.txt. Purpose: confirm whether the category-4
+//  cinematic data container is actually populated in the current game mode
+//  (e.g. training) BEFORE committing to a runtime resolver.
+//
+//  Chain (RE'd, imagebase 0x140000000 -> global at base+0x9881DE0):
+//    subsystem = *(base + 0x9881DE0)              (sub_1418B8C90)
+//    container = *(*(subsystem+8) + 8*4)          (sub_1418B8CA0, category 4)
+//    entry     = FNV1a(charId) bucket-walk        (sub_14181A0C0)
+//    charData  = *(entry + 24)
+//    arr[side] = charData + {0:0x70,1:0xA0,2:0x88,3:0xB8}  (std::vector<int32>)
+//    suffix    = (arr[side][index] > 0) ? "%02d" : ""      -> polaris{suffix}
+// -------------------------------------------------------------
+static std::string DiagnoseCinematicFolderData(const GameProcessInfo& proc,
+                                               uint32_t charaId,
+                                               const std::string& charFolder)
+{
+    std::string dir = charFolder + "\\.tkedit";
+    CreateDirectoryA(dir.c_str(), nullptr);
+    FILE* f = nullptr;
+    if (fopen_s(&f, (dir + "\\cinematic_diag.txt").c_str(), "w") != 0 || !f)
+        return {};
+
+    auto line = [&](const char* fmt, ...) {
+        va_list ap; va_start(ap, fmt); vfprintf(f, fmt, ap); va_end(ap); fputc('\n', f);
+    };
+
+    line("Cinematic season-folder data probe");
+    line("charId = %u (0x%X)", charaId, charaId);
+    line("module base = 0x%llX", (unsigned long long)proc.moduleBase);
+
+    bool ok = true;
+    uintptr_t subsystem = 0, p1 = 0, container = 0;
+    if (!ReadGamePointer(proc, proc.moduleBase + 0x9881DE0, subsystem) || !subsystem) {
+        line("[FAIL] subsystem global (base+0x9881DE0) is null -> data not loaded in this mode.");
+        ok = false;
+    } else {
+        line("subsystem = 0x%llX", (unsigned long long)subsystem);
+        ReadGamePointer(proc, subsystem + 8, p1);
+        if (p1) ReadGamePointer(proc, p1 + 8 * 4, container);
+        if (!container) { line("[FAIL] category-4 container is null."); ok = false; }
+        else            line("container(cat4) = 0x%llX", (unsigned long long)container);
+    }
+
+    uintptr_t charData = 0;
+    if (ok) {
+        // FNV-1a over the 4 bytes of charId (little-endian order), then & mask.
+        uint64_t h = 0xCBF29CE484222325ULL;
+        for (int i = 0; i < 4; ++i) { uint8_t b = (uint8_t)(charaId >> (8 * i)); h = 0x100000001B3ULL * (b ^ h); }
+
+        uintptr_t endSentinel = 0, buckets = 0, mask = 0;
+        ReadGameValue(proc, container + 40, endSentinel); // a1[5]
+        ReadGameValue(proc, container + 56, buckets);     // a1[7]
+        ReadGameValue(proc, container + 80, mask);        // a1[10]
+        line("hash=0x%llX mask=0x%llX buckets=0x%llX", (unsigned long long)h,
+             (unsigned long long)mask, (unsigned long long)buckets);
+
+        if (buckets && mask) {
+            uintptr_t bucket = buckets + 16 * (h & mask);
+            uintptr_t node = 0, first = 0;
+            ReadGamePointer(proc, bucket + 8, node);   // v6[1]
+            ReadGamePointer(proc, bucket + 0, first);  // *v6
+            uint32_t key = 0; bool found = false;
+            if (node && node != endSentinel) {
+                for (int guard = 0; guard < 4096; ++guard) {
+                    if (!ReadGameValue(proc, node + 16, key)) break;
+                    if (key == charaId) { found = true; break; }
+                    if (node == first) break;
+                    if (!ReadGamePointer(proc, node + 8, node) || !node) break;
+                }
+            }
+            if (found) { ReadGamePointer(proc, node + 24, charData);
+                         line("entry found -> charData = 0x%llX", (unsigned long long)charData); }
+            else       { line("[WARN] no hashmap entry for this charId (may be normal if char has no cinematic data)."); }
+        }
+    }
+
+    if (charData) {
+        static const size_t sideOff[4] = { 0x70, 0xA0, 0x88, 0xB8 };
+        for (int s = 0; s < 4; ++s) {
+            uintptr_t begin = 0, end = 0;
+            ReadGamePointer(proc, charData + sideOff[s], begin);
+            ReadGamePointer(proc, charData + sideOff[s] + 8, end);
+            long count = (begin && end && end >= begin) ? (long)((end - begin) / 4) : -1;
+            line("side %d (+0x%02zX): count=%ld", s, sideOff[s], count);
+            for (long i = 0; i < count && i < 16; ++i) {
+                int32_t v = 0; ReadGameValue(proc, begin + 4 * i, v);
+                line("    [%ld] = %d%s", i, v, v > 0 ? "  -> polaris%02d" : "");
+            }
+        }
+        line("RESULT: cinematic data IS populated for this char in this mode.");
+    } else if (ok) {
+        line("RESULT: chain readable but no per-char cinematic data (charData null).");
+    } else {
+        line("RESULT: cinematic data NOT populated -> runtime folder resolution unavailable here.");
+    }
+
+    fclose(f);
+    return charData ? " [cine-diag: data present]"
+                    : (ok ? " [cine-diag: no charData]" : " [cine-diag: not loaded]");
+}
 
 // -------------------------------------------------------------
 //  WriteIni -- write moveset.ini alongside the extracted motbin
@@ -1062,7 +1230,31 @@ bool MovesetExtractor::ExtractToFile(int slotIndex,
     // After bake, all entries have animDataPtr != 0 (com refs are now embedded).
     std::string animInfo = ExtractAnimFilesFromAnmbin(charFolder, charaCode);
 
+    // Cinematic camera sequences: parse the finalized moveset and emit index->path JSON
+    // (.tkedit/cinematic_sequences.json) from property 0x838E. See CinematicPaths.cpp.
+    if (charaCode && charaCode[0])
+    {
+        MotbinData cine = LoadMotbin(charFolder);
+        if (cine.loaded) {
+            // Resolve the season folder (polaris/polaris01/..) from live game memory.
+            uintptr_t charData = m_proc.valid ? GetCharCinematicData(m_proc, slot.charaId) : 0;
+            SeasonFolderResolver resolver;
+            if (charData)
+                resolver = [this, charData](int side, int index) {
+                    return SeasonFolderFromData(m_proc, charData, side, index);
+                };
+            WriteCinematicSequencesJson(cine, charaCode, charFolder, resolver,
+                                        Config::Get().data.cinematicExportRoot);
+        }
+    }
+
+    // Verification step B: probe whether the live-game season-folder data chain is
+    // populated in the current game mode. Writes .tkedit/cinematic_diag.txt.
+    std::string diagInfo;
+    if (m_proc.valid)
+        diagInfo = DiagnoseCinematicFolderData(m_proc, slot.charaId, charFolder);
+
     m_statusMsg = "Extracted -> TK8_" + slot.charaName + "  (" +
-                  std::to_string(bytes.size()) + " bytes)" + tkInfo + bakeInfo + animInfo;
+                  std::to_string(bytes.size()) + " bytes)" + tkInfo + bakeInfo + animInfo + diagInfo;
     return true;
 }

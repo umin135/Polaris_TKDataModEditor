@@ -5,6 +5,7 @@
 #include "fbsdata/editor/ColumnWidths.h"
 #include "fbsdata/io/TkmodIO.h"
 #include "fbsdata/editor/BinVisibility.h"
+#include "fbsdata/data/ExternalItemIdIndex.h"
 #include "FbsDataDict.h"
 #include "imgui/imgui.h"
 #include <cstring>
@@ -475,6 +476,15 @@ void FbsDataView::RenderEditorArea()
 //  customize_item_common_list TSV export / import helpers
 // -----------------------------------------------------------------------------
 
+// Basename of the currently-edited tkmod path (e.g. "a\\b\\Anna.tkmod" -> "Anna.tkmod").
+// Used to exclude the edited file from cross-tkmod id-collision warnings.
+static std::string TkmodBasename(const std::string& path)
+{
+    if (path.empty()) return {};
+    size_t p = path.find_last_of("\\/");
+    return (p == std::string::npos) ? path : path.substr(p + 1);
+}
+
 static std::string OpenTsvSaveDialog(const wchar_t* defaultName)
 {
     wchar_t szFile[1024] = {};
@@ -902,6 +912,9 @@ void FbsDataView::RenderCustomizeItemCommonEditor(ContentsBinData& bin)
     for (int i = 0; i < (int)bin.commonEntries.size(); ++i)
         idCounts[bin.commonEntries[i].item_id]++;
 
+    // Basename of this tkmod, excluded from cross-tkmod collision checks.
+    const std::string selfTkmod = TkmodBasename(m_currentFilePath);
+
     int deleteIdx = -1;
 
     for (int i = 0; i < (int)bin.commonEntries.size(); ++i)
@@ -944,8 +957,13 @@ void FbsDataView::RenderCustomizeItemCommonEditor(ContentsBinData& bin)
             int ddd = (int)(e.item_id % 1000u);
             bool isDup  = idCounts.count(e.item_id) && idCounts.at(e.item_id) > 1;
             bool isGame = FbsDataDict::Get().IsGameItemId(e.item_id);
-            bool warn   = isDup || isGame;
-            if (warn) ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.55f, 0.08f, 0.08f, 1.0f));
+            const char* extOwner = ExternalItemIdIndex::Get().FindOwner(e.item_id, selfTkmod);
+            bool isExt   = (extOwner != nullptr);
+            bool warnRed = isDup || isGame;                    // hard conflicts -> red
+            bool warn    = warnRed || isExt;                   // external-only -> orange
+            if (warn) ImGui::PushStyleColor(ImGuiCol_FrameBg,
+                warnRed ? ImVec4(0.55f, 0.08f, 0.08f, 1.0f)    // red
+                        : ImVec4(0.62f, 0.36f, 0.05f, 1.0f));  // orange
             ImGui::SetNextItemWidth(-FLT_MIN);
             if (ImGui::InputInt("##ddd", &ddd, 0, 0)) {
                 ddd = std::max(0, std::min(999, ddd));
@@ -953,12 +971,12 @@ void FbsDataView::RenderCustomizeItemCommonEditor(ContentsBinData& bin)
             }
             if (warn) ImGui::PopStyleColor();
             if (warn && ImGui::IsItemHovered()) {
-                if (isDup && isGame)
-                    ImGui::SetTooltip("Duplicate item_id: %u\nConflicts with a base game item ID", e.item_id);
-                else if (isDup)
-                    ImGui::SetTooltip("Duplicate item_id: %u", e.item_id);
-                else
-                    ImGui::SetTooltip("item_id %u conflicts with a base game item ID", e.item_id);
+                std::string tip;
+                if (isDup)  tip += "Duplicate item_id in this list\n";
+                if (isGame) tip += "Conflicts with a base game item ID\n";
+                if (isExt) { tip += "Already used in tkmod: "; tip += extOwner; tip += "\n"; }
+                if (!tip.empty() && tip.back() == '\n') tip.pop_back();
+                ImGui::SetTooltip("item_id %u\n%s", e.item_id, tip.c_str());
             }
         }
         ImGui::TableSetColumnIndex(2);  I32Cell("##ino",   e.item_no);
@@ -3382,6 +3400,9 @@ void FbsDataView::RenderCustomizeItemUniqueListEditor(ContentsBinData& bin)
     for (int i = 0; i < (int)bin.customizeItemUniqueEntries.size(); ++i)
         idCounts[bin.customizeItemUniqueEntries[i].char_item_id]++;
 
+    // Basename of this tkmod, excluded from cross-tkmod collision checks.
+    const std::string selfTkmod = TkmodBasename(m_currentFilePath);
+
     int deleteIdx = -1;
     ImGuiListClipper clipper;
     clipper.Begin((int)bin.customizeItemUniqueEntries.size());
@@ -3422,8 +3443,13 @@ void FbsDataView::RenderCustomizeItemUniqueListEditor(ContentsBinData& bin)
                 int ddd = (int)(e.char_item_id % 1000u);
                 bool isDup  = idCounts.count(e.char_item_id) && idCounts.at(e.char_item_id) > 1;
                 bool isGame = FbsDataDict::Get().IsGameItemId(e.char_item_id);
-                bool warn   = isDup || isGame;
-                if (warn) ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.55f, 0.08f, 0.08f, 1.0f));
+                const char* extOwner = ExternalItemIdIndex::Get().FindOwner(e.char_item_id, selfTkmod);
+                bool isExt   = (extOwner != nullptr);
+                bool warnRed = isDup || isGame;                    // hard conflicts -> red
+                bool warn    = warnRed || isExt;                   // external-only -> orange
+                if (warn) ImGui::PushStyleColor(ImGuiCol_FrameBg,
+                    warnRed ? ImVec4(0.55f, 0.08f, 0.08f, 1.0f)    // red
+                            : ImVec4(0.62f, 0.36f, 0.05f, 1.0f));  // orange
                 ImGui::SetNextItemWidth(-FLT_MIN);
                 if (ImGui::InputInt("##ddd", &ddd, 0, 0)) {
                     ddd = std::max(0, std::min(999, ddd));
@@ -3431,12 +3457,12 @@ void FbsDataView::RenderCustomizeItemUniqueListEditor(ContentsBinData& bin)
                 }
                 if (warn) ImGui::PopStyleColor();
                 if (warn && ImGui::IsItemHovered()) {
-                    if (isDup && isGame)
-                        ImGui::SetTooltip("Duplicate item_id: %u\nConflicts with a base game item ID", e.char_item_id);
-                    else if (isDup)
-                        ImGui::SetTooltip("Duplicate item_id: %u", e.char_item_id);
-                    else
-                        ImGui::SetTooltip("item_id %u conflicts with a base game item ID", e.char_item_id);
+                    std::string tip;
+                    if (isDup)  tip += "Duplicate item_id in this list\n";
+                    if (isGame) tip += "Conflicts with a base game item ID\n";
+                    if (isExt) { tip += "Already used in tkmod: "; tip += extOwner; tip += "\n"; }
+                    if (!tip.empty() && tip.back() == '\n') tip.pop_back();
+                    ImGui::SetTooltip("item_id %u\n%s", e.char_item_id, tip.c_str());
                 }
             }
             ImGui::TableSetColumnIndex( 2); StrCell ("##an",   e.asset_name,        sizeof(e.asset_name));

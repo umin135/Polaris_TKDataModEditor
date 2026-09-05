@@ -34,6 +34,23 @@ void ExtractorView::CheckThread()
     m_lastOk  = m_threadOk;
     m_loading = false;
     if (m_lastOk && m_onSuccess) m_onSuccess();
+
+    // "Extract Both": after the P1 phase ends, chain the P2 phase; combine the messages.
+    if (m_pendingBothP2) { AdvanceBoth(); return; }
+    if (!m_bothP1Msg.empty()) {
+        m_lastMsg = m_bothP1Msg + "  |  P2: " + m_lastMsg;
+        m_bothP1Msg.clear();
+    }
+}
+
+// Runs the P2 phase of "Extract Both" once the P1 phase has ended (whether it ran or was skipped).
+void ExtractorView::AdvanceBoth()
+{
+    m_pendingBothP2 = false;
+    std::string p1 = m_lastMsg;
+    StartExtract(1);
+    if (m_loading) m_bothP1Msg = "P1: " + p1;                       // P2 running -> combine when done
+    else           m_lastMsg   = "P1: " + p1 + "  |  P2: " + m_lastMsg; // P2 didn't start -> combine now
 }
 
 // -------------------------------------------------------------
@@ -157,6 +174,18 @@ void ExtractorView::RenderButtons()
 
     if (ImGui::Button("Extract P2", ImVec2(120.0f, 0.0f)))
         StartExtract(1);
+
+    ImGui::SameLine();
+
+    if (ImGui::Button("Extract Both", ImVec2(120.0f, 0.0f)))
+    {
+        m_bothP1Msg.clear();
+        m_pendingBothP2 = true;
+        StartExtract(0);                 // P1 first
+        if (!m_loading) AdvanceBoth();   // P1 failed to start -> go straight to P2
+    }
+
+    if (busy) ImGui::EndDisabled();
 
     if (!canExtract)
     {

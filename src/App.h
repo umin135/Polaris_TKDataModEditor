@@ -6,6 +6,7 @@
 #include "extract/ExtractorView.h"
 #include <string>
 #include <vector>
+#include <memory>
 #include <future>
 #include <thread>
 #include <atomic>
@@ -87,7 +88,9 @@ private:
     FbsDataView  m_fbsDataView;
     MovesetView  m_movesetView;
     ExtractorView m_extractorView{ "" };
-    std::vector<MovesetEditorWindow> m_editorWindows;
+    // unique_ptr so editor objects keep a STABLE address: they wire self/member pointers into
+    // their AnimationManager, so they must never be relocated by vector growth/erase.
+    std::vector<std::unique_ptr<MovesetEditorWindow>> m_editorWindows;
     int          m_nextEditorUid = 0;
 #ifdef _DEBUG
     FbsDevView      m_fbsDevView;
@@ -112,6 +115,8 @@ private:
     bool m_settingsInitialized = false;
     int  m_settingsCat       = 1;     // 0 = fbsdata, 1 = moveset
     char m_settingsGameRoot[1024] = {};
+    char m_settingsCineExport[1024] = {};   // cinematics export dump root (optional)
+    int  m_capturingKey      = -1;    // ListShortcut index currently being rebound, -1 = none
 
     // Auto-update
     std::string m_exePath;

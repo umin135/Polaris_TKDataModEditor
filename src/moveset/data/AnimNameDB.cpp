@@ -217,6 +217,13 @@ bool AnimNameDB::AddEntry(const std::string& folderPath,
     auto it = m_nameToKey.find(name);
     if (it != m_nameToKey.end() && it->second == key) return true;
 
+    // Clear stale reverse mappings so the two maps stay consistent:
+    //   - if this key had a different name, drop that old name entry
+    auto kit = m_keyToName.find(key);
+    if (kit != m_keyToName.end()) m_nameToKey.erase(kit->second);
+    //   - if this name pointed at a different key, drop that old key entry
+    if (it != m_nameToKey.end()) m_keyToName.erase(it->second);
+
     m_nameToKey[name] = key;
     m_keyToName[key]  = name;
     m_loaded = true;
@@ -224,6 +231,63 @@ bool AnimNameDB::AddEntry(const std::string& folderPath,
     std::string tkeditDir = WithSlash(folderPath) + ".tkedit";
     CreateDirectoryA(tkeditDir.c_str(), nullptr);
     return Save(JsonPath(folderPath));
+}
+
+bool AnimNameDB::RemoveKey(const std::string& folderPath, uint32_t key)
+{
+    auto it = m_keyToName.find(key);
+    if (it == m_keyToName.end()) return true;   // nothing to remove
+    m_nameToKey.erase(it->second);
+    m_keyToName.erase(it);
+    return Save(JsonPath(folderPath));
+}
+
+bool AnimNameDB::Rename(const std::string& folderPath,
+                        const std::string& oldName, const std::string& newName)
+{
+    if (newName.empty()) return false;
+    if (oldName == newName) return true;
+
+    auto it = m_nameToKey.find(oldName);
+    if (it == m_nameToKey.end()) return false;          // unknown source name
+    auto nit = m_nameToKey.find(newName);
+    if (nit != m_nameToKey.end() && nit->second != it->second)
+        return false;                                   // target used by another anim
+
+    uint32_t key = it->second;
+    m_nameToKey.erase(it);
+    m_nameToKey[newName] = key;
+    m_keyToName[key]     = newName;
+    return Save(JsonPath(folderPath));
+}
+
+std::string AnimNameDB::MakeUniqueName(const std::string& base) const
+{
+    if (m_nameToKey.find(base) == m_nameToKey.end()) return base;
+    char buf[80];
+    for (int i = 1; i < 100000; ++i) {
+        snprintf(buf, sizeof(buf), "%s_%d", base.c_str(), i);
+        if (m_nameToKey.find(buf) == m_nameToKey.end()) return buf;
+    }
+    return base;   // unreachable in practice
+}
+
+int AnimNameDB::PruneToValidKeys(const std::string& folderPath,
+                                 const std::unordered_set<uint32_t>& validKeys)
+{
+    int removed = 0;
+    for (auto it = m_keyToName.begin(); it != m_keyToName.end(); )
+    {
+        if (validKeys.find(it->first) == validKeys.end())
+        {
+            m_nameToKey.erase(it->second);
+            it = m_keyToName.erase(it);
+            ++removed;
+        }
+        else ++it;
+    }
+    if (removed > 0) Save(JsonPath(folderPath));
+    return removed;
 }
 
 // -------------------------------------------------------------

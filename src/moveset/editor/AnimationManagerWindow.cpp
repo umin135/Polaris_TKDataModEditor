@@ -5,6 +5,8 @@
 #include "moveset/preview/PanmParser.h"
 #include "moveset/labels/LabelDB.h"
 #include "imgui/imgui.h"
+#include "imgui/imgui_internal.h"
+#include "LayoutStore.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -242,8 +244,10 @@ void AnimationManagerWindow::NavigateToPool(int cat, int poolIdx)
     m_pendingTab         = cat;
     m_scrollPending[cat] = true;
 
-    if (m_anmbin.loaded && (cat != m_previewCat || poolIdx != m_previewPoolIdx))
-        LoadSelectedAnim(cat, poolIdx);
+    // Defer the preview load to Render(): switching to this tab runs a reset that would wipe an
+    // anim loaded here, so load it AFTER the tab is active (see Render()'s pending-preview block).
+    m_pendingPreviewCat  = cat;
+    m_pendingPreviewPool = poolIdx;
 }
 
 void AnimationManagerWindow::NavigateByMotbinKey(int cat, uint32_t motbinAnimKey)
@@ -314,6 +318,8 @@ void AnimationManagerWindow::NavigateTo(int cat, int moveIdx)
             m_selRow[cat]        = i;
             m_pendingTab         = cat;
             m_scrollPending[cat] = true;
+            m_pendingPreviewCat  = cat;
+            m_pendingPreviewPool = i;
             return;
         }
     }
@@ -372,7 +378,7 @@ size_t AnimationManagerWindow::ComputePanmSize(int cat, int poolIdx)
 
 void AnimationManagerWindow::DoAdd(int cat)
 {
-    if (!m_moves || !m_animNameDB) { m_statusMsg = "Not ready (no moves data)"; m_statusOk = false; return; }
+    if (!m_moves || !m_animNameDB) { m_statusMsg = "Not ready (no moves data)"; m_statusOk = false; m_statusWarn = false; return; }
 
     // Open file dialog
     const char* filter;
@@ -381,61 +387,102 @@ void AnimationManagerWindow::DoAdd(int cat)
         case 1:  filter = "Hand Animation (*.anmhd)\0*.anmhd\0All files (*.*)\0*.*\0\0";   break;
         default: filter = "All files (*.*)\0*.*\0\0"; break;
     }
-    char filePath[MAX_PATH] = {};
+    // Multi-select buffer: on multi-selection the API fills it as
+    // "dir\0file1\0file2\0...\0\0"; on single selection it's the full path.
+    std::vector<char> fileBuf(64 * 1024, '\0');
     OPENFILENAMEA ofn = {};
     ofn.lStructSize = sizeof(ofn);
     ofn.hwndOwner   = NULL;
     ofn.lpstrFilter = filter;
-    ofn.lpstrFile   = filePath;
-    ofn.nMaxFile    = MAX_PATH;
-    ofn.Flags       = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+    ofn.lpstrFile   = fileBuf.data();
+    ofn.nMaxFile    = (DWORD)fileBuf.size();
+    ofn.Flags       = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_ALLOWMULTISELECT | OFN_EXPLORER;
     if (!GetOpenFileNameA(&ofn)) return; // cancelled
 
-    // Read file bytes
-    FILE* f = nullptr;
-    if (fopen_s(&f, filePath, "rb") != 0 || !f)
-    { m_statusMsg = "Cannot open file"; m_statusOk = false; return; }
-    fseek(f, 0, SEEK_END);
-    long sz = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    if (sz <= 0) { fclose(f); m_statusMsg = "Empty file"; m_statusOk = false; return; }
-    std::vector<uint8_t> panmBytes(static_cast<size_t>(sz));
-    fread(panmBytes.data(), 1, panmBytes.size(), f);
-    fclose(f);
-
-    // Extract stem name from filename
-    std::string stem = filePath;
+    // Parse selection into a list of full paths.
+    std::vector<std::string> paths;
     {
-        size_t p = stem.rfind('\\');
-        if (p == std::string::npos) p = stem.rfind('/');
-        if (p != std::string::npos) stem = stem.substr(p + 1);
-        size_t d = stem.rfind('.');
-        if (d != std::string::npos) stem = stem.substr(0, d);
-    }
-
-    uint32_t crc32 = 0;
-    std::string err;
-    bool ok = AddAnimToAnmbin(m_folderPath, *m_animNameDB, *m_moves, cat, panmBytes, crc32, err);
-
-    if (ok)
-    {
-        if (m_onAnimAdded) m_onAnimAdded(cat, stem, crc32);
-        char msg[128];
-        snprintf(msg, sizeof(msg), "Added: %s  (0x%08X)", stem.c_str(), crc32);
-        m_statusMsg = msg;
-        m_statusOk  = true;
-        ForceReload();
-        // Navigate to the newly added entry (last in pool after reload).
-        TryLoad();
-        int newIdx = (int)m_anmbin.pool[cat].size() - 1;
-        if (newIdx >= 0) {
-            m_selRow[cat] = newIdx;
-            m_scrollPending[cat] = true;
+        const char* p = fileBuf.data();
+        std::string dir = p;               // first string: dir (multi) or full path (single)
+        p += dir.size() + 1;
+        if (*p == '\0') {
+            paths.push_back(dir);          // single selection
+        } else {
+            for (; *p; p += strlen(p) + 1) {
+                std::string full = dir;
+                if (!full.empty() && full.back() != '\\' && full.back() != '/') full += '\\';
+                full += p;
+                paths.push_back(full);
+            }
         }
-        m_pendingTab = cat;
+    }
+    if (paths.empty()) return;
 
-        // For Hand animations, auto-assign the first free hand key index.
+    int addedCount = 0, failCount = 0, skipCount = 0, lastHandKey = -1;
+    std::string lastStem, firstErr, firstSkip;
+    uint32_t lastCrc = 0;
+    m_skips.clear();
+
+    for (const std::string& filePath : paths)
+    {
+        // Read file bytes
+        FILE* f = nullptr;
+        if (fopen_s(&f, filePath.c_str(), "rb") != 0 || !f)
+        { ++failCount; if (firstErr.empty()) firstErr = "Cannot open file"; continue; }
+        fseek(f, 0, SEEK_END);
+        long sz = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        if (sz <= 0) { fclose(f); ++failCount; if (firstErr.empty()) firstErr = "Empty file"; continue; }
+        std::vector<uint8_t> panmBytes(static_cast<size_t>(sz));
+        fread(panmBytes.data(), 1, panmBytes.size(), f);
+        fclose(f);
+
+        // Extract stem name from filename
+        std::string stem = filePath;
+        {
+            size_t p = stem.find_last_of("\\/");
+            if (p != std::string::npos) stem = stem.substr(p + 1);
+            size_t d = stem.rfind('.');
+            if (d != std::string::npos) stem = stem.substr(0, d);
+        }
+
+        uint32_t crc32 = 0;
+        std::string err;
+        bool already = false;
+        int  matchIdx = -1;
+        if (!AddAnimToAnmbin(m_folderPath, *m_animNameDB, *m_moves, cat, panmBytes, crc32, err, &already, &matchIdx))
+        { ++failCount; if (firstErr.empty()) firstErr = err; continue; }
+
+        // Byte-identical animation already embedded: warn + skip (no new entry, no rename).
+        if (already) {
+            ++skipCount;
+            // Name of the existing entry this blob collided with (user name, else anim_<code>_<idx>).
+            std::string existing = GetNameForPoolIdx(cat, matchIdx);
+            if (existing.empty() && m_animNameDB) existing = m_animNameDB->AnimKeyToName(crc32);
+            if (existing.empty() && matchIdx >= 0) {
+                char b[48]; snprintf(b, sizeof(b), "%s #%d", AnmbinCategoryName(cat), matchIdx);
+                existing = b;
+            }
+            if (existing.empty()) existing = "(unknown)";
+            m_skips.push_back({ stem, existing });
+            if (firstSkip.empty()) firstSkip = existing;
+            continue;
+        }
+
+        // Duplicate-name safety: reuse this anim's existing name if it already has
+        // one; otherwise append _1/_2/... so a newly added name never collides.
+        std::string animName = stem;
+        if (m_animNameDB) {
+            std::string existing = m_animNameDB->AnimKeyToName(crc32);
+            animName = !existing.empty() ? existing : m_animNameDB->MakeUniqueName(stem);
+        }
+        if (m_onAnimAdded) m_onAnimAdded(cat, animName, crc32);
+        ++addedCount; lastStem = animName; lastCrc = crc32;
+
+        // For Hand animations, auto-assign the first free hand key index. Reload
+        // first so the free-key search reflects keys assigned earlier in this loop.
         if (cat == 1) {
+            ForceReload(); TryLoad();
             const auto& ml = m_anmbin.moveList[1];
             int freeIdx = -1;
             for (int k = 0; k < (int)ml.size(); ++k)
@@ -444,24 +491,60 @@ void AnimationManagerWindow::DoAdd(int cat)
 
             std::string assignErr;
             if (AssignHandKeyInAnmbin(m_folderPath, freeIdx, crc32, assignErr))
-            {
-                snprintf(msg, sizeof(msg), "Added: %s  (0x%08X)  → Hand Key #%d",
-                         stem.c_str(), crc32, freeIdx);
-                ForceReload();
-            }
-            else
-            {
-                snprintf(msg, sizeof(msg), "Added: %s  — key assign failed: %s",
-                         stem.c_str(), assignErr.c_str());
-            }
-            m_statusMsg = msg;
+                lastHandKey = freeIdx;
+            else if (firstErr.empty())
+                firstErr = "key assign failed: " + assignErr;
         }
     }
-    else
-    {
-        m_statusMsg = "Add failed: " + err;
-        m_statusOk  = false;
+
+    // Reload once and navigate to the last added entry.
+    ForceReload();
+    TryLoad();
+    if (addedCount > 0) {
+        int newIdx = (int)m_anmbin.pool[cat].size() - 1;
+        if (newIdx >= 0) { m_selRow[cat] = newIdx; m_scrollPending[cat] = true; }
+        m_pendingTab = cat;
     }
+
+    // Compose "skipped N (already exists: name)" suffix when any duplicates were skipped.
+    char skipNote[96] = {};
+    if (skipCount == 1)
+        snprintf(skipNote, sizeof(skipNote), "  |  skipped 1 (already exists: %s)", firstSkip.c_str());
+    else if (skipCount > 1)
+        snprintf(skipNote, sizeof(skipNote), "  |  skipped %d duplicates (e.g. %s)", skipCount, firstSkip.c_str());
+
+    char msg[288];
+    m_statusWarn = false;
+    if (addedCount == 0 && failCount == 0 && skipCount > 0) {
+        // Nothing added; only byte-identical duplicates -> warning.
+        if (skipCount == 1)
+            snprintf(msg, sizeof(msg), "Already exists (identical): %s - skipped", firstSkip.c_str());
+        else
+            snprintf(msg, sizeof(msg), "All %d already exist (identical) - skipped", skipCount);
+        m_statusOk = true; m_statusWarn = true;
+    } else if (addedCount == 0) {
+        snprintf(msg, sizeof(msg), "Add failed: %s%s", firstErr.c_str(), skipNote);
+        m_statusOk = false;
+    } else if (addedCount == 1 && failCount == 0 && skipCount == 0) {
+        if (cat == 1 && lastHandKey >= 0)
+            snprintf(msg, sizeof(msg), "Added: %s  (0x%08X)  \xE2\x86\x92 Hand Key #%d",
+                     lastStem.c_str(), lastCrc, lastHandKey);
+        else
+            snprintf(msg, sizeof(msg), "Added: %s  (0x%08X)", lastStem.c_str(), lastCrc);
+        m_statusOk = true;
+    } else {
+        if (failCount > 0)
+            snprintf(msg, sizeof(msg), "Added %d animations  (%d failed: %s)%s",
+                     addedCount, failCount, firstErr.c_str(), skipNote);
+        else
+            snprintf(msg, sizeof(msg), "Added %d animations%s", addedCount, skipNote);
+        m_statusOk = true;
+        if (skipCount > 0) m_statusWarn = true;   // draw attention to the skips
+    }
+    m_statusMsg = msg;
+
+    // Show a popup detailing every skipped duplicate (esp. useful for multi-file adds).
+    if (!m_skips.empty()) m_skipPopupOpen = true;
 }
 
 // -------------------------------------------------------------
@@ -470,6 +553,7 @@ void AnimationManagerWindow::DoAdd(int cat)
 
 void AnimationManagerWindow::DoExtract(int cat, int poolIdx)
 {
+    m_statusWarn = false;
     TryLoad();
     if (!m_anmbin.loaded) return;
     if (poolIdx < 0 || poolIdx >= (int)m_anmbin.pool[cat].size()) return;
@@ -550,20 +634,34 @@ void AnimationManagerWindow::DoExtract(int cat, int poolIdx)
 
 void AnimationManagerWindow::DoRemove(int cat, int poolIdx)
 {
+    m_statusWarn = false;
     uint32_t removedHash = 0;
     std::string err;
     bool ok = RemoveAnimFromAnmbin(m_folderPath, cat, poolIdx, removedHash, err);
 
     if (ok)
     {
-        if (m_onAnimRemoved) m_onAnimRemoved(removedHash);
-        char msg[80];
-        snprintf(msg, sizeof(msg), "Removed pool[%d][%d]  (key 0x%08X)", cat, poolIdx, removedHash);
-        m_statusMsg = msg;
-        m_statusOk  = true;
-        // Clamp selection
+        // Clamp selection, then reload so we can inspect the post-removal pool.
         if (m_selRow[cat] >= poolIdx && m_selRow[cat] > 0) --m_selRow[cat];
         ForceReload();
+        TryLoad();
+
+        // Only repoint moves / drop the name when the removed key is truly gone from
+        // ALL pools. If another entry still carries this key (e.g. a legacy duplicate),
+        // the key is still valid -- clearing it would strip a live animation's name.
+        bool stillPresent = false;
+        for (int c = 0; c < 6 && !stillPresent; ++c)
+            for (const auto& e : m_anmbin.pool[c])
+                if (static_cast<uint32_t>(e.animKey & 0xFFFFFFFF) == removedHash) { stillPresent = true; break; }
+
+        if (!stillPresent && m_onAnimRemoved) m_onAnimRemoved(removedHash);
+
+        char msg[112];
+        snprintf(msg, sizeof(msg), "Removed pool[%d][%d]  (key 0x%08X)%s",
+                 cat, poolIdx, removedHash,
+                 stillPresent ? "  (key still used by another entry; name kept)" : "");
+        m_statusMsg = msg;
+        m_statusOk  = true;
     }
     else
     {
@@ -578,6 +676,7 @@ void AnimationManagerWindow::DoRemove(int cat, int poolIdx)
 
 void AnimationManagerWindow::DoExtractAll()
 {
+    m_statusWarn = false;
     TryLoad();
     if (!m_anmbin.loaded) return;
 
@@ -994,6 +1093,17 @@ void AnimationManagerWindow::RenderTabContent(int cat)
                 sel = i;
                 if (ImGui::MenuItem("Copy Name"))
                     ImGui::SetClipboardText(entName.c_str());
+                if (ImGui::MenuItem("Rename"))
+                {
+                    // Resolve this pool entry's motbin anim_key (same path as GetNameForPoolIdx).
+                    BuildAnimKeyMap();
+                    uint32_t hash32 = static_cast<uint32_t>(pool[i].animKey & 0xFFFFFFFF);
+                    auto hit = m_hashToAnimKey.find(hash32);
+                    m_rename.key       = (hit != m_hashToAnimKey.end()) ? hit->second : hash32;
+                    m_rename.showing   = true;
+                    m_rename.openPopup = true;
+                    snprintf(m_rename.buf, sizeof(m_rename.buf), "%s", entName.c_str());
+                }
                 ImGui::Separator();
                 if (ImGui::MenuItem("Extract"))
                     DoExtract(cat, i);
@@ -1276,16 +1386,25 @@ bool AnimationManagerWindow::Render()
 {
     if (!m_open) return false;
 
+    // Bring-to-front: skip one frame (don't submit the window) so next frame it re-appears and
+    // ImGui auto-focuses it — reliable even when already open / behind another / in its own viewport.
+    if (m_bringToFront) { m_bringToFront = false; return true; }
+
     TryLoad();
     BuildAnimKeyMap();
 
-    ImGui::SetNextWindowSize(ImVec2(1200.f, 720.f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(LayoutStore::Get().GetWin("AnimManager", 1200.f, 720.f), ImGuiCond_FirstUseEver);
     ImGuiWindowFlags flags = ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoCollapse;
 
     if (!ImGui::Begin(m_windowId.c_str(), &m_open, flags))
     {
         ImGui::End();
         return m_open;
+    }
+    // Remember this window's size (persisted to res/layout.ini on editor close / app exit).
+    {
+        ImVec2 sz = ImGui::GetWindowSize();
+        if (sz.x > 1.0f && sz.y > 1.0f) LayoutStore::Get().SetWin("AnimManager", sz);
     }
 
     if (!m_anmbin.loaded)
@@ -1327,9 +1446,10 @@ bool AnimationManagerWindow::Render()
     if (!m_statusMsg.empty())
     {
         ImGui::SameLine();
-        ImVec4 col = m_statusOk
-            ? ImVec4(0.35f, 1.f, 0.45f, 1.f)
-            : ImVec4(1.f,   0.4f, 0.4f,  1.f);
+        ImVec4 col = m_statusWarn
+            ? ImVec4(1.f, 0.85f, 0.3f, 1.f)                 // yellow: warning (e.g. duplicate skipped)
+            : (m_statusOk ? ImVec4(0.35f, 1.f, 0.45f, 1.f)  // green: ok
+                          : ImVec4(1.f,   0.4f, 0.4f,  1.f)); // red: error
         ImGui::TextColored(col, "%s", m_statusMsg.c_str());
         ImGui::SameLine();
         if (ImGui::SmallButton("x##clrsts")) m_statusMsg.clear();
@@ -1379,6 +1499,14 @@ bool AnimationManagerWindow::Render()
                 }
                 EnsurePreviewMeshes(cat);
 
+                // Apply a navigation-requested preview load now that this tab is active and its
+                // on-change reset (above) has already run — so the loaded anim actually sticks.
+                if (m_pendingPreviewCat == cat) {
+                    LoadSelectedAnim(cat, m_pendingPreviewPool);
+                    m_pendingPreviewCat  = -1;
+                    m_pendingPreviewPool = -1;
+                }
+
                 float availW = ImGui::GetContentRegionAvail().x;
                 float leftW  = availW * 0.60f;
                 float rightW = availW - leftW - ImGui::GetStyle().ItemSpacing.x;
@@ -1416,7 +1544,7 @@ bool AnimationManagerWindow::Render()
                     m_removeConfirm.cat,
                     m_removeConfirm.poolIdx);
         ImGui::TextColored(ImVec4(1.f,0.8f,0.3f,1.f),
-            "Moves referencing this animation will have their anim_key cleared.");
+            "Moves referencing this animation will be repointed to move 0's animation.");
         ImGui::Spacing();
         if (ImGui::Button("Remove", ImVec2(100.f, 0.f)))
         {
@@ -1430,6 +1558,96 @@ bool AnimationManagerWindow::Render()
             m_removeConfirm = {};
             ImGui::CloseCurrentPopup();
         }
+        ImGui::EndPopup();
+    }
+
+    // -- Rename modal --------------------------------------------------------
+
+    if (m_rename.showing && m_rename.openPopup)
+    {
+        ImGui::OpenPopup("Rename Animation##anmmgr");
+        m_rename.openPopup = false;
+    }
+
+    if (ImGui::BeginPopupModal("Rename Animation##anmmgr", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        ImGui::Text("New animation name:");
+        ImGui::SetNextItemWidth(320.f);
+        bool enter = ImGui::InputText("##rn_input", m_rename.buf, sizeof(m_rename.buf),
+                                      ImGuiInputTextFlags_EnterReturnsTrue);
+        ImGui::Spacing();
+        bool confirm = ImGui::Button("Rename", ImVec2(100.f, 0.f)) || enter;
+        ImGui::SameLine();
+        bool cancel = ImGui::Button("Cancel", ImVec2(100.f, 0.f));
+        if (confirm)
+        {
+            std::string nn = m_rename.buf;
+            if (!nn.empty() && m_onAnimRenamed)
+            {
+                // If the target name is taken by a DIFFERENT animation, append _1/_2/...
+                std::string finalName = nn;
+                if (m_animNameDB)
+                {
+                    std::string curName = m_animNameDB->AnimKeyToName(m_rename.key);
+                    if (nn != curName && m_animNameDB->HasName(nn))
+                        finalName = m_animNameDB->MakeUniqueName(nn);
+                }
+                m_onAnimRenamed(m_rename.key, finalName);
+
+                m_statusWarn = false;
+                char sm[224];
+                if (finalName != nn) {
+                    snprintf(sm, sizeof(sm),
+                             "Name '%s' already exists; renamed to '%s'", nn.c_str(), finalName.c_str());
+                    m_statusOk = true; m_statusWarn = true;
+                } else {
+                    snprintf(sm, sizeof(sm), "Renamed to '%s'", finalName.c_str());
+                    m_statusOk = true;
+                }
+                m_statusMsg = sm;
+            }
+            m_rename = {};
+            ImGui::CloseCurrentPopup();
+        }
+        else if (cancel)
+        {
+            m_rename = {};
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
+    // -- Duplicate-skip report modal -----------------------------------------
+    if (m_skipPopupOpen)
+    {
+        ImGui::OpenPopup("Duplicates skipped##anmmgr");
+        m_skipPopupOpen = false;
+    }
+    ImGui::SetNextWindowSize(ImVec2(560.0f, 320.0f), ImGuiCond_Appearing);
+    if (ImGui::BeginPopupModal("Duplicates skipped##anmmgr", nullptr, ImGuiWindowFlags_NoCollapse))
+    {
+        ImGui::TextWrapped("%d animation(s) were skipped because a byte-identical animation is already "
+                           "embedded. Each skipped file and the existing animation it matched:",
+                           (int)m_skips.size());
+        ImGui::Spacing();
+        if (ImGui::BeginTable("##skiptbl", 2,
+                              ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY,
+                              ImVec2(0.0f, -ImGui::GetFrameHeightWithSpacing() - 4.0f)))
+        {
+            ImGui::TableSetupColumn("Added file", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("Identical to (existing)", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupScrollFreeze(0, 1);
+            ImGui::TableHeadersRow();
+            for (const auto& s : m_skips) {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted(s.file.c_str());
+                ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted(s.existing.c_str());
+            }
+            ImGui::EndTable();
+        }
+        ImGui::Spacing();
+        if (ImGui::Button("Close", ImVec2(100.0f, 0.0f))) ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
     }
 

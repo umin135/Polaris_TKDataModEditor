@@ -1,5 +1,6 @@
 ﻿#pragma once
 #include "moveset/data/MotbinData.h"
+#include "moveset/data/CinematicManifest.h"
 #include "moveset/data/AnimNameDB.h"
 #include "moveset/data/AnmbinRebuild.h"
 #include "moveset/editor/AnimationManagerWindow.h"
@@ -45,12 +46,14 @@ public:
 
     struct ReactionListWinState {
         bool open            = false;
+        bool pendingFocus    = false;  // one-frame: bring window to front
         int  selectedIdx     = 0;
         bool scrollPending   = false;
     };
 
     struct PushbackWinState {
         bool open                 = false;
+        bool pendingFocus         = false;  // one-frame: bring window to front
         int  pushbackSel          = 0;
         int  extraSel             = 0;
         bool extraScrollPending   = false;
@@ -64,12 +67,14 @@ public:
 
     struct ProjectileWinState {
         bool open          = false;
+        bool pendingFocus  = false;  // one-frame: bring window to front
         int  selectedIdx   = 0;
         bool scrollPending = false;
     };
 
     struct ThrowsWinState {
         bool        open               = false;
+        bool        pendingFocus       = false;  // one-frame: bring window to front
         int         throwSel           = 0;
         bool        throwScrollPending = false;
         TwoLevelSel extraSel;
@@ -163,6 +168,7 @@ private:
     void RenderSubWin_InputSequences();
     void RenderSubWin_ParryableMoves();
     void RenderSubWin_Dialogues();
+    void RenderSubWin_Cinematics();
     void RenderSubWin_ReferenceFinder();
     void RenderRemoveConfirmModal();
     void RenderCommandCreator();
@@ -188,6 +194,13 @@ private:
     bool        m_dirty            = false; // unsaved changes exist
     bool        m_pendingClose     = false; // close requested while dirty
 
+    // Per-sub-window section widths (drag-splitter state), keyed by a stable string id.
+    // Persistent per editor-window instance; the first access seeds the value from LayoutStore
+    // (the remembered layout), and PersistLayout() writes the live values back each frame.
+    std::unordered_map<std::string, float> m_sectionW;
+    float& SectionW(const char* key, float defaultW);   // defined in .cpp (seeds from LayoutStore)
+    void   PersistLayout();                              // push section widths + window sizes to LayoutStore
+
     enum class SaveState { Idle, Saving, Done };
     SaveState          m_saveState        = SaveState::Idle;
     std::future<void>  m_saveFuture;                         // async save task
@@ -199,6 +212,7 @@ private:
 
     // Subwindow states (open = only one instance allowed)
     bool                 m_reqWinOpen       = false;
+    bool                 m_reqWinFocus      = false;  // one-frame: bring window to front
     TwoLevelSel          m_reqWinSel;
     CancelsWinState      m_cancelsWin;
     bool                 m_hitCondWinOpen   = false;
@@ -208,8 +222,7 @@ private:
     PushbackWinState     m_pushbackWin;
     bool                 m_voiceclipWinOpen   = false;
     bool                 m_voiceclipWinFocus  = false;
-    bool                 m_voiceclipWinScroll = false;
-    int                  m_voiceclipWinSel    = 0;
+    TwoLevelSel          m_voiceclipSel;   // outer = voiceclip group, inner = item within group
     PropertiesWinState   m_propertiesWin;
     InputSeqWinState     m_inputSeqWin;
     ProjectileWinState   m_projectileWin;
@@ -218,6 +231,21 @@ private:
     TwoLevelSel          m_parryWinSel;
     bool                 m_dialogueWinOpen = false;
     int                  m_dialogueSel     = 0;
+
+    // Cinematics (camera redirect) sub-window: loads <folder>/polaris/cinematic.json, edits overrides.
+    bool                 m_cineWinOpen  = false;
+    bool                 m_cineLoaded   = false;               // manifest read for current folder
+    CineManifest         m_cine;
+    std::vector<std::string> m_cineEdit;                       // parallel to m_cine.entries (Source field text)
+    int                  m_cineAddNN    = 0;                   // "add throw" number input
+    int                  m_cineSel      = -1;                  // selected row (index into m_cine.entries)
+    void                 LoadCinematicsManifest();
+    // Navigation from a 0x838E/0x8314 property's Go button -> focus + highlight a row.
+    bool                 m_cineWinFocus = false;               // bring-to-front (skip-one-frame)
+    std::string          m_cineHlGroup;                        // highlight target group ("rage"/"throw"/"intro"/"outro")
+    std::string          m_cineHlSub;                          // rage sub (pre/finish/finishko)
+    int                  m_cineHlNum    = -1;                  // throw nn or drama no
+    bool                 m_cineScrollPending = false;          // scroll to the highlighted row once
     RefFinderState       m_refFinder;
 
     struct CommandCreatorState {

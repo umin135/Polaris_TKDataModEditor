@@ -182,11 +182,15 @@ if "$(Configuration)|$(Platform)"=="Release|x64" xcopy /Y /E /Q "$(OutDir)res\" 
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\App.cpp" />
     <ClCompile Include="src\Config.cpp" />
+    <ClCompile Include="src\LayoutStore.cpp" />
     <ClCompile Include="src\fbsdata\editor\FbsDataView.cpp" />
     <ClCompile Include="src\fbsdata\editor\TkmodManagerView.cpp" />
     <ClCompile Include="src\fbsdata\io\TkmodIO.cpp" />
+    <ClCompile Include="src\fbsdata\data\ExternalItemIdIndex.cpp" />
     <ClCompile Include="src\moveset\editor\MovesetView.cpp" />
     <ClCompile Include="src\moveset\data\MotbinData.cpp" />
+    <ClCompile Include="src\moveset\data\CinematicPaths.cpp" />
+    <ClCompile Include="src\moveset\data\CinematicManifest.cpp" />
     <ClCompile Include="src\moveset\editor\MovesetEditorWindow.cpp" />
     <ClCompile Include="src\moveset\data\AnmbinData.cpp" />
     <ClCompile Include="src\moveset\data\MovesetDataDict.cpp" />
@@ -231,6 +235,7 @@ if "$(Configuration)|$(Platform)"=="Release|x64" xcopy /Y /E /Q "$(OutDir)res\" 
     <ClInclude Include="src\App.h" />
     <ClInclude Include="src\Config.h" />
     <ClInclude Include="src\fbsdata\data\ModData.h" />
+    <ClInclude Include="src\fbsdata\data\ExternalItemIdIndex.h" />
     <ClInclude Include="src\fbsdata\data\FieldNames.h" />
     <ClInclude Include="src\fbsdata\editor\FbsDataView.h" />
     <ClInclude Include="src\fbsdata\editor\BinVisibility.h" />

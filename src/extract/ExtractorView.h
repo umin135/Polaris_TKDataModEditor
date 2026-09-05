@@ -41,7 +41,10 @@ public:
 private:
     // Pre-check + start worker thread.
     void StartExtract(int slotIndex);
+
     void OnGameTargetChanged();
+    // "Extract Both": advance from the finished P1 phase to the P2 phase.
+    void AdvanceBoth();
 
     GameTarget            m_gameTarget = GameTarget::Tekken8;
     MovesetExtractor      m_extractor;
@@ -57,4 +60,8 @@ private:
     std::atomic<bool> m_threadDone { false };
     std::string       m_threadMsg;
     bool              m_threadOk   = false;
+
+    // "Extract Both" chaining (P1 then P2)
+    bool              m_pendingBothP2 = false; // P1 phase running; run P2 when it finishes
+    std::string       m_bothP1Msg;             // P1 result, prepended to the combined message
 };
