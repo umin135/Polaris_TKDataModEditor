@@ -4,12 +4,16 @@
 #include "moveset/serialize/T7ToT8Convert.h"
 #include "moveset/data/MotbinData.h"
 #include "moveset/data/T7AliasDict.h"
+#include "moveset/data/AnmbinRebuild.h"
+#include "moveset/data/AnimNameDB.h"
+#include "moveset/anim/T7AnimToPanm.h"
 #include "FbsDataDict.h"
 #include <windows.h>
 #include <cstring>
 #include <cstdio>
 #include <algorithm>
 #include <cctype>
+#include <unordered_map>
 
 using namespace T7;
 
@@ -362,9 +366,104 @@ bool T7MovesetExtractor::ExtractToFile(int slotIndex,
     if (!T7AliasDict::Get().IsLoaded())
         T7AliasDict::Get().EnsureLoaded();
 
+    // ---- Dump + convert body animations from Move.anim_addr (no MOTA) ----
+    std::vector<uint32_t> animCrcByMove(t7.moves.size(), 0);
+    std::vector<AnmbinPanmEntry> uniquePanms;
+    std::unordered_map<uint32_t, size_t> crcToPoolIdx;
+    int animOk = 0, animFail = 0, animSkip = 0;
+
+    {
+        // Collect unique non-null anim addresses and sort for size bounds.
+        std::vector<uintptr_t> addrs;
+        addrs.reserve(t7.moves.size());
+        for (const auto& m : t7.moves) {
+            if (m.anim_addr)
+                addrs.push_back(static_cast<uintptr_t>(m.anim_addr));
+        }
+        std::sort(addrs.begin(), addrs.end());
+        addrs.erase(std::unique(addrs.begin(), addrs.end()), addrs.end());
+
+        constexpr size_t kMaxAnimBytes = 2u * 1024u * 1024u;
+        std::unordered_map<uintptr_t, std::vector<uint8_t>> addrToBytes;
+
+        for (size_t ai = 0; ai < addrs.size(); ++ai) {
+            uintptr_t addr = addrs[ai];
+            // Peek header for FBF size / magic
+            uint8_t hdr[16] = {};
+            if (!ReadGameMemory(m_proc, addr, hdr, sizeof(hdr)))
+                continue;
+
+            size_t want = EstimateT7AnimSize(hdr, sizeof(hdr));
+            if (want == 0) {
+                // KEF or unknown: bound by next unique address when contiguous.
+                if (ai + 1 < addrs.size() && addrs[ai + 1] > addr) {
+                    uint64_t gap = static_cast<uint64_t>(addrs[ai + 1] - addr);
+                    if (gap > 0 && gap <= kMaxAnimBytes)
+                        want = static_cast<size_t>(gap);
+                }
+                if (want == 0)
+                    want = kMaxAnimBytes;
+            }
+            if (want < 16) continue;
+            if (want > kMaxAnimBytes) want = kMaxAnimBytes;
+
+            std::vector<uint8_t> blob(want);
+            if (!ReadGameMemory(m_proc, addr, blob.data(), want)) {
+                // Shrink on partial failure
+                size_t trySz = want / 2;
+                while (trySz >= 64) {
+                    blob.resize(trySz);
+                    if (ReadGameMemory(m_proc, addr, blob.data(), trySz))
+                        break;
+                    trySz /= 2;
+                }
+                if (trySz < 64) continue;
+            }
+
+            // Trim trailing zeros beyond a successful convert? Convert handles pad.
+            // Reject tiny/all-zero stubs.
+            bool any = false;
+            for (uint8_t b : blob) { if (b) { any = true; break; } }
+            if (!any || blob.size() <= 8) continue;
+
+            addrToBytes[addr] = std::move(blob);
+        }
+
+        // Convert each unique blob once
+        std::unordered_map<uintptr_t, uint32_t> addrToCrc;
+        for (auto& kv : addrToBytes) {
+            std::vector<uint8_t> panm;
+            std::string cerr;
+            if (!ConvertT7AnimToPanm(kv.second.data(), kv.second.size(), panm, cerr)) {
+                ++animFail;
+                continue;
+            }
+            uint32_t crc = AnmbinCRC32(panm.data(), panm.size());
+            addrToCrc[kv.first] = crc;
+            if (crcToPoolIdx.find(crc) == crcToPoolIdx.end()) {
+                crcToPoolIdx[crc] = uniquePanms.size();
+                AnmbinPanmEntry e;
+                e.crc32 = crc;
+                e.panm = std::move(panm);
+                uniquePanms.push_back(std::move(e));
+            }
+            ++animOk;
+        }
+
+        for (size_t i = 0; i < t7.moves.size(); ++i) {
+            uintptr_t a = static_cast<uintptr_t>(t7.moves[i].anim_addr);
+            if (!a) { ++animSkip; continue; }
+            auto it = addrToCrc.find(a);
+            if (it != addrToCrc.end())
+                animCrcByMove[i] = it->second;
+            else
+                ++animSkip;
+        }
+    }
+
     MotbinData data;
     std::string convWarn;
-    if (!ConvertT7ToMotbin(t7, slot.charaId, data, errorMsg, &convWarn))
+    if (!ConvertT7ToMotbin(t7, slot.charaId, data, errorMsg, &convWarn, &animCrcByMove))
         return false;
 
     // Output folder
@@ -380,6 +479,39 @@ bool T7MovesetExtractor::ExtractToFile(int slotIndex,
     if (!SaveMotbin(data)) {
         errorMsg = "SaveMotbin failed for " + folder;
         return false;
+    }
+
+    // Build moveset.anmbin from converted PANMs
+    if (!uniquePanms.empty()) {
+        std::string aerr;
+        if (!CreateAnmbinFromPanms(folder, uniquePanms, animCrcByMove, aerr)) {
+            errorMsg = "CreateAnmbinFromPanms failed: " + aerr;
+            return false;
+        }
+        // AnimNameDB: stripped anim name → CRC32 (unique CRC once)
+        AnimNameDB adb;
+        std::unordered_map<uint32_t, std::string> crcNames;
+        auto stripDvd = [](std::string s) {
+            const char* suf = "(DVD)";
+            size_t n = strlen(suf);
+            while (s.size() >= n && s.compare(s.size() - n, n, suf) == 0)
+                s.resize(s.size() - n);
+            while (!s.empty() && (s.back() == ' ' || s.back() == '\t'))
+                s.pop_back();
+            return s;
+        };
+        for (size_t i = 0; i < t7.moves.size(); ++i) {
+            if (animCrcByMove[i] == 0) continue;
+            uint32_t crc = animCrcByMove[i];
+            if (crcNames.count(crc)) continue;
+            std::string nm = (i < t7.moveAnimNames.size())
+                ? stripDvd(t7.moveAnimNames[i]) : "";
+            if (nm.empty())
+                nm = "anim_" + std::to_string(i);
+            crcNames[crc] = std::move(nm);
+        }
+        for (const auto& kv : crcNames)
+            adb.AddEntry(folder, kv.second, kv.first);
     }
 
     // Round-trip validation
@@ -434,14 +566,15 @@ bool T7MovesetExtractor::ExtractToFile(int slotIndex,
         }
     }
 
-    char status[512];
+    char status[640];
     snprintf(status, sizeof(status),
-             "Extracted -> TK7_%s  (moves=%u cancels=%zu reqs=%zu reactions=%zu)%s",
+             "Extracted -> TK7_%s  (moves=%u cancels=%zu reqs=%zu reactions=%zu | anims ok=%d fail=%d skip=%d pool=%zu)%s",
              safeName.c_str(),
              data.moveCount,
              data.cancelBlock.size(),
              data.requirementBlock.size(),
              data.reactionListBlock.size(),
+             animOk, animFail, animSkip, uniquePanms.size(),
              convWarn.empty() ? "" : (" | " + convWarn).c_str());
     m_statusMsg = status;
     return true;

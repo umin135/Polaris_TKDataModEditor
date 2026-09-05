@@ -904,3 +904,74 @@ bool AssignHandKeyInAnmbin(const std::string& folderPath,
 
     return WriteAnmbinBytes(anmbinPath, bytes, errorMsg);
 }
+
+// =============================================================================
+uint32_t AnmbinCRC32(const uint8_t* data, size_t len)
+{
+    return ComputeCRC32(data, len);
+}
+
+bool CreateAnmbinFromPanms(const std::string&                  folderPath,
+                           const std::vector<AnmbinPanmEntry>& uniquePanms,
+                           const std::vector<uint32_t>&        moveListCrcs,
+                           std::string&                        errorMsg)
+{
+    std::string base = folderPath;
+    if (!base.empty() && base.back() != '\\' && base.back() != '/') base += '\\';
+    const std::string anmbinPath = base + "moveset.anmbin";
+
+    const uint32_t moveCount = static_cast<uint32_t>(moveListCrcs.size());
+    const uint32_t poolCount = static_cast<uint32_t>(uniquePanms.size());
+
+    std::vector<uint8_t> bytes(0x98, 0);
+
+    auto wrU32 = [&](size_t o, uint32_t v) {
+        if (o + 4 <= bytes.size()) memcpy(bytes.data() + o, &v, 4);
+    };
+    auto wrU64 = [&](size_t o, uint64_t v) {
+        if (o + 8 <= bytes.size()) memcpy(bytes.data() + o, &v, 8);
+    };
+
+    const uint64_t moveListOff = static_cast<uint64_t>(bytes.size());
+    for (uint32_t crc : moveListCrcs) {
+        uint8_t b[4];
+        memcpy(b, &crc, 4);
+        bytes.insert(bytes.end(), b, b + 4);
+    }
+
+    const uint64_t poolOff = static_cast<uint64_t>(bytes.size());
+    std::vector<size_t> entryOffs(poolCount);
+    for (uint32_t i = 0; i < poolCount; ++i) {
+        entryOffs[i] = bytes.size();
+        uint8_t entry[0x38] = {};
+        uint32_t crc = uniquePanms[i].crc32;
+        memcpy(entry + 0x00, &crc, 4);
+        memset(entry + 0x18, 0xFF, 16);
+        bytes.insert(bytes.end(), entry, entry + 0x38);
+    }
+
+    for (uint32_t i = 0; i < poolCount; ++i) {
+        const auto& pe = uniquePanms[i];
+        if (pe.panm.empty()) {
+            errorMsg = "CreateAnmbinFromPanms: empty PANM at pool " + std::to_string(i);
+            return false;
+        }
+        uint64_t panmOff = static_cast<uint64_t>(bytes.size());
+        memcpy(bytes.data() + entryOffs[i] + 0x08, &panmOff, 8);
+        bytes.insert(bytes.end(), pe.panm.begin(), pe.panm.end());
+    }
+
+    uint32_t firstAnim = 0;
+    if (poolCount > 0) {
+        uint64_t p = 0;
+        memcpy(&p, bytes.data() + entryOffs[0] + 0x08, 8);
+        firstAnim = static_cast<uint32_t>(p & 0xFFFFFFFFu);
+    }
+    wrU32(0x00, firstAnim);
+    wrU32(0x04, poolCount);
+    wrU32(0x1C, moveCount);
+    wrU64(0x38, poolOff);
+    wrU64(0x68, moveListOff);
+
+    return WriteAnmbinBytes(anmbinPath, bytes, errorMsg);
+}

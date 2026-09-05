@@ -201,6 +201,7 @@ if "$(Configuration)|$(Platform)"=="Release|x64" xcopy /Y /E /Q "$(OutDir)res\" 
     <ClCompile Include="src\moveset\labels\LabelDB.cpp" />
     <ClCompile Include="src\moveset\serialize\MotbinSerialize.cpp" />
     <ClCompile Include="src\moveset\serialize\T7ToT8Convert.cpp" />
+    <ClCompile Include="src\moveset\anim\T7AnimToPanm.cpp" />
     <ClCompile Include="src\extract\GameProcess.cpp" />
     <ClCompile Include="src\extract\MovesetExtractor.cpp" />
     <ClCompile Include="src\extract\T7MovesetExtractor.cpp" />
@@ -253,6 +254,7 @@ if "$(Configuration)|$(Platform)"=="Release|x64" xcopy /Y /E /Q "$(OutDir)res\" 
     <ClInclude Include="src\moveset\data\EditorFieldLabel.h" />
     <ClInclude Include="src\moveset\serialize\MotbinSerialize.h" />
     <ClInclude Include="src\moveset\serialize\T7ToT8Convert.h" />
+    <ClInclude Include="src\moveset\anim\T7AnimToPanm.h" />
     <ClInclude Include="src\extract\GameProcess.h" />
     <ClInclude Include="src\extract\MovesetExtractor.h" />
     <ClInclude Include="src\extract\T7MovesetExtractor.h" />

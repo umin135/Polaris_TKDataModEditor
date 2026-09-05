@@ -81,3 +81,25 @@ bool AssignHandKeyInAnmbin(const std::string& folderPath,
                            int                keyIdx,
                            uint32_t           crc32,
                            std::string&       errorMsg);
+
+// -------------------------------------------------------------
+//  CreateAnmbinFromPanms  --  build a fresh moveset.anmbin
+//
+//  Writes a minimal Fullbody-only container:
+//    pool[0]     = unique PANM entries (animKey low32 = CRC32)
+//    moveList[0] = per-move CRC32 (0 = missing)
+//    cats 1..5 empty
+//  Character flags set to 0xFFFFFFFF on every pool entry.
+// -------------------------------------------------------------
+struct AnmbinPanmEntry {
+    uint32_t              crc32 = 0;
+    std::vector<uint8_t>  panm;
+};
+
+bool CreateAnmbinFromPanms(const std::string&                  folderPath,
+                           const std::vector<AnmbinPanmEntry>& uniquePanms,
+                           const std::vector<uint32_t>&        moveListCrcs,
+                           std::string&                        errorMsg);
+
+// IEEE CRC-32 of a buffer (same poly as AddAnimToAnmbin).
+uint32_t AnmbinCRC32(const uint8_t* data, size_t len);

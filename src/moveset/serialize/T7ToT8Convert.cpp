@@ -83,7 +83,8 @@ static void SplitVoice(uint32_t t7, ParsedVoiceclip& vc)
 
 bool ConvertT7ToMotbin(const Moveset& src, uint32_t t7FighterId,
                        MotbinData& out, std::string& errorMsg,
-                       std::string* optionalWarn)
+                       std::string* optionalWarn,
+                       const std::vector<uint32_t>* animCrcByMove)
 {
     out = {};
     if (!src.valid || src.moves.empty()) {
@@ -354,6 +355,8 @@ bool ConvertT7ToMotbin(const Moveset& src, uint32_t t7FighterId,
 
         uint32_t nameKey = static_cast<uint32_t>(KamuiHash::Compute(nStr));
         uint32_t animKey = static_cast<uint32_t>(KamuiHash::Compute(aStr));
+        if (animCrcByMove && i < animCrcByMove->size() && (*animCrcByMove)[i] != 0)
+            animKey = (*animCrcByMove)[i];
 
         StoreXorBlock(m, 0, nameKey, mi);
         StoreXorBlock(m, 1, animKey, mi);
