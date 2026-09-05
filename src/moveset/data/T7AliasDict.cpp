@@ -3,9 +3,11 @@
 #include "extract/T7Constants.h"
 #include "resource.h"
 #include <windows.h>
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <vector>
 
 T7AliasDict& T7AliasDict::Get()
 {
@@ -235,6 +237,33 @@ void T7AliasDict::Parse(const std::string& json)
                         m_reqAlias[key] = ParseU32Key(aliasStr);
                     p = entClose + 1;
                 }
+
+                // Fill gaps where consecutive known ends share the same
+                // (alias - key) delta. E.g. 100→319 and 105→324 (delta 219)
+                // fills 101..104 as key+219. If endpoints disagree, skip.
+                if (m_reqAlias.size() >= 2) {
+                    std::vector<uint32_t> keys;
+                    keys.reserve(m_reqAlias.size());
+                    for (const auto& kv : m_reqAlias)
+                        keys.push_back(kv.first);
+                    std::sort(keys.begin(), keys.end());
+                    for (size_t i = 0; i + 1 < keys.size(); ++i) {
+                        const uint32_t a = keys[i];
+                        const uint32_t b = keys[i + 1];
+                        if (b <= a + 1) continue;
+                        const uint32_t aliasA = m_reqAlias[a];
+                        const uint32_t aliasB = m_reqAlias[b];
+                        // Same signed-safe delta: alias = key + D
+                        const int64_t dA = static_cast<int64_t>(aliasA) - static_cast<int64_t>(a);
+                        const int64_t dB = static_cast<int64_t>(aliasB) - static_cast<int64_t>(b);
+                        if (dA != dB) continue;
+                        for (uint32_t k = a + 1; k < b; ++k) {
+                            if (m_reqAlias.count(k)) continue;
+                            m_reqAlias[k] = static_cast<uint32_t>(
+                                static_cast<int64_t>(k) + dA);
+                        }
+                    }
+                }
             }
         }
     }
@@ -340,6 +369,54 @@ void T7AliasDict::EnsureLoaded()
     LoadFromResources();
 }
 
+bool T7AliasDict::ReloadFromDisk(std::string* loadedPath)
+{
+    char exeBuf[MAX_PATH] = {};
+    GetModuleFileNameA(nullptr, exeBuf, MAX_PATH);
+    std::string exeDir = exeBuf;
+    size_t sep = exeDir.rfind('\\');
+    if (sep != std::string::npos)
+        exeDir.resize(sep);
+
+    // Prefer data\ (edit source) over res\ (packaged copy). Walk up from exe.
+    const char* suffixes[] = {
+        "\\data\\MovesetDatas\\t7_aliases.json",
+        "\\..\\data\\MovesetDatas\\t7_aliases.json",
+        "\\..\\..\\data\\MovesetDatas\\t7_aliases.json",
+        "\\..\\..\\..\\data\\MovesetDatas\\t7_aliases.json",
+        "\\res\\MovesetDatas\\t7_aliases.json",
+        "\\..\\res\\MovesetDatas\\t7_aliases.json",
+        "\\..\\..\\res\\MovesetDatas\\t7_aliases.json",
+        "\\..\\..\\..\\res\\MovesetDatas\\t7_aliases.json",
+    };
+    const char* cwdRel[] = {
+        "data\\MovesetDatas\\t7_aliases.json",
+        "res\\MovesetDatas\\t7_aliases.json",
+    };
+
+    auto tryPath = [&](const std::string& p) -> bool {
+        FILE* f = nullptr;
+        fopen_s(&f, p.c_str(), "rb");
+        if (!f) return false;
+        fclose(f);
+        m_loaded = false;
+        Load(p);
+        if (!m_loaded) return false;
+        if (loadedPath) *loadedPath = p;
+        return true;
+    };
+
+    for (const char* suf : suffixes) {
+        if (tryPath(exeDir + suf))
+            return true;
+    }
+    for (const char* p : cwdRel) {
+        if (tryPath(p))
+            return true;
+    }
+    return false;
+}
+
 bool T7AliasDict::MapRequirement(uint32_t t7Id, uint32_t& outAlias) const
 {
     auto it = m_reqAlias.find(t7Id);
@@ -365,14 +442,24 @@ bool T7AliasDict::IsSoundProp(uint32_t propId) const
     return m_soundProps.count(propId) > 0;
 }
 
-uint64_t T7AliasDict::MapCancelCommand(uint64_t command) const
+uint64_t T7AliasDict::MapCancelCommand(T7::Input command) const
 {
-    auto it = m_cancelCmds.find(command);
-    if (it != m_cancelCmds.end())
-        return it->second;
-    if (command >= m_inputSeqStart)
-        return command + m_inputSeqDelta;
-    return command;
+    // Cancel "command" is direction (lo32) + button (hi32).
+    // Group-cancel markers (cancels.commands) and input-sequence ids live in
+    // direction with button==0. Remapping the whole u64 was wrong: any cancel
+    // with button bits set becomes a huge value and incorrectly got +delta.
+    // if (command.button == 0) {
+    //     auto it = m_cancelCmds.find(static_cast<uint64_t>(command.direction));
+    //     if (it != m_cancelCmds.end())
+    //         return it->second;
+    //     if (static_cast<uint64_t>(command.direction) >= m_inputSeqStart)
+    //         return static_cast<uint64_t>(command.direction) + m_inputSeqDelta;
+    // }
+
+    // Simple, but effective. T7's group_cancel start marker being 0x800b is not going to change anymore so we can hardcode that
+    if (command.button == 0 && command.direction >= 0x800b)
+        return command.direction + 7;
+    return command.command;
 }
 
 uint8_t T7AliasDict::MapHitbox(uint8_t t7Byte) const

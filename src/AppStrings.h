@@ -30,8 +30,9 @@ namespace AppStr
 
     // ── Sidebar dev-mode labels (Debug build only) ────────────────────────────
     static constexpr const char* DevModeLabel  = "-- DEV MODE --";
-    static constexpr const char* BtnFbsDev     = "FBSDATA (dev)";
-    static constexpr const char* BtnMotbinDiff = "MOTBIN DIFF";
+    static constexpr const char* BtnFbsDev        = "FBSDATA (dev)";
+    static constexpr const char* BtnMotbinDiff    = "MOTBIN DIFF";
+    static constexpr const char* BtnT7DumpConvert = "T7 DUMP → MOTBIN";
 
     // ── Home view — title / subtitle (shown when logo texture is unavailable) ─
     static constexpr const char* AppTitle      = "TEKKEN8 TKData Mod Editor";

@@ -21,8 +21,21 @@ struct CancelExtra {
     uint32_t value;
 };
 
-struct Cancel {
+struct Input
+{
+  union
+  {
     uint64_t command;
+    struct
+    {
+      uint32_t direction;
+      uint32_t button;
+    };
+  };
+};
+
+struct Cancel {
+    Input command;
     uint64_t requirements_addr;
     uint64_t extradata_addr;
     uint32_t detection_start;
@@ -97,10 +110,6 @@ struct OtherMoveProperty {
     uint32_t value;
 };
 
-struct Input {
-    uint64_t command;
-};
-
 struct InputSequence {
     uint16_t input_window_frames;
     uint16_t input_amount;
@@ -170,6 +179,7 @@ struct Move {
 #pragma pack(pop)
 
 static_assert(sizeof(Requirement) == 0x08, "T7 Requirement");
+static_assert(sizeof(Input) == 0x08, "T7 Input");
 static_assert(sizeof(Cancel) == 0x28, "T7 Cancel");
 static_assert(sizeof(Reactions) == 0x70, "T7 Reactions");
 static_assert(sizeof(HitCondition) == 0x18, "T7 HitCondition");

@@ -1168,8 +1168,11 @@ static std::vector<uint8_t> RebuildMotbinBytes(MotbinData& data)
         strBlockCur = static_cast<uint64_t>(strBlk.size());
     }
 
-    if (physicalStr)
+    if (physicalStr) {
+        PadMotbinStringBlockTo8(strBlk);
+        strBlockCur = static_cast<uint64_t>(strBlk.size());
         out.insert(out.end(), strBlk.begin(), strBlk.end());
+    }
     // ------------------------------------------------------------------------
 
     // Helper: update header entry in out

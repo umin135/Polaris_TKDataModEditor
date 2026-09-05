@@ -680,6 +680,10 @@
             "alias": "168",
             "desc": "inferred (delta 2): Something related to Speed & frame values of some unknown cancel"
         },
+        "167": {
+            "alias": "169",
+            "desc": ""
+        },
         "168": {
             "alias": "170",
             "desc": "inferred (delta 2)"
@@ -859,6 +863,10 @@
         "253": {
             "alias": "256",
             "desc": "Buff Counter Value >= param"
+        },
+        "254": {
+            "alias": "257",
+            "desc": "inferred (delta 3)"
         },
         "255": {
             "alias": "258",
@@ -3531,6 +3539,10 @@
         "0x828b": {
             "alias": "0x83d6",
             "desc": "Adjust Game Speed"
+        },
+        "0x828c": {
+            "alias": "0x83d7",
+            "desc": "Slow Down Effect"
         },
         "0x828d": {
             "alias": "0x82fd",

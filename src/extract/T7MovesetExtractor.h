@@ -1,7 +1,11 @@
 #pragma once
 #include "GameProcess.h"
 #include "T7Moveset.h"
+#include "T7MemorySource.h"
 #include <string>
+#include <vector>
+
+struct AnmbinPanmEntry;
 
 // -------------------------------------------------------------
 //  Player slot info for T7 (mirrors T8 PlayerSlotInfo shape).
@@ -31,13 +35,29 @@ public:
                        const std::string& destFolder,
                        std::string& errorMsg);
 
+    // Offline: T7DUMP01 .bin → same TK7_<name>/moveset.motbin path (no anims).
+    bool ConvertDumpToFile(const std::string& dumpBinPath,
+                           const std::string& destFolder,
+                           std::string& errorMsg);
+
     const T7PlayerSlotInfo& GetSlot(int i) const { return m_slots[i]; }
     const std::string& GetStatusMsg() const { return m_statusMsg; }
 
+    // Parse moveset tables from any byte source (live process or dump).
+    static bool ExtractMoveset(const T7MemorySource& mem,
+                               uintptr_t movesetAddr, uint32_t fighterId,
+                               T7::Moveset& out, std::string& errorMsg);
+
 private:
     bool ReadSlot(int slotIndex, T7PlayerSlotInfo& slot);
-    bool ExtractMoveset(uintptr_t movesetAddr, uint32_t fighterId,
-                        T7::Moveset& out, std::string& errorMsg);
+    bool WriteConvertedFolder(const T7::Moveset& t7,
+                              uint32_t fighterId,
+                              const std::string& charaName,
+                              const std::string& destFolder,
+                              std::string& errorMsg,
+                              const std::vector<uint32_t>* animCrcByMove,
+                              const std::vector<AnmbinPanmEntry>* uniquePanms,
+                              int animOk, int animFail, int animSkip);
 
     GameProcessInfo  m_proc;
     T7PlayerSlotInfo m_slots[2];

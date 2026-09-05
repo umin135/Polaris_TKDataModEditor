@@ -209,12 +209,14 @@ if "$(Configuration)|$(Platform)"=="Release|x64" xcopy /Y /E /Q "$(OutDir)res\" 
     <ClCompile Include="src\extract\GameProcess.cpp" />
     <ClCompile Include="src\extract\MovesetExtractor.cpp" />
     <ClCompile Include="src\extract\T7MovesetExtractor.cpp" />
+    <ClCompile Include="src\extract\T7MemorySource.cpp" />
     <ClCompile Include="src\extract\AnmbinExtractor.cpp" />
     <ClCompile Include="src\extract\TkdataExtractor.cpp" />
     <ClCompile Include="src\extract\ExtractorView.cpp" />
     <ClCompile Include="src\devmode\FbsBinaryIO.cpp" />
     <ClCompile Include="src\devmode\FbsDevView.cpp" />
     <ClCompile Include="src\devmode\MotbinDiffView.cpp" />
+    <ClCompile Include="src\devmode\T7DumpConvertView.cpp" />
   </ItemGroup>
   <!-- ════════════════════════════════════════════════════════ -->
   <!-- ImGui source files                                      -->
@@ -263,6 +265,7 @@ if "$(Configuration)|$(Platform)"=="Release|x64" xcopy /Y /E /Q "$(OutDir)res\" 
     <ClInclude Include="src\extract\GameProcess.h" />
     <ClInclude Include="src\extract\MovesetExtractor.h" />
     <ClInclude Include="src\extract\T7MovesetExtractor.h" />
+    <ClInclude Include="src\extract\T7MemorySource.h" />
     <ClInclude Include="src\extract\T7Moveset.h" />
     <ClInclude Include="src\extract\T7Constants.h" />
     <ClInclude Include="src\extract\AnmbinExtractor.h" />
@@ -272,6 +275,7 @@ if "$(Configuration)|$(Platform)"=="Release|x64" xcopy /Y /E /Q "$(OutDir)res\" 
     <ClInclude Include="src\devmode\FbsBinaryIO.h" />
     <ClInclude Include="src\devmode\FbsDevView.h" />
     <ClInclude Include="src\devmode\MotbinDiffView.h" />
+    <ClInclude Include="src\devmode\T7DumpConvertView.h" />
     <ClInclude Include="third-party\imgui\imgui.h" />
     <ClInclude Include="third-party\imgui\imgui_internal.h" />
     <ClInclude Include="third-party\imgui\imconfig.h" />

@@ -14,6 +14,7 @@
 #ifdef _DEBUG
 #include "devmode/FbsDevView.h"
 #include "devmode/MotbinDiffView.h"
+#include "devmode/T7DumpConvertView.h"
 #endif
 
 // Forward declarations to avoid pulling d3d11.h into all translation units
@@ -45,6 +46,7 @@ private:
 #ifdef _DEBUG
         FbsDevMode,
         MotbinDiff,
+        T7DumpConvert,
 #endif
     };
 
@@ -68,6 +70,7 @@ private:
 #ifdef _DEBUG
     void RenderFbsDevView();
     void RenderMotbinDiffView();
+    void RenderT7DumpConvertView();
 #endif
 
     // Floating settings window
@@ -93,8 +96,9 @@ private:
     std::vector<std::unique_ptr<MovesetEditorWindow>> m_editorWindows;
     int          m_nextEditorUid = 0;
 #ifdef _DEBUG
-    FbsDevView      m_fbsDevView;
-    MotbinDiffView  m_motbinDiffView;
+    FbsDevView        m_fbsDevView;
+    MotbinDiffView    m_motbinDiffView;
+    T7DumpConvertView m_t7DumpConvertView;
 #endif
 
     // D3D11 device / context (non-owning, for preview renderers)

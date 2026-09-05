@@ -4,6 +4,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include "extract/T7Moveset.h"
 
 // T7 → T8 alias tables from data/MovesetDatas/t7_aliases.json
 class T7AliasDict {
@@ -14,10 +15,14 @@ public:
     void LoadFromResources();
     // Disk candidates (res/ / data/ MovesetDatas) then embedded RCDATA.
     void EnsureLoaded();
+    // Force re-read from disk (data\ preferred, then res\). Dev-mode friendly.
+    bool ReloadFromDisk(std::string* loadedPath = nullptr);
     bool IsLoaded() const { return m_loaded; }
 
     // Requirement / extraprop ID: returns true if mapped; outAlias set.
     // Missing entry → false (caller zeros id for extraprops / leaves req unmapped carefully).
+    // On load, gaps between keys are filled when both endpoints share the same
+    // (alias - key) delta.
     bool MapRequirement(uint32_t t7Id, uint32_t& outAlias) const;
 
     // Character ID: mapped T8 id, or kPlaceholderCharId (999) if unmapped.
@@ -25,8 +30,9 @@ public:
     bool IsCharacterIdReq(uint32_t t7ReqId) const;
     bool IsSoundProp(uint32_t propId) const;
 
-    // Cancels
-    uint64_t MapCancelCommand(uint64_t command) const;
+    // Cancels: command is direction(lo32)+button(hi32). Only remap when button==0
+    // (group-cancel markers / input-sequence ids). Normal inputs keep the full u64.
+    uint64_t MapCancelCommand(T7::Input command) const;
 
     // Hitbox byte remap (identity if unknown)
     uint8_t MapHitbox(uint8_t t7Byte) const;

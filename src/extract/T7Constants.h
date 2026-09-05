@@ -36,7 +36,7 @@ static constexpr size_t kUnknownAliasCount   = 36;
 static constexpr uint32_t kPlaceholderCharId = 999;
 
 // Hardcoded into moveset.ini Version= on extract (final Steam build).
-static constexpr char kMovesetIniVersion[] = "5.01.01";
+static constexpr char kMovesetIniVersion[] = " 5.01.01";
 
 // Character ID encode/decode (shared formula T7/T8)
 inline uint32_t DecodeCharId(uint32_t encoded)

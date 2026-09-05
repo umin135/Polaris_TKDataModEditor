@@ -11,7 +11,9 @@
 //  block bytes immediately after the 0x318 header.  Old extracts
 //  leave 0x0C = 0, so LoadMotbin keeps the kamui-hashes name path.
 //
-//  Header 0x170 = string_block_end_offset (byte size of that block).
+//  Header 0x170 = string_block_end_offset (byte size of that block,
+//  padded to 8 so file offset 0x318+size stays 8-byte aligned; header
+//  is already 0x318-aligned). Trailing pad bytes are zeros.
 //  Move +0x40 / +0x48 and header 0x10/0x18/0x20/0x28 are offsets
 //  into that block (0 = first string), not file offsets.
 // -------------------------------------------------------------
@@ -19,6 +21,15 @@ static constexpr size_t   kMotbinHdrSize                 = 0x318;
 static constexpr size_t   kMotbinStringBlockFlagOff      = 0x0C;
 static constexpr uint32_t kMotbinPhysicalStringBlockFlag = 1u;
 static constexpr size_t   kMotbinStringBlockEndOff       = 0x170;
+
+// Pad physical string-block bytes so the next section starts 8-aligned.
+inline void PadMotbinStringBlockTo8(std::vector<uint8_t>& bytes)
+{
+    const size_t n = bytes.size();
+    const size_t padded = (n + 7u) & ~size_t(7u);
+    if (padded > n)
+        bytes.resize(padded, 0);
+}
 
 // -------------------------------------------------------------
 //  MotbinNameData

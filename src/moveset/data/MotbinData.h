@@ -139,7 +139,13 @@ struct ParsedExtraProp {
 //  tk_input — union of command(uint64) / direction(uint32)+button(uint32)
 // -------------------------------------------------------------
 struct ParsedInput {
-    uint64_t command;  // +0x00  direction(lo32) | button(hi32)
+    union {
+        uint64_t command;  // +0x00 full value
+        struct {
+            uint32_t direction; // +0x00 lo32
+            uint32_t button;    // +0x04 hi32
+        };
+    };
 };
 
 // -------------------------------------------------------------

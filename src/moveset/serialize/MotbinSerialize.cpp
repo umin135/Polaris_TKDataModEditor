@@ -62,6 +62,7 @@ MotbinStringBlockBuilt BuildMotbinStringBlock(const MotbinNameData& names)
         b.nameOff[i] = addStr(names.moves[i].name);
         b.animOff[i] = addStr(names.moves[i].anim);
     }
+    PadMotbinStringBlockTo8(b.bytes);
     return b;
 }
 

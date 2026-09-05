@@ -943,8 +943,9 @@ void App::RenderMainLayout()
     case ContentView::FbsData: RenderFbsDataView(); break;
     case ContentView::Moveset: RenderMovesetView(); break;
 #ifdef _DEBUG
-    case ContentView::FbsDevMode: RenderFbsDevView();     break;
-    case ContentView::MotbinDiff: RenderMotbinDiffView(); break;
+    case ContentView::FbsDevMode:    RenderFbsDevView();        break;
+    case ContentView::MotbinDiff:    RenderMotbinDiffView();    break;
+    case ContentView::T7DumpConvert: RenderT7DumpConvertView(); break;
 #endif
     }
     ImGui::End();
@@ -1029,10 +1030,12 @@ void App::RenderSidebar(float sidebarWidth)
     ImGui::TextUnformatted(AppStr::DevModeLabel);
     ImGui::PopStyleColor();
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 2.0f);
-    if (SidebarBtn(AppStr::BtnFbsDev,     ContentView::FbsDevMode, true))
+    if (SidebarBtn(AppStr::BtnFbsDev,        ContentView::FbsDevMode,    true))
         m_currentView = ContentView::FbsDevMode;
-    if (SidebarBtn(AppStr::BtnMotbinDiff, ContentView::MotbinDiff, true))
+    if (SidebarBtn(AppStr::BtnMotbinDiff,    ContentView::MotbinDiff,    true))
         m_currentView = ContentView::MotbinDiff;
+    if (SidebarBtn(AppStr::BtnT7DumpConvert, ContentView::T7DumpConvert, true))
+        m_currentView = ContentView::T7DumpConvert;
 #endif
 
     // -- Settings button -- fixed at the bottom of the sidebar --
@@ -1261,6 +1264,11 @@ void App::RenderFbsDevView()
 void App::RenderMotbinDiffView()
 {
     m_motbinDiffView.Render();
+}
+
+void App::RenderT7DumpConvertView()
+{
+    m_t7DumpConvertView.Render();
 }
 #endif
 

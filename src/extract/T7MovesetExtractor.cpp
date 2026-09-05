@@ -22,7 +22,7 @@ using namespace T7;
 // -------------------------------------------------------------
 
 template<typename T>
-static bool ReadArr(const GameProcessInfo& proc, uintptr_t addr,
+static bool ReadArr(const T7MemorySource& mem, uintptr_t addr,
                     std::vector<T>& out, uint64_t count, std::string& err)
 {
     out.clear();
@@ -37,7 +37,7 @@ static bool ReadArr(const GameProcessInfo& proc, uintptr_t addr,
         return false;
     }
     out.resize(static_cast<size_t>(count));
-    if (!ReadGameMemory(proc, addr, out.data(), bytes)) {
+    if (!mem.Read(addr, out.data(), bytes)) {
         err = "Failed to read block at 0x" +
               [&]{ char b[32]; snprintf(b,sizeof(b),"%llX",(unsigned long long)addr); return std::string(b); }();
         out.clear();
@@ -59,11 +59,11 @@ static uint32_t PtrToIdx(uintptr_t ptr, uintptr_t blockBase,
     return static_cast<uint32_t>(idx);
 }
 
-static std::string ReadCString(const GameProcessInfo& proc, uintptr_t addr)
+static std::string ReadCString(const T7MemorySource& mem, uintptr_t addr)
 {
     if (addr == 0) return {};
     char buf[kMaxStringLen + 1] = {};
-    if (!ReadGameMemory(proc, addr, buf, kMaxStringLen))
+    if (!mem.Read(addr, buf, kMaxStringLen))
         return {};
     buf[kMaxStringLen] = '\0';
     // Require printable ASCII start
@@ -160,7 +160,8 @@ bool T7MovesetExtractor::ReadSlot(int slotIndex, T7PlayerSlotInfo& slot)
     slot.moveCount = static_cast<uint32_t>(moveCount);
 
     // Character name at +0x2E8
-    std::string name = ReadCString(m_proc, moveset + kCharNameOff);
+    T7ProcessMemorySource mem(m_proc);
+    std::string name = ReadCString(mem, moveset + kCharNameOff);
     name = StripBrackets(std::move(name));
     if (name.empty()) {
         char tmp[32];
@@ -179,7 +180,8 @@ void T7MovesetExtractor::RefreshSlots()
     ReadSlot(1, m_slots[1]);
 }
 
-bool T7MovesetExtractor::ExtractMoveset(uintptr_t movesetAddr, uint32_t fighterId,
+bool T7MovesetExtractor::ExtractMoveset(const T7MemorySource& mem,
+                                        uintptr_t movesetAddr, uint32_t fighterId,
                                         Moveset& out, std::string& errorMsg)
 {
     out = {};
@@ -188,7 +190,7 @@ bool T7MovesetExtractor::ExtractMoveset(uintptr_t movesetAddr, uint32_t fighterI
 
     // Header
     std::vector<uint8_t> hdr(kMovesetInfoSize);
-    if (!ReadGameMemory(m_proc, movesetAddr, hdr.data(), kMovesetInfoSize)) {
+    if (!mem.Read(movesetAddr, hdr.data(), kMovesetInfoSize)) {
         errorMsg = "Failed to read MovesetInfo header.";
         return false;
     }
@@ -202,7 +204,7 @@ bool T7MovesetExtractor::ExtractMoveset(uintptr_t movesetAddr, uint32_t fighterI
     memcpy(out.unknownAliases, hdr.data() + kUnknownAliasesOff, sizeof(out.unknownAliases));
     memcpy(&out.encodedCharId, hdr.data() + kEncodedCharIdOff, 4);
 
-    out.characterName = StripBrackets(ReadCString(m_proc, movesetAddr + kCharNameOff));
+    out.characterName = StripBrackets(ReadCString(mem, movesetAddr + kCharNameOff));
 
     // Header string pointers at +0x08/+0x10/+0x18/+0x20 (absolute)
     auto rdPtr = [&](size_t off) -> uintptr_t {
@@ -211,9 +213,9 @@ bool T7MovesetExtractor::ExtractMoveset(uintptr_t movesetAddr, uint32_t fighterI
         return static_cast<uintptr_t>(v);
     };
     // character_name_addr is at 0x08 — we already prefer +0x2E8
-    out.characterCreator = ReadCString(m_proc, rdPtr(0x10));
-    out.date             = ReadCString(m_proc, rdPtr(0x18));
-    out.fullDate         = ReadCString(m_proc, rdPtr(0x20));
+    out.characterCreator = ReadCString(mem, rdPtr(0x10));
+    out.date             = ReadCString(mem, rdPtr(0x18));
+    out.fullDate         = ReadCString(mem, rdPtr(0x20));
 
     // Table entries
     struct Entry { uintptr_t addr; uint64_t count; };
@@ -232,7 +234,7 @@ bool T7MovesetExtractor::ExtractMoveset(uintptr_t movesetAddr, uint32_t fighterI
 
     auto load = [&](int idx, auto& vec) -> bool {
         using T = typename std::decay_t<decltype(vec)>::value_type;
-        return ReadArr<T>(m_proc, entries[idx].addr, vec, entries[idx].count, errorMsg);
+        return ReadArr<T>(mem, entries[idx].addr, vec, entries[idx].count, errorMsg);
     };
 
     if (!load(kTblReactions, out.reactions)) return false;
@@ -325,8 +327,8 @@ bool T7MovesetExtractor::ExtractMoveset(uintptr_t movesetAddr, uint32_t fighterI
 
     for (size_t i = 0; i < out.moves.size(); ++i) {
         const Move& m = out.moves[i];
-        out.moveNames[i]     = ReadCString(m_proc, (uintptr_t)m.name_addr);
-        out.moveAnimNames[i] = ReadCString(m_proc, (uintptr_t)m.anim_name_addr);
+        out.moveNames[i]     = ReadCString(mem, (uintptr_t)m.name_addr);
+        out.moveAnimNames[i] = ReadCString(mem, (uintptr_t)m.anim_name_addr);
         out.moveCancelIdx[i] = PtrToIdx((uintptr_t)m.cancel_addr,
             entries[kTblCancel].addr, entries[kTblCancel].count, kStride[kTblCancel]);
         out.moveHitCondIdx[i] = PtrToIdx((uintptr_t)m.hit_condition_addr,
@@ -359,12 +361,10 @@ bool T7MovesetExtractor::ExtractToFile(int slotIndex,
         return false;
     }
 
+    T7ProcessMemorySource mem(m_proc);
     Moveset t7;
-    if (!ExtractMoveset(slot.movesetAddr, slot.charaId, t7, errorMsg))
+    if (!ExtractMoveset(mem, slot.movesetAddr, slot.charaId, t7, errorMsg))
         return false;
-
-    if (!T7AliasDict::Get().IsLoaded())
-        T7AliasDict::Get().EnsureLoaded();
 
     // ---- Dump + convert body animations from Move.anim_addr (no MOTA) ----
     std::vector<uint32_t> animCrcByMove(t7.moves.size(), 0);
@@ -420,7 +420,6 @@ bool T7MovesetExtractor::ExtractToFile(int slotIndex,
                 if (trySz < 64) continue;
             }
 
-            // Trim trailing zeros beyond a successful convert? Convert handles pad.
             // Reject tiny/all-zero stubs.
             bool any = false;
             for (uint8_t b : blob) { if (b) { any = true; break; } }
@@ -461,16 +460,55 @@ bool T7MovesetExtractor::ExtractToFile(int slotIndex,
         }
     }
 
-    MotbinData data;
-    std::string convWarn;
-    if (!ConvertT7ToMotbin(t7, slot.charaId, data, errorMsg, &convWarn, &animCrcByMove))
+    return WriteConvertedFolder(t7, slot.charaId, slot.charaName, destFolder, errorMsg,
+                                &animCrcByMove, &uniquePanms, animOk, animFail, animSkip);
+}
+
+bool T7MovesetExtractor::ConvertDumpToFile(const std::string& dumpBinPath,
+                                           const std::string& destFolder,
+                                           std::string& errorMsg)
+{
+    T7DumpFile dump;
+    if (!dump.Load(dumpBinPath, errorMsg))
         return false;
 
-    // Output folder
+    Moveset t7;
+    if (!ExtractMoveset(dump, dump.movesetBase, dump.fighterId, t7, errorMsg))
+        return false;
+
+    std::string name = dump.characterName;
+    if (name.empty())
+        name = t7.characterName;
+    if (name.empty())
+        name = "chara_" + std::to_string(dump.fighterId);
+
+    // No anim blobs in T7DUMP01 — convert motbin with name-hash anim keys.
+    return WriteConvertedFolder(t7, dump.fighterId, name, destFolder, errorMsg,
+                                nullptr, nullptr, 0, 0, 0);
+}
+
+bool T7MovesetExtractor::WriteConvertedFolder(
+    const Moveset& t7,
+    uint32_t fighterId,
+    const std::string& charaName,
+    const std::string& destFolder,
+    std::string& errorMsg,
+    const std::vector<uint32_t>* animCrcByMove,
+    const std::vector<AnmbinPanmEntry>* uniquePanms,
+    int animOk, int animFail, int animSkip)
+{
+    if (!T7AliasDict::Get().IsLoaded())
+        T7AliasDict::Get().EnsureLoaded();
+
+    MotbinData data;
+    std::string convWarn;
+    if (!ConvertT7ToMotbin(t7, fighterId, data, errorMsg, &convWarn, animCrcByMove))
+        return false;
+
     std::string folder = destFolder;
     if (!folder.empty() && folder.back() != '\\' && folder.back() != '/')
         folder += '\\';
-    std::string safeName = SanitizeFolderName(slot.charaName);
+    std::string safeName = SanitizeFolderName(charaName);
     folder += "TK7_";
     folder += safeName;
     CreateDirectoryA(folder.c_str(), nullptr);
@@ -481,14 +519,12 @@ bool T7MovesetExtractor::ExtractToFile(int slotIndex,
         return false;
     }
 
-    // Build moveset.anmbin from converted PANMs
-    if (!uniquePanms.empty()) {
+    if (uniquePanms && !uniquePanms->empty() && animCrcByMove) {
         std::string aerr;
-        if (!CreateAnmbinFromPanms(folder, uniquePanms, animCrcByMove, aerr)) {
+        if (!CreateAnmbinFromPanms(folder, *uniquePanms, *animCrcByMove, aerr)) {
             errorMsg = "CreateAnmbinFromPanms failed: " + aerr;
             return false;
         }
-        // AnimNameDB: stripped anim name → CRC32 (unique CRC once)
         AnimNameDB adb;
         std::unordered_map<uint32_t, std::string> crcNames;
         auto stripDvd = [](std::string s) {
@@ -501,8 +537,8 @@ bool T7MovesetExtractor::ExtractToFile(int slotIndex,
             return s;
         };
         for (size_t i = 0; i < t7.moves.size(); ++i) {
-            if (animCrcByMove[i] == 0) continue;
-            uint32_t crc = animCrcByMove[i];
+            if ((*animCrcByMove)[i] == 0) continue;
+            uint32_t crc = (*animCrcByMove)[i];
             if (crcNames.count(crc)) continue;
             std::string nm = (i < t7.moveAnimNames.size())
                 ? stripDvd(t7.moveAnimNames[i]) : "";
@@ -514,7 +550,6 @@ bool T7MovesetExtractor::ExtractToFile(int slotIndex,
             adb.AddEntry(folder, kv.second, kv.first);
     }
 
-    // Round-trip validation
     MotbinData check = LoadMotbin(folder);
     if (!check.loaded) {
         errorMsg = "Generated motbin failed to reload: " + check.errorMsg;
@@ -525,10 +560,8 @@ bool T7MovesetExtractor::ExtractToFile(int slotIndex,
         return false;
     }
 
-    // moveset.ini
     {
-        // Prefer mapped T8 chara code when available
-        uint32_t t8Id = T7AliasDict::Get().MapCharacterId(slot.charaId);
+        uint32_t t8Id = T7AliasDict::Get().MapCharacterId(fighterId);
         const char* code = nullptr;
         if (t8Id != kPlaceholderCharId)
             code = FbsDataDict::Get().CharaCode(t8Id);
@@ -543,13 +576,12 @@ bool T7MovesetExtractor::ExtractToFile(int slotIndex,
             fprintf(f, "Version=%s\n", kMovesetIniVersion);
             fprintf(f, "DefaultTarget=%s\n", orig.c_str());
             fprintf(f, "SourceGame=TK7\n");
-            fprintf(f, "SourceFighterId=%u\n", slot.charaId);
+            fprintf(f, "SourceFighterId=%u\n", fighterId);
             fprintf(f, "PlaceholderCharacterId=%u\n", kPlaceholderCharId);
             fclose(f);
         }
     }
 
-    // Original_Moves.json
     {
         std::string tkedit = folder + "\\.tkedit";
         CreateDirectoryA(tkedit.c_str(), nullptr);
@@ -566,15 +598,16 @@ bool T7MovesetExtractor::ExtractToFile(int slotIndex,
         }
     }
 
+    const size_t panmPool = uniquePanms ? uniquePanms->size() : 0;
     char status[640];
     snprintf(status, sizeof(status),
-             "Extracted -> TK7_%s  (moves=%u cancels=%zu reqs=%zu reactions=%zu | anims ok=%d fail=%d skip=%d pool=%zu)%s",
+             "Converted -> TK7_%s  (moves=%u cancels=%zu reqs=%zu reactions=%zu | anims ok=%d fail=%d skip=%d pool=%zu)%s",
              safeName.c_str(),
              data.moveCount,
              data.cancelBlock.size(),
              data.requirementBlock.size(),
              data.reactionListBlock.size(),
-             animOk, animFail, animSkip, uniquePanms.size(),
+             animOk, animFail, animSkip, panmPool,
              convWarn.empty() ? "" : (" | " + convWarn).c_str());
     m_statusMsg = status;
     return true;

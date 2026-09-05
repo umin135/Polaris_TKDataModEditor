@@ -264,8 +264,11 @@ bool ConvertT7ToMotbin(const Moveset& src, uint32_t t7FighterId,
 
     // ---- Inputs / sequences ----
     out.inputBlock.reserve(src.inputs.size());
-    for (const auto& in : src.inputs)
-        out.inputBlock.push_back({ in.command });
+    for (const auto& in : src.inputs) {
+        ParsedInput pi = {};
+        pi.command = in.command;
+        out.inputBlock.push_back(pi);
+    }
 
     out.inputSequenceBlock.reserve(src.inputSequences.size());
     for (size_t i = 0; i < src.inputSequences.size(); ++i) {
@@ -413,8 +416,13 @@ bool ConvertT7ToMotbin(const Moveset& src, uint32_t t7FighterId,
             m.hitbox_location[h] = 0;
             for (int f = 0; f < 9; ++f) m.hitbox_floats[h][f] = 0.f;
         }
-        for (int h = 0; h < 4; ++h)
-            m.hitbox_location[h] = al.MapHitbox(hb[h]);
+        const uint8_t m0 = al.MapHitbox(hb[0]);
+        const uint8_t m1 = al.MapHitbox(hb[1]);
+        const uint8_t m2 = al.MapHitbox(hb[2]);
+        const uint8_t m3 = al.MapHitbox(hb[3]);
+        // T7 u32 = two u16 locations: lo → hitbox 0, hi → hitbox 1
+        m.hitbox_location[0] = static_cast<uint32_t>(m0) | (static_cast<uint32_t>(m1) << 8);
+        m.hitbox_location[1] = static_cast<uint32_t>(m2) | (static_cast<uint32_t>(m3) << 8);
         m.hitbox_active_start[0] = tm.first_active_frame;
         m.hitbox_active_last[0]  = tm.last_active_frame;
         m.hitbox_active_start[1] = tm.first_active_frame;
