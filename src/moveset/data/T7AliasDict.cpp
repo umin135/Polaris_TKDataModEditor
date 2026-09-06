@@ -455,10 +455,23 @@ uint64_t T7AliasDict::MapCancelCommand(T7::Input command) const
     //     if (static_cast<uint64_t>(command.direction) >= m_inputSeqStart)
     //         return static_cast<uint64_t>(command.direction) + m_inputSeqDelta;
     // }
+    /* TODO: Rage Art button conversion.
+    For the "button" part, we know it's 0xAABBCCDD.
+    DD - is pressed.
+    CC - is held.
+    BB - is not held.
+    AA - input mode.
+    Going from T7 to T8, for DD. 0x10 used to be the Rage Art button, but now 0x10 is Heat, 0x20 is Special Style and 0x40 is Rage Art.
+    */
 
-    // Simple, but effective. T7's group_cancel start marker being 0x800b is not going to change anymore so we can hardcode that
-    if (command.button == 0 && command.direction >= 0x800b)
-        return command.direction + 7;
+    if (command.button == 0) {
+        if (command.direction == 0x8003 || command.direction == 0x8004)
+            return command.direction + 2;
+        else if (command.direction >= 0x800b)     // Simple, but effective. T7's group_cancel start marker being 0x800b is not going to change anymore so we can hardcode that
+            return command.direction + 7;
+    }
+    // if (command.button == 0 && command.direction >= 0x800b)
+    //     return command.direction + 7;
     return command.command;
 }
 

@@ -1488,6 +1488,10 @@
             "alias": "999",
             "desc": "Treasure Battle Special Match (removed in T8)"
         },
+        "636": {
+            "alias": "999",
+            "desc": "Assist Button Pressed (removed in T8)"
+        },
         "640": {
             "alias": "749",
             "desc": ""
