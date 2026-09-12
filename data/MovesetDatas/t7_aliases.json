@@ -2970,11 +2970,17 @@
         },
         "0x81f2": {
             "alias": "0x8262",
-            "desc": "Select VFX for Laser"
+            "desc": "Select VFX for Laser",
+            "param_aliases": {
+                "9": 21
+            }
         },
         "0x81f3": {
             "alias": "0x8263",
-            "desc": "Activate Laser"
+            "desc": "Activate Laser",
+            "param_aliases": {
+                "162": 388
+            }
         },
         "0x81f4": {
             "alias": "0x8264",

@@ -96,6 +96,7 @@ static bool JsU32Field(const std::string& json, const char* key,
 void T7AliasDict::Parse(const std::string& json)
 {
     m_reqAlias.clear();
+    m_reqParamAlias.clear();
     m_charIds.clear();
     m_charIdReqs.clear();
     m_soundProps.clear();
@@ -235,6 +236,35 @@ void T7AliasDict::Parse(const std::string& json)
                     std::string aliasStr = JsString(json, "alias", entOpen, entClose);
                     if (!aliasStr.empty())
                         m_reqAlias[key] = ParseU32Key(aliasStr);
+                    // Optional param_aliases: { "9": 21, ... }
+                    {
+                        const std::string paKey = "\"param_aliases\"";
+                        size_t paPos = json.find(paKey, entOpen);
+                        if (paPos != std::string::npos && paPos < entClose) {
+                            size_t paOpen = json.find('{', paPos);
+                            if (paOpen != std::string::npos && paOpen < entClose) {
+                                size_t paClose = MatchingBrace(json, paOpen);
+                                if (paClose != std::string::npos && paClose <= entClose) {
+                                    size_t pp = paOpen + 1;
+                                    while (pp < paClose) {
+                                        size_t k1 = json.find('"', pp);
+                                        if (k1 == std::string::npos || k1 >= paClose) break;
+                                        size_t k2 = json.find('"', k1 + 1);
+                                        if (k2 == std::string::npos || k2 >= paClose) break;
+                                        uint32_t pk = ParseU32Key(json.substr(k1 + 1, k2 - k1 - 1));
+                                        size_t colon = json.find(':', k2 + 1);
+                                        if (colon == std::string::npos || colon >= paClose) break;
+                                        uint32_t pv = static_cast<uint32_t>(
+                                            strtoul(json.c_str() + colon + 1, nullptr, 0));
+                                        m_reqParamAlias[key][pk] = pv;
+                                        pp = colon + 1;
+                                        while (pp < paClose && json[pp] != ',' && json[pp] != '}') ++pp;
+                                        if (pp < paClose && json[pp] == ',') ++pp;
+                                    }
+                                }
+                            }
+                        }
+                    }
                     p = entClose + 1;
                 }
 
@@ -423,6 +453,15 @@ bool T7AliasDict::MapRequirement(uint32_t t7Id, uint32_t& outAlias) const
     if (it == m_reqAlias.end()) return false;
     outAlias = it->second;
     return true;
+}
+
+uint32_t T7AliasDict::MapRequirementParam(uint32_t t7ReqId, uint32_t t7Param) const
+{
+    auto rit = m_reqParamAlias.find(t7ReqId);
+    if (rit == m_reqParamAlias.end()) return t7Param;
+    auto pit = rit->second.find(t7Param);
+    if (pit == rit->second.end()) return t7Param;
+    return pit->second;
 }
 
 uint32_t T7AliasDict::MapCharacterId(uint32_t t7Id) const

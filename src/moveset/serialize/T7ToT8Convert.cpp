@@ -109,6 +109,8 @@ bool ConvertT7ToMotbin(const Moveset& src, uint32_t t7FighterId,
         pr.param = r.param;
         if (al.IsCharacterIdReq(r.condition))
             pr.param = al.MapCharacterId(r.param);
+        else
+            pr.param = al.MapRequirementParam(r.condition, r.param);
         out.requirementBlock.push_back(pr);
     }
 
@@ -225,7 +227,7 @@ bool ConvertT7ToMotbin(const Moveset& src, uint32_t t7FighterId,
         if (al.IsSoundProp(e.id)) {
             al.MapSoundParams(e.value, ep.value, ep.value2, ep.value3, ep.value4, ep.value5);
         } else {
-            ep.value = e.value;
+            ep.value = al.MapRequirementParam(e.id, e.value);
             ep.value2 = ep.value3 = ep.value4 = ep.value5 = 0;
         }
         out.extraPropBlock.push_back(ep);
@@ -246,7 +248,7 @@ bool ConvertT7ToMotbin(const Moveset& src, uint32_t t7FighterId,
                 ep.id = 0;
                 ++unmappedProp;
             }
-            ep.value  = srcP[i].value;
+            ep.value  = al.MapRequirementParam(srcP[i].extraprop, srcP[i].value);
             ep.value2 = ep.value3 = ep.value4 = ep.value5 = 0;
             dst.push_back(ep);
         }

@@ -25,6 +25,10 @@ public:
     // (alias - key) delta.
     bool MapRequirement(uint32_t t7Id, uint32_t& outAlias) const;
 
+    // Optional per-req param remap from requirement_aliases[].param_aliases.
+    // Returns remapped param, or t7Param unchanged if no entry.
+    uint32_t MapRequirementParam(uint32_t t7ReqId, uint32_t t7Param) const;
+
     // Character ID: mapped T8 id, or kPlaceholderCharId (999) if unmapped.
     uint32_t MapCharacterId(uint32_t t7Id) const;
     bool IsCharacterIdReq(uint32_t t7ReqId) const;
@@ -47,6 +51,8 @@ private:
     void Parse(const std::string& json);
 
     std::unordered_map<uint32_t, uint32_t> m_reqAlias;       // t7 → t8
+    // t7 req/prop id → (t7 param → t8 param)
+    std::unordered_map<uint32_t, std::unordered_map<uint32_t, uint32_t>> m_reqParamAlias;
     std::unordered_map<uint32_t, uint32_t> m_charIds;        // t7 → t8
     std::unordered_set<uint32_t>           m_charIdReqs;
     std::unordered_set<uint32_t>           m_soundProps;
