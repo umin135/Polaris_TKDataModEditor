@@ -49,6 +49,21 @@ static std::string BrowseForT7Dump()
     return result;
 }
 
+void T7DumpConvertView::RefreshAnimsDetect()
+{
+    if (m_dumpPath[0] == '\0') {
+        m_animsFolder.clear();
+        m_bodyClipCount = 0;
+        m_lastDetectPath.clear();
+        return;
+    }
+    if (m_lastDetectPath == m_dumpPath)
+        return;
+    m_lastDetectPath = m_dumpPath;
+    m_bodyClipCount = 0;
+    m_animsFolder = T7MovesetExtractor::FindDumpAnimsFolder(m_dumpPath, &m_bodyClipCount);
+}
+
 void T7DumpConvertView::Render()
 {
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.75f, 0.2f, 1.0f));
@@ -59,9 +74,8 @@ void T7DumpConvertView::Render()
     ImGui::Spacing();
 
     ImGui::TextDisabled(
-        "Load a T7DUMP01 .bin dumped from Tekken 7 memory and convert it to\n"
-        "TK7_<Name>/moveset.motbin using the same T7→T8 path as live extract.\n"
-        "Animations are not in the dump — anim keys use name hashes only.");
+        "Load a T7DUMP01 .bin (prefer the copy inside the character dump folder).\n"
+        "Converts to TK7_<Name>/moveset.motbin; with 0_body + anims.json also builds .anmbin.");
     ImGui::Spacing();
 
     const float btnW  = 80.0f;
@@ -70,13 +84,27 @@ void T7DumpConvertView::Render()
 
     ImGui::TextUnformatted("T7 dump (.bin):");
     ImGui::SetNextItemWidth(pathW);
-    ImGui::InputText("##dumpPath", m_dumpPath, sizeof(m_dumpPath));
+    if (ImGui::InputText("##dumpPath", m_dumpPath, sizeof(m_dumpPath)))
+        m_lastDetectPath.clear(); // force re-detect on edit
     ImGui::SameLine();
     if (ImGui::Button("Browse##dump", ImVec2(btnW, 0.0f)))
     {
         std::string p = BrowseForT7Dump();
-        if (!p.empty())
+        if (!p.empty()) {
             strncpy_s(m_dumpPath, sizeof(m_dumpPath), p.c_str(), _TRUNCATE);
+            m_lastDetectPath.clear();
+        }
+    }
+
+    RefreshAnimsDetect();
+
+    ImGui::Spacing();
+    if (m_animsFolder.empty()) {
+        ImGui::TextDisabled("Anims: not found (motbin only — name-hash anim keys)");
+    } else {
+        ImGui::Text("Anims: found (%d body clips)", m_bodyClipCount);
+        ImGui::TextDisabled("%s", m_animsFolder.c_str());
+        ImGui::Checkbox("Convert body animations → .anmbin", &m_convertBodyAnims);
     }
 
     ImGui::Spacing();
@@ -85,7 +113,7 @@ void T7DumpConvertView::Render()
     if (rootDir.empty())
         ImGui::TextDisabled("Output: (set Game Root / Moveset Root in Settings first)");
     else
-        ImGui::TextDisabled("Output: %s\\TK7_<Name>\\moveset.motbin", rootDir.c_str());
+        ImGui::TextDisabled("Output: %s\\TK7_<Name>\\moveset.motbin [.anmbin]", rootDir.c_str());
 
     ImGui::Spacing();
     ImGui::Separator();
@@ -150,10 +178,13 @@ void T7DumpConvertView::RunConvert()
     m_status.clear();
     m_statusOk = false;
 
+    RefreshAnimsDetect();
+    const bool doAnims = m_convertBodyAnims && !m_animsFolder.empty();
+
     T7MovesetExtractor ex;
     std::string err;
     const std::string& dest = Config::Get().data.MovesetDir();
-    if (!ex.ConvertDumpToFile(m_dumpPath, dest, err)) {
+    if (!ex.ConvertDumpToFile(m_dumpPath, dest, err, doAnims)) {
         m_status = err.empty() ? "Convert failed." : err;
         return;
     }

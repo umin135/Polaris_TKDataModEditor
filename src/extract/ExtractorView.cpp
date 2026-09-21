@@ -91,6 +91,7 @@ void ExtractorView::StartExtract(int slotIndex)
 
         m_loading    = true;
         m_threadDone = false;
+        m_t7Extractor.SetWriteAnimFacing(m_writeAnimFacing);
         m_thread = std::thread([this, slotIndex]()
         {
             std::string err;
@@ -147,20 +148,49 @@ void ExtractorView::RenderButtons()
 
     // Game target dropdown (left of Extract buttons)
     {
-        const char* items[] = { "TEKKEN 8", "TEKKEN 7" };
-        int cur = static_cast<int>(m_gameTarget);
-        ImGui::SetNextItemWidth(110.0f);
-        if (ImGui::Combo("##GameTarget", &cur, items, 2))
+        if (!kShowTekken7Extract && m_gameTarget != GameTarget::Tekken8)
         {
-            GameTarget next = static_cast<GameTarget>(cur);
-            if (next != m_gameTarget)
-            {
-                m_gameTarget = next;
-                OnGameTargetChanged();
-            }
+            m_gameTarget = GameTarget::Tekken8;
+            OnGameTargetChanged();
         }
+
+        if (kShowTekken7Extract)
+        {
+            const char* items[] = { "TEKKEN 8", "TEKKEN 7" };
+            int cur = static_cast<int>(m_gameTarget);
+            ImGui::SetNextItemWidth(110.0f);
+            if (ImGui::Combo("##GameTarget", &cur, items, 2))
+            {
+                GameTarget next = static_cast<GameTarget>(cur);
+                if (next != m_gameTarget)
+                {
+                    m_gameTarget = next;
+                    OnGameTargetChanged();
+                }
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Select which game to extract from.");
+        }
+        else
+        {
+            // Single option: keep layout consistent without a T7 choice.
+            ImGui::SetNextItemWidth(110.0f);
+            const char* items[] = { "TEKKEN 8" };
+            int cur = 0;
+            ImGui::Combo("##GameTarget", &cur, items, 1);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Extract from TEKKEN 8.");
+        }
+    }
+
+    if (kShowTekken7Extract && m_gameTarget == GameTarget::Tekken7)
+    {
+        ImGui::SameLine();
+        ImGui::Checkbox("Write anim facing", &m_writeAnimFacing);
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Select which game to extract from.");
+            ImGui::SetTooltip(
+                "Bake DirY/FullBody into HARA_ROT1 + MUKI (TK7-style facing).\n"
+                "Off (default): leave those bones static like stock Tekken 8.");
     }
 
     ImGui::SameLine();

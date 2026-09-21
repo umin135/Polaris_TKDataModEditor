@@ -11,6 +11,7 @@
 #include <windows.h>
 #include <cstring>
 #include <cstdio>
+#include <cstdlib>
 #include <algorithm>
 #include <cctype>
 #include <unordered_map>
@@ -433,7 +434,8 @@ bool T7MovesetExtractor::ExtractToFile(int slotIndex,
         for (auto& kv : addrToBytes) {
             std::vector<uint8_t> panm;
             std::string cerr;
-            if (!ConvertT7AnimToPanm(kv.second.data(), kv.second.size(), panm, cerr)) {
+            if (!ConvertT7AnimToPanm(kv.second.data(), kv.second.size(), panm, cerr,
+                                     m_writeAnimFacing)) {
                 ++animFail;
                 continue;
             }
@@ -464,9 +466,306 @@ bool T7MovesetExtractor::ExtractToFile(int slotIndex,
                                 &animCrcByMove, &uniquePanms, animOk, animFail, animSkip);
 }
 
+static std::string ParentPath(const std::string& path)
+{
+    size_t slash = path.find_last_of("\\/");
+    if (slash == std::string::npos) return {};
+    return path.substr(0, slash);
+}
+
+static bool PathExists(const std::string& path)
+{
+    DWORD attr = GetFileAttributesA(path.c_str());
+    return attr != INVALID_FILE_ATTRIBUTES;
+}
+
+static bool DirExists(const std::string& path)
+{
+    DWORD attr = GetFileAttributesA(path.c_str());
+    return attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY);
+}
+
+static std::string LoadTextFile(const std::string& path)
+{
+    FILE* f = nullptr;
+    if (fopen_s(&f, path.c_str(), "rb") != 0 || !f) return {};
+    fseek(f, 0, SEEK_END);
+    long sz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (sz <= 0) { fclose(f); return {}; }
+    std::string s(static_cast<size_t>(sz), '\0');
+    fread(&s[0], 1, static_cast<size_t>(sz), f);
+    fclose(f);
+    return s;
+}
+
+static std::vector<uint8_t> LoadBinaryFile(const std::string& path)
+{
+    FILE* f = nullptr;
+    if (fopen_s(&f, path.c_str(), "rb") != 0 || !f) return {};
+    fseek(f, 0, SEEK_END);
+    long sz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (sz <= 0) { fclose(f); return {}; }
+    std::vector<uint8_t> buf(static_cast<size_t>(sz));
+    fread(buf.data(), 1, buf.size(), f);
+    fclose(f);
+    return buf;
+}
+
+static std::string JsonStringAfterKey(const std::string& json, size_t from, size_t to,
+                                     const char* key)
+{
+    std::string needle = std::string("\"") + key + "\"";
+    size_t k = json.find(needle, from);
+    if (k == std::string::npos || k >= to) return {};
+    size_t colon = json.find(':', k + needle.size());
+    if (colon == std::string::npos || colon >= to) return {};
+    size_t q1 = json.find('"', colon + 1);
+    if (q1 == std::string::npos || q1 >= to) return {};
+    size_t q2 = q1 + 1;
+    while (q2 < to && q2 < json.size()) {
+        if (json[q2] == '\\') { q2 += 2; continue; }
+        if (json[q2] == '"') break;
+        ++q2;
+    }
+    if (q2 >= to) return {};
+    return json.substr(q1 + 1, q2 - q1 - 1);
+}
+
+static bool JsonBoolAfterKey(const std::string& json, size_t from, size_t to,
+                             const char* key, bool& out)
+{
+    std::string needle = std::string("\"") + key + "\"";
+    size_t k = json.find(needle, from);
+    if (k == std::string::npos || k >= to) return false;
+    size_t colon = json.find(':', k + needle.size());
+    if (colon == std::string::npos || colon >= to) return false;
+    size_t p = colon + 1;
+    while (p < to && (json[p] == ' ' || json[p] == '\t' || json[p] == '\n' || json[p] == '\r'))
+        ++p;
+    if (p + 4 <= to && json.compare(p, 4, "true") == 0) { out = true; return true; }
+    if (p + 5 <= to && json.compare(p, 5, "false") == 0) { out = false; return true; }
+    return false;
+}
+
+static std::vector<uint32_t> JsonU32ArrayAfterKey(const std::string& json, size_t from, size_t to,
+                                                  const char* key)
+{
+    std::vector<uint32_t> out;
+    std::string needle = std::string("\"") + key + "\"";
+    size_t k = json.find(needle, from);
+    if (k == std::string::npos || k >= to) return out;
+    size_t lb = json.find('[', k + needle.size());
+    if (lb == std::string::npos || lb >= to) return out;
+    size_t rb = json.find(']', lb + 1);
+    if (rb == std::string::npos || rb > to) return out;
+    size_t p = lb + 1;
+    while (p < rb) {
+        while (p < rb && (json[p] == ' ' || json[p] == '\t' || json[p] == '\n' ||
+                          json[p] == '\r' || json[p] == ','))
+            ++p;
+        if (p >= rb) break;
+        char* end = nullptr;
+        unsigned long v = strtoul(json.c_str() + p, &end, 10);
+        if (end == json.c_str() + p) break;
+        out.push_back(static_cast<uint32_t>(v));
+        p = static_cast<size_t>(end - json.c_str());
+    }
+    return out;
+}
+
+static size_t MatchingBraceLocal(const std::string& json, size_t open)
+{
+    int depth = 0;
+    for (size_t i = open; i < json.size(); ++i) {
+        if (json[i] == '{') ++depth;
+        else if (json[i] == '}') { if (--depth == 0) return i; }
+    }
+    return std::string::npos;
+}
+
+// Count ok body clips in anims.json (for UI probe).
+static int CountBodyOkClips(const std::string& animsJsonPath)
+{
+    std::string json = LoadTextFile(animsJsonPath);
+    if (json.empty()) return 0;
+    size_t bodyKey = json.find("\"body\"");
+    if (bodyKey == std::string::npos) return 0;
+    size_t bodyOpen = json.find('{', bodyKey);
+    if (bodyOpen == std::string::npos) return 0;
+    size_t bodyClose = MatchingBraceLocal(json, bodyOpen);
+    if (bodyClose == std::string::npos) return 0;
+
+    size_t clipsKey = json.find("\"clips\"", bodyOpen);
+    if (clipsKey == std::string::npos || clipsKey > bodyClose) return 0;
+    size_t arrOpen = json.find('[', clipsKey);
+    if (arrOpen == std::string::npos || arrOpen > bodyClose) return 0;
+
+    int count = 0;
+    size_t p = arrOpen + 1;
+    while (p < bodyClose) {
+        size_t obj = json.find('{', p);
+        if (obj == std::string::npos || obj > bodyClose) break;
+        size_t objEnd = MatchingBraceLocal(json, obj);
+        if (objEnd == std::string::npos || objEnd > bodyClose) break;
+        bool ok = false;
+        if (JsonBoolAfterKey(json, obj, objEnd, "ok", ok) && ok)
+            ++count;
+        p = objEnd + 1;
+    }
+    return count;
+}
+
+std::string T7MovesetExtractor::FindDumpAnimsFolder(const std::string& dumpBinPath,
+                                                   int* optionalBodyOkCount)
+{
+    if (optionalBodyOkCount) *optionalBodyOkCount = 0;
+    if (dumpBinPath.empty()) return {};
+
+    auto tryFolder = [&](const std::string& folder) -> bool {
+        if (folder.empty() || !DirExists(folder)) return false;
+        std::string aj = folder + "\\anims.json";
+        std::string body = folder + "\\0_body";
+        if (!PathExists(aj) || !DirExists(body)) return false;
+        if (optionalBodyOkCount)
+            *optionalBodyOkCount = CountBodyOkClips(aj);
+        return true;
+    };
+
+    std::string dir = ParentPath(dumpBinPath);
+    if (tryFolder(dir))
+        return dir;
+
+    // Sidecar .json may name anims_folder / character_name
+    std::string side = dumpBinPath;
+    size_t dot = side.find_last_of('.');
+    if (dot != std::string::npos)
+        side = side.substr(0, dot) + ".json";
+    std::string sideJson = LoadTextFile(side);
+    if (!sideJson.empty()) {
+        std::string animsFolder = JsonStringAfterKey(sideJson, 0, sideJson.size(), "anims_folder");
+        std::string charName = JsonStringAfterKey(sideJson, 0, sideJson.size(), "character_name");
+        if (!animsFolder.empty()) {
+            std::string cand = dir + "\\" + animsFolder;
+            if (tryFolder(cand)) return cand;
+            std::string parent = ParentPath(dir);
+            cand = parent + "\\" + animsFolder;
+            if (tryFolder(cand)) return cand;
+        }
+        if (!charName.empty()) {
+            std::string safe = SanitizeFolderName(charName);
+            std::string cand = dir + "\\" + safe;
+            if (tryFolder(cand)) return cand;
+            cand = ParentPath(dir) + "\\" + safe;
+            if (tryFolder(cand)) return cand;
+        }
+    }
+    return {};
+}
+
+// Convert 0_body clips listed in anims.json → PANM pool + per-move CRCs.
+static bool ConvertBodyAnimsFromFolder(
+    const std::string& animsRoot,
+    size_t moveCount,
+    bool writeFacing,
+    std::vector<uint32_t>& animCrcByMove,
+    std::vector<AnmbinPanmEntry>& uniquePanms,
+    int& animOk, int& animFail, int& animSkip,
+    std::string& errorMsg)
+{
+    animCrcByMove.assign(moveCount, 0);
+    uniquePanms.clear();
+    animOk = animFail = animSkip = 0;
+
+    std::string json = LoadTextFile(animsRoot + "\\anims.json");
+    if (json.empty()) {
+        errorMsg = "Failed to read anims.json";
+        return false;
+    }
+    size_t bodyKey = json.find("\"body\"");
+    if (bodyKey == std::string::npos) {
+        errorMsg = "anims.json missing body section";
+        return false;
+    }
+    size_t bodyOpen = json.find('{', bodyKey);
+    size_t bodyClose = MatchingBraceLocal(json, bodyOpen);
+    if (bodyOpen == std::string::npos || bodyClose == std::string::npos) {
+        errorMsg = "anims.json body section corrupt";
+        return false;
+    }
+    size_t clipsKey = json.find("\"clips\"", bodyOpen);
+    size_t arrOpen = (clipsKey != std::string::npos && clipsKey < bodyClose)
+        ? json.find('[', clipsKey) : std::string::npos;
+    if (arrOpen == std::string::npos || arrOpen > bodyClose) {
+        errorMsg = "anims.json body.clips missing";
+        return false;
+    }
+
+    std::unordered_map<uint32_t, size_t> crcToPoolIdx;
+    std::string bodyDir = animsRoot + "\\0_body\\";
+
+    size_t p = arrOpen + 1;
+    while (p < bodyClose) {
+        size_t obj = json.find('{', p);
+        if (obj == std::string::npos || obj > bodyClose) break;
+        size_t objEnd = MatchingBraceLocal(json, obj);
+        if (objEnd == std::string::npos || objEnd > bodyClose) break;
+
+        bool ok = false;
+        JsonBoolAfterKey(json, obj, objEnd, "ok", ok);
+        std::string file = JsonStringAfterKey(json, obj, objEnd, "file");
+        std::vector<uint32_t> indices = JsonU32ArrayAfterKey(json, obj, objEnd, "move_indices");
+
+        if (!ok || file.empty()) {
+            ++animFail;
+            p = objEnd + 1;
+            continue;
+        }
+
+        std::vector<uint8_t> blob = LoadBinaryFile(bodyDir + file);
+        if (blob.size() <= 8) {
+            ++animFail;
+            p = objEnd + 1;
+            continue;
+        }
+
+        std::vector<uint8_t> panm;
+        std::string cerr;
+        if (!ConvertT7AnimToPanm(blob.data(), blob.size(), panm, cerr, writeFacing)) {
+            ++animFail;
+            p = objEnd + 1;
+            continue;
+        }
+
+        uint32_t crc = AnmbinCRC32(panm.data(), panm.size());
+        if (crcToPoolIdx.find(crc) == crcToPoolIdx.end()) {
+            crcToPoolIdx[crc] = uniquePanms.size();
+            AnmbinPanmEntry e;
+            e.crc32 = crc;
+            e.panm = std::move(panm);
+            uniquePanms.push_back(std::move(e));
+        }
+
+        for (uint32_t mi : indices) {
+            if (mi >= moveCount) continue;
+            animCrcByMove[mi] = crc;
+        }
+        ++animOk;
+        p = objEnd + 1;
+    }
+
+    for (size_t i = 0; i < moveCount; ++i) {
+        if (animCrcByMove[i] == 0)
+            ++animSkip;
+    }
+    return true;
+}
+
 bool T7MovesetExtractor::ConvertDumpToFile(const std::string& dumpBinPath,
                                            const std::string& destFolder,
-                                           std::string& errorMsg)
+                                           std::string& errorMsg,
+                                           bool convertBodyAnims)
 {
     T7DumpFile dump;
     if (!dump.Load(dumpBinPath, errorMsg))
@@ -482,9 +781,29 @@ bool T7MovesetExtractor::ConvertDumpToFile(const std::string& dumpBinPath,
     if (name.empty())
         name = "chara_" + std::to_string(dump.fighterId);
 
-    // No anim blobs in T7DUMP01 — convert motbin with name-hash anim keys.
+    std::vector<uint32_t> animCrcByMove;
+    std::vector<AnmbinPanmEntry> uniquePanms;
+    int animOk = 0, animFail = 0, animSkip = 0;
+    const std::vector<uint32_t>* crcPtr = nullptr;
+    const std::vector<AnmbinPanmEntry>* panmPtr = nullptr;
+
+    if (convertBodyAnims) {
+        std::string animsRoot = FindDumpAnimsFolder(dumpBinPath);
+        if (!animsRoot.empty()) {
+            std::string aerr;
+            if (!ConvertBodyAnimsFromFolder(animsRoot, t7.moves.size(), m_writeAnimFacing,
+                                            animCrcByMove, uniquePanms,
+                                            animOk, animFail, animSkip, aerr)) {
+                errorMsg = aerr;
+                return false;
+            }
+            crcPtr = &animCrcByMove;
+            panmPtr = &uniquePanms;
+        }
+    }
+
     return WriteConvertedFolder(t7, dump.fighterId, name, destFolder, errorMsg,
-                                nullptr, nullptr, 0, 0, 0);
+                                crcPtr, panmPtr, animOk, animFail, animSkip);
 }
 
 bool T7MovesetExtractor::WriteConvertedFolder(

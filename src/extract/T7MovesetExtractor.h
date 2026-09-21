@@ -35,10 +35,22 @@ public:
                        const std::string& destFolder,
                        std::string& errorMsg);
 
-    // Offline: T7DUMP01 .bin → same TK7_<name>/moveset.motbin path (no anims).
+    // When true, bake DirY/FullBody into dynamic HARA_ROT1 + MUKI on body PANMs.
+    // Default false matches stock TK8 (static facing bones).
+    void SetWriteAnimFacing(bool v) { m_writeAnimFacing = v; }
+    bool GetWriteAnimFacing() const { return m_writeAnimFacing; }
+
+    // Offline: T7DUMP01 .bin → TK7_<name>/moveset.motbin.
+    // If convertBodyAnims and a sibling/nearby anims.json+0_body exist, also build .anmbin.
     bool ConvertDumpToFile(const std::string& dumpBinPath,
                            const std::string& destFolder,
-                           std::string& errorMsg);
+                           std::string& errorMsg,
+                           bool convertBodyAnims = true);
+
+    // Resolve character dump folder containing anims.json + 0_body (empty if none).
+    // optionalBodyOkCount: number of body.clips with ok=true when anims.json parses.
+    static std::string FindDumpAnimsFolder(const std::string& dumpBinPath,
+                                          int* optionalBodyOkCount = nullptr);
 
     const T7PlayerSlotInfo& GetSlot(int i) const { return m_slots[i]; }
     const std::string& GetStatusMsg() const { return m_statusMsg; }
@@ -62,4 +74,5 @@ private:
     GameProcessInfo  m_proc;
     T7PlayerSlotInfo m_slots[2];
     std::string      m_statusMsg;
+    bool             m_writeAnimFacing = false;
 };

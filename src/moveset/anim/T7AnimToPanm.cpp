@@ -601,31 +601,32 @@ BoneTracks ConvertTk7ToTk8Bones(const Tk7Frames& f, bool isTtt2, bool facingToHa
                         f[P_LocalPos][fr][2]/10.0 } };
     }
 
-    // ── Rot: facing × body orientation ──────────────────────────────────────
-    // Ground truth (cmnyg_co_turnr vs ygco_turnr): Rot ~= FullBody × orient;
-    // DirY lives on HARA_ROT1 and must NOT be multiplied into Rot. DirY-only
-    // animations (FullBody ~= 0) fall back to DirY.
-    bool fbActive = false;
-    for (size_t fr = 0; fr < n && !fbActive; ++fr)
-        if (std::fabs(Etq(f[P_FullBody][fr])[3]) < 0.9962) fbActive = true;   // > 10 degrees
-    const int facingParam = fbActive ? P_FullBody : P_DirY;
-
+    // ── Rot: FullBody × body orientation (DirY is NOT multiplied in) ────────
+    // Ground truth (cmnyg_co_turnr vs ygco_turnr): Rot ~= FullBody × orient.
+    // DirY is a separate facing channel (HARA/MUKI when writeFacing); stuffing
+    // it into Rot double-spins native turn anims. FullBody is usually ~0 on
+    // native TK7, so Rot collapses to orient.
     std::vector<Quat> orientQs(n);
     {
         BoneTrack& t = makeTrack("Rot");
         const Quat invB = QInv(BLower());
         for (size_t fr = 0; fr < n; ++fr) {
-            Quat facingQ = Etq(f[facingParam][fr]);
+            Quat fbQ = Etq(f[P_FullBody][fr]);
             // Native LowerBody is composed as orient × B_LOWER; strip the basis
             // or the whole lower body tilts by ~105 degrees.
             Quat orient = isTtt2 ? QNorm(QMul(Etq(f[P_LowerBody][fr]), invB)) : kIdentity;
             orientQs[fr] = orient;
-            t[fr] = { kUnitScale, QNorm(QMul(facingQ, orient)), kZeroPos };
+            t[fr] = { kUnitScale, QNorm(QMul(fbQ, orient)), kZeroPos };
         }
     }
 
     // ── HARA_ROT1: in-game facing (optional) ────────────────────────────────
+    // Facing source: FullBody if active, else DirY. Stock TK8 leaves this static.
     if (facingToHara) {
+        bool fbActive = false;
+        for (size_t fr = 0; fr < n && !fbActive; ++fr)
+            if (std::fabs(Etq(f[P_FullBody][fr])[3]) < 0.9962) fbActive = true; // >10°
+        const int facingParam = fbActive ? P_FullBody : P_DirY;
         BoneTrack& t = makeTrack("HARA_ROT1");
         for (size_t fr = 0; fr < n; ++fr)
             t[fr] = { kUnitScale, QNorm(Etq(f[facingParam][fr])), kZeroPos };
@@ -1103,7 +1104,8 @@ bool BuildTk826(const BoneTracks& boneData, size_t frameCount,
 
 bool ConvertT7AnimToPanm(const uint8_t* src, size_t srcLen,
                          std::vector<uint8_t>& outPanm,
-                         std::string& errorMsg) {
+                         std::string& errorMsg,
+                         bool writeFacing) {
     outPanm.clear();
     errorMsg.clear();
 
@@ -1151,13 +1153,15 @@ bool ConvertT7AnimToPanm(const uint8_t* src, size_t srcLen,
 
     bool isTtt2 = DetectNativeConvention(tk7Frames);
 
-    // 26-bone facing family (game standard, lossless target for TK7 data).
-    // Our facing (Rot × inv(orient)) matches the official cmnyg HARA in
-    // coordinate system and sign; write it to both HARA_ROT1 and MUKI.
-    BoneTracks boneData = ConvertTk7ToTk8Bones(tk7Frames, isTtt2, /*facingToHara=*/true);
-    boneData["MUKI"] = boneData["HARA_ROT1"];
-
-    return BuildTk826(boneData, nFrames, { "MUKI", "HARA_ROT1" }, outPanm, errorMsg);
+    // 26-bone family. Stock TK8 keeps MUKI/HARA_ROT1 static; optional facing
+    // bakes DirY/FullBody into those bones (umin_convertor facing=True).
+    BoneTracks boneData = ConvertTk7ToTk8Bones(tk7Frames, isTtt2, writeFacing);
+    std::vector<std::string> facingBones;
+    if (writeFacing) {
+        boneData["MUKI"] = boneData["HARA_ROT1"];
+        facingBones = { "MUKI", "HARA_ROT1" };
+    }
+    return BuildTk826(boneData, nFrames, facingBones, outPanm, errorMsg);
 }
 
 size_t EstimateT7AnimSize(const uint8_t* src, size_t srcLen) {

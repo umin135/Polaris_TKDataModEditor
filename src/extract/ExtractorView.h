@@ -17,6 +17,9 @@ class ExtractorView {
 public:
     enum class GameTarget { Tekken8 = 0, Tekken7 = 1 };
 
+    // Set true to show TEKKEN 7 in the extract game dropdown. T7 code remains compiled either way.
+    static constexpr bool kShowTekken7Extract = false;
+
     explicit ExtractorView(const std::string& movesetRootDir);
 
     // Render game dropdown + Extract P1 / Extract P2 buttons.
@@ -47,6 +50,7 @@ private:
     void AdvanceBoth();
 
     GameTarget            m_gameTarget = GameTarget::Tekken8;
+    bool                  m_writeAnimFacing = false; // T7 only; default off (stock TK8)
     MovesetExtractor      m_extractor;
     T7MovesetExtractor    m_t7Extractor;
     std::string           m_destFolder;

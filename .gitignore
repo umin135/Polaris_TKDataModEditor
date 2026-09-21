@@ -16,3 +16,4 @@ cancel_options_research.md
 binToJson.py
 build_output.txt
 t7_data/umin_convertor
+.env
