@@ -69,6 +69,15 @@ public:
     int PruneToValidKeys(const std::string& folderPath,
                          const std::unordered_set<uint32_t>& validKeys);
 
+    // Keep index-based names valid after Fullbody pool entry <removedIdx> was removed.
+    // Names of the form "anim_..._N" / "com_N" whose key is NOT a pool hash are resolved by
+    // pool index N at save time (RebuildAnmbin), so every entry past the removed one shifts
+    // down by one: N > removedIdx -> N-1, N == removedIdx -> dropped. Keys found in
+    // poolHashes (CRC-keyed user animations) resolve by hash and are left alone.
+    // Persists if anything changed; returns the number of names renamed or dropped.
+    int ShiftIndexNamesAfterRemoval(const std::string& folderPath, int removedIdx,
+                                    const std::unordered_set<uint32_t>& poolHashes);
+
 private:
     bool Save(const std::string& jsonPath);
     static std::string JsonPath(const std::string& folderPath);

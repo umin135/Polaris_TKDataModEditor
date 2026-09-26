@@ -792,8 +792,14 @@ bool RemoveAnimFromAnmbin(const std::string& folderPath,
                           int                cat,
                           int                poolIdx,
                           uint32_t&          outRemovedHash,
-                          std::string&       errorMsg)
+                          std::string&       errorMsg,
+                          uint32_t*          outFallbackHash,
+                          bool*              outStillPresent,
+                          int*               outRepointed)
 {
+    if (outFallbackHash) *outFallbackHash = 0;
+    if (outStillPresent) *outStillPresent = false;
+    if (outRepointed)    *outRepointed    = 0;
     if (cat < 0 || cat >= 6) { errorMsg = "Invalid category index"; return false; }
 
     std::string base = folderPath;
@@ -841,18 +847,61 @@ bool RemoveAnimFromAnmbin(const std::string& folderPath,
     wrU32(0x04 + cat * 4, newCount);
     wrU64(0x38 + cat * 8, newPlOff);
 
-    // --- Zero moveList[cat] entries that referenced the removed hash ---
+    // --- Fix up moveList[cat] slots that referenced the removed hash ---
+    // Fullbody: every move must resolve to an animation, so repoint to a fallback.
+    // Other categories: clear the slot to 0 so the next Add reuses that key index.
     {
+        // Another entry with the same hash (legacy duplicate) keeps the slots valid.
+        bool stillPresent = false;
+        for (size_t o = 0; o + 0x38 <= newPool.size(); o += 0x38)
+        {
+            uint32_t h; memcpy(&h, newPool.data() + o, 4);
+            if (h == outRemovedHash) { stillPresent = true; break; }
+        }
+        if (outStillPresent) *outStillPresent = stillPresent;
+
         uint32_t mlCount = rdU32(0x1C + cat * 4);
         uint64_t mlOff   = rdU64(0x68 + cat * 8);
-        if (mlOff != 0 && mlCount != 0 &&
+        if (!stillPresent && mlOff != 0 && mlCount != 0 &&
             static_cast<size_t>(mlOff) + mlCount * 4 <= bytes.size())
         {
+            // Fallback: the first slot's animation that isn't the removed one (Fullbody: the
+            // first move not using it -- normally move 0, matching the motbin-side repoint),
+            // else the first remaining pool entry of this category.
+            uint32_t fallback = 0;
+            for (uint32_t i = 0; i < mlCount && fallback == 0 && cat == 0; ++i)
+            {
+                uint32_t h = rdU32(static_cast<size_t>(mlOff) + i * 4);
+                if (h != 0 && h != outRemovedHash) fallback = h;
+            }
+            if (fallback == 0 && cat == 0)
+            {
+                for (size_t o = 0; o + 0x38 <= newPool.size(); o += 0x38)
+                {
+                    uint32_t h; memcpy(&h, newPool.data() + o, 4);
+                    if (h != 0 && h != outRemovedHash) { fallback = h; break; }
+                }
+            }
+            if (outFallbackHash) *outFallbackHash = fallback;
+
+            int repointed = 0;
             for (uint32_t i = 0; i < mlCount; ++i)
             {
                 size_t   off = static_cast<size_t>(mlOff) + i * 4;
                 uint32_t h;  memcpy(&h, bytes.data()+off, 4);
-                if (h == outRemovedHash) wrU32(off, 0u);
+                if (h == outRemovedHash) { wrU32(off, fallback); ++repointed; }
+            }
+            if (outRepointed) *outRepointed = repointed;
+
+            // The category's last animation was removed: every slot is now empty, so drop
+            // trailing empty slots to restore the table's size (e.g. a Swing table that was
+            // empty before an add + remove). Fullbody's table is indexed by move and must keep
+            // one slot per move.
+            if (cat != 0 && newCount == 0)
+            {
+                uint32_t newMl = mlCount;
+                while (newMl > 0 && rdU32(static_cast<size_t>(mlOff) + (newMl - 1) * 4) == 0) --newMl;
+                if (newMl != mlCount) wrU32(0x1C + cat * 4, newMl);
             }
         }
     }
@@ -861,15 +910,17 @@ bool RemoveAnimFromAnmbin(const std::string& folderPath,
 }
 
 // =============================================================================
-//  AssignHandKeyInAnmbin
+//  AssignAnimKeyInAnmbin
 // =============================================================================
 
-bool AssignHandKeyInAnmbin(const std::string& folderPath,
+bool AssignAnimKeyInAnmbin(const std::string& folderPath,
+                           int                cat,
                            int                keyIdx,
                            uint32_t           crc32,
                            std::string&       errorMsg)
 {
-    if (keyIdx < 0) { errorMsg = "Invalid key index"; return false; }
+    if (cat < 1 || cat >= 6) { errorMsg = "Key tables exist for categories 1-5 only"; return false; }
+    if (keyIdx < 0)          { errorMsg = "Invalid key index"; return false; }
 
     std::string base = folderPath;
     if (!base.empty() && base.back() != '\\' && base.back() != '/') base += '\\';
@@ -880,39 +931,36 @@ bool AssignHandKeyInAnmbin(const std::string& folderPath,
 
     auto rdU32 = [&](size_t o) -> uint32_t { uint32_t v; memcpy(&v,bytes.data()+o,4); return v; };
     auto rdU64 = [&](size_t o) -> uint64_t { uint64_t v; memcpy(&v,bytes.data()+o,8); return v; };
-
-    // Hand = cat 1: moveCount at 0x20, moveListOffset at 0x70
-    uint32_t mlCount = rdU32(0x20);
-    uint64_t mlOff   = rdU64(0x70);
-
-    if (mlOff == 0 || mlCount == 0)
-    { errorMsg = "Hand moveList not present in anmbin"; return false; }
-
     auto wrU32 = [&](size_t o, uint32_t v){ if(o+4<=bytes.size()) memcpy(bytes.data()+o,&v,4); };
     auto wrU64 = [&](size_t o, uint64_t v){ if(o+8<=bytes.size()) memcpy(bytes.data()+o,&v,8); };
 
-    if ((uint32_t)keyIdx >= mlCount)
+    // moveList[cat]: count at 0x1C + cat*4, offset at 0x68 + cat*8
+    const size_t cntField = 0x1C + (size_t)cat * 4;
+    const size_t offField = 0x68 + (size_t)cat * 8;
+    uint32_t mlCount = rdU32(cntField);
+    uint64_t mlOff   = rdU64(offField);
+
+    if ((uint32_t)keyIdx >= mlCount || mlOff == 0)
     {
-        // Extend moveList[1]: relocate to end of file, zero-fill up to keyIdx+1.
+        // Extend (or create) the key table: relocate to end of file, zero-fill up to keyIdx+1.
         size_t origOff  = static_cast<size_t>(mlOff);
         size_t origSize = (size_t)mlCount * 4;
 
         std::vector<uint8_t> ml;
-        if (origSize > 0 && origOff + origSize <= bytes.size())
+        if (mlOff != 0 && origSize > 0 && origOff + origSize <= bytes.size())
             ml.assign(bytes.data() + origOff, bytes.data() + origOff + origSize);
         else
             ml.resize(origSize, 0);
 
-        size_t newCount = (size_t)keyIdx + 1;
+        size_t newCount = std::max<size_t>((size_t)keyIdx + 1, (size_t)mlCount);
         ml.resize(newCount * 4, 0);  // zero-fill new slots
 
         uint64_t newOff = static_cast<uint64_t>(bytes.size());
         bytes.insert(bytes.end(), ml.begin(), ml.end());
 
-        wrU32(0x20, (uint32_t)newCount);
-        wrU64(0x70, newOff);
+        wrU32(cntField, (uint32_t)newCount);
+        wrU64(offField, newOff);
 
-        // Write crc32 at the new location.
         size_t writeOff = static_cast<size_t>(newOff) + (size_t)keyIdx * 4;
         memcpy(bytes.data() + writeOff, &crc32, 4);
     }
@@ -920,9 +968,17 @@ bool AssignHandKeyInAnmbin(const std::string& folderPath,
     {
         size_t writeOff = static_cast<size_t>(mlOff) + (size_t)keyIdx * 4;
         if (writeOff + 4 > bytes.size())
-        { errorMsg = "Hand moveList offset out of file bounds"; return false; }
+        { errorMsg = "Key table offset out of file bounds"; return false; }
         memcpy(bytes.data() + writeOff, &crc32, 4);
     }
 
     return WriteAnmbinBytes(anmbinPath, bytes, errorMsg);
+}
+
+bool AssignHandKeyInAnmbin(const std::string& folderPath,
+                           int                keyIdx,
+                           uint32_t           crc32,
+                           std::string&       errorMsg)
+{
+    return AssignAnimKeyInAnmbin(folderPath, 1, keyIdx, crc32, errorMsg);
 }

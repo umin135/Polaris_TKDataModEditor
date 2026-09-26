@@ -290,6 +290,67 @@ int AnimNameDB::PruneToValidKeys(const std::string& folderPath,
     return removed;
 }
 
+// Splits "prefix_N" into (prefix incl. trailing '_', N) when it is an index-resolved name
+// (starts with anim_/com_ and ends in _<digits>). Returns -1 otherwise.
+static int ParseIndexName(const std::string& name, std::string& prefix)
+{
+    if (name.rfind("anim_", 0) != 0 && name.rfind("com_", 0) != 0) return -1;
+    size_t u = name.rfind('_');
+    if (u == std::string::npos || u + 1 >= name.size()) return -1;
+    for (size_t i = u + 1; i < name.size(); ++i)
+        if (name[i] < '0' || name[i] > '9') return -1;
+    prefix = name.substr(0, u + 1);
+    return std::atoi(name.c_str() + u + 1);
+}
+
+int AnimNameDB::ShiftIndexNamesAfterRemoval(const std::string& folderPath, int removedIdx,
+                                            const std::unordered_set<uint32_t>& poolHashes)
+{
+    if (removedIdx < 0) return 0;
+
+    // Rebuild both maps in one pass so shifted names can't collide with not-yet-shifted ones.
+    std::unordered_map<uint32_t, std::string> keyToName;
+    std::unordered_map<std::string, uint32_t> nameToKey;
+    std::vector<std::pair<std::string, uint32_t>> untouched;
+    int changed = 0;
+
+    for (const auto& kv : m_nameToKey)
+    {
+        std::string prefix;
+        int n = ParseIndexName(kv.first, prefix);
+        if (n < 0 || poolHashes.count(kv.second)) { untouched.push_back(kv); continue; }
+        if (n == removedIdx) { ++changed; continue; }            // pointed at the removed entry
+        if (n < removedIdx)  { untouched.push_back(kv); continue; }
+        std::string nn = prefix + std::to_string(n - 1);
+        nameToKey[nn]         = kv.second;
+        keyToName[kv.second]  = nn;
+        ++changed;
+    }
+    if (changed == 0) return 0;
+
+    // Re-insert the untouched names; on the (rare) clash with a shifted name, the untouched
+    // one is a hash-resolved user name, so renaming it doesn't affect resolution.
+    for (const auto& kv : untouched)
+    {
+        std::string name = kv.first;
+        if (nameToKey.count(name))
+        {
+            char buf[96];
+            for (int i = 1; i < 100000; ++i) {
+                snprintf(buf, sizeof(buf), "%s_%d", kv.first.c_str(), i);
+                if (!nameToKey.count(buf) && !m_nameToKey.count(buf)) { name = buf; break; }
+            }
+        }
+        nameToKey[name]      = kv.second;
+        keyToName[kv.second] = name;
+    }
+
+    m_nameToKey.swap(nameToKey);
+    m_keyToName.swap(keyToName);
+    Save(JsonPath(folderPath));
+    return changed;
+}
+
 // -------------------------------------------------------------
 //  Lookup API
 // -------------------------------------------------------------

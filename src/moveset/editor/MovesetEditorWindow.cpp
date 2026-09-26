@@ -466,17 +466,42 @@ void MovesetEditorWindow::SetD3DContext(ID3D11Device* dev, ID3D11DeviceContext* 
         m_animMgr->SetOnAnimAdded([this](int /*cat*/, const std::string& name, uint32_t crc32) {
             m_animNameDB.AddEntry(m_data.folderPath, name, crc32);
         });
-        m_animMgr->SetOnAnimRemoved([this](uint32_t removedHash) {
-            // Repoint moves that referenced the removed animation to move 0's
-            // animation (a safe, always-present fallback) instead of a broken 0 key.
-            uint32_t fallback = m_data.moves.empty() ? 0u : m_data.moves[0].anim_key;
-            if (fallback == removedHash) fallback = 0u; // move 0 itself used it -> clear
-            for (auto& mv : m_data.moves)
-                if (mv.anim_key == removedHash) mv.anim_key = fallback;
-            // Drop the removed animation's name so it can't linger and tangle a re-add.
-            m_animNameDB.RemoveKey(m_data.folderPath, removedHash);
+        m_animMgr->SetOnAnimRemoved([this](int cat, int poolIdx, uint32_t /*removedHash*/,
+                                           const std::vector<uint32_t>& linkedKeys,
+                                           bool stillPresent,
+                                           const std::unordered_set<uint32_t>& poolHashes0) {
+            auto isLinked = [&](uint32_t k) {
+                return std::find(linkedKeys.begin(), linkedKeys.end(), k) != linkedKeys.end();
+            };
+            bool movesChanged = false;
+            if (!stillPresent)
+            {
+                // Fullbody: repoint moves that played the removed animation to the first move
+                // that doesn't (normally move 0 -- a safe, always-present fallback that matches
+                // the anmbin-side repoint) instead of leaving a broken key.
+                // Other categories are referenced through key slots, already repointed in the anmbin.
+                if (cat == 0)
+                {
+                    uint32_t fallback = 0u;
+                    for (const auto& mv : m_data.moves)
+                        if (!isLinked(mv.anim_key)) { fallback = mv.anim_key; break; }
+                    for (auto& mv : m_data.moves)
+                        if (isLinked(mv.anim_key)) { mv.anim_key = fallback; movesChanged = true; }
+                    // Keep the manager's move-key snapshot paired with the repointed anmbin slots.
+                    m_animMgr->ReplaceMotbinAnimKeys(linkedKeys, fallback);
+                }
+                // Drop the removed animation's names so they can't linger and tangle a re-add.
+                for (uint32_t k : linkedKeys)
+                    m_animNameDB.RemoveKey(m_data.folderPath, k);
+            }
+            // Fullbody names "anim_<code>_N" are resolved by pool index at save time; every entry
+            // after the removed one moved down by one, so re-index them (else each would resolve
+            // to its neighbour on the next save).
+            if (cat == 0)
+                m_animNameDB.ShiftIndexNamesAfterRemoval(m_data.folderPath, poolIdx, poolHashes0);
+
+            if (movesChanged) m_dirty = true;
             m_animKeyBufIdx = -1;   // force the move-detail anim field to re-read
-            m_dirty = true;
         });
         m_animMgr->SetOnAnimRenamed([this](uint32_t key, const std::string& newName) {
             // Rename keeps the anim_key, so referencing moves stay valid; only the
@@ -2966,6 +2991,16 @@ void MovesetEditorWindow::RenderSavePopups()
             try { m_saveFuture.get(); } catch (...) {}
             m_dirty        = false;
             m_saveState    = SaveState::Done;
+            // The save re-patched moveset.anmbin from the motbin: reload the Animation Manager and
+            // re-pair its move-key snapshot with the now-consistent moveList[0].
+            if (m_animMgr)
+            {
+                std::vector<uint32_t> keys;
+                keys.reserve(m_data.moves.size());
+                for (const auto& mv : m_data.moves) keys.push_back(mv.anim_key);
+                m_animMgr->SetMotbinAnimKeys(keys);
+                m_animMgr->ForceReload();
+            }
             m_doneShowTime = ImGui::GetTime();
         }
     }

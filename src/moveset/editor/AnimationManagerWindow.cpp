@@ -7,6 +7,7 @@
 #include "imgui/imgui.h"
 #include "imgui/imgui_internal.h"
 #include "LayoutStore.h"
+#include <climits>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -15,6 +16,22 @@
 #include <windows.h>
 #include <shlobj.h>
 #include <shobjidl.h>
+
+// Generated (unnamed) display name for pool[cat][poolIdx]. Fullbody keeps the extraction naming
+// "anim_<code>_N"; the other categories get their own prefix so e.g. Facial #5 can't be mistaken
+// for Fullbody #5.
+static std::string GeneratedAnimName(int cat, int poolIdx, const std::string& charaCode, bool isCom = false)
+{
+    static const char* kPrefix[6] = { "anim", "hnd", "fac", "swg", "cam", "ext" };
+    char buf[64];
+    if (isCom)
+        snprintf(buf, sizeof(buf), "com_%d", poolIdx);
+    else if (cat == 0 && !charaCode.empty())
+        snprintf(buf, sizeof(buf), "anim_%s_%d", charaCode.c_str(), poolIdx);
+    else
+        snprintf(buf, sizeof(buf), "%s_%d", (cat >= 0 && cat < 6) ? kPrefix[cat] : "anim", poolIdx);
+    return buf;
+}
 
 // -------------------------------------------------------------
 //  Constructor / Destructor
@@ -72,6 +89,13 @@ void AnimationManagerWindow::SetMotbinAnimKeys(const std::vector<uint32_t>& anim
     m_mapBuilt       = false;
 }
 
+void AnimationManagerWindow::ReplaceMotbinAnimKeys(const std::vector<uint32_t>& fromKeys, uint32_t toKey)
+{
+    for (auto& k : m_motbinAnimKeys)
+        if (std::find(fromKeys.begin(), fromKeys.end(), k) != fromKeys.end()) k = toKey;
+    m_mapBuilt = false;
+}
+
 void AnimationManagerWindow::BuildAnimKeyMap()
 {
     if (m_mapBuilt) return;
@@ -82,26 +106,24 @@ void AnimationManagerWindow::BuildAnimKeyMap()
     for (int cat = 0; cat < 6; ++cat)
         m_animKeyToPoolIdx[cat].clear();
 
-    // Pass A: Map anmbin moveList hashes ??motbin anim_keys (original animations).
+    // Pass A: Map anmbin moveList hashes -> motbin anim_keys (original animations).
+    // Fullbody only: moveList[0][i] is move i's animation, so it pairs with moves[i].anim_key.
+    // The other categories' moveLists are key tables (hand key N, facial key N, ...) with no
+    // relation to move i -- pairing them with move keys would give e.g. a hand animation the
+    // name of move i's fullbody animation.
     if (!m_motbinAnimKeys.empty())
     {
-        for (int cat = 0; cat < 6; ++cat)
-        {
-            const auto& ml = m_anmbin.moveList[cat];
-            for (int i = 0; i < (int)ml.size() && i < (int)m_motbinAnimKeys.size(); ++i)
-                m_hashToAnimKey.emplace(ml[i], m_motbinAnimKeys[i]);
-        }
-    }
+        const auto& ml = m_anmbin.moveList[0];
+        for (int i = 0; i < (int)ml.size() && i < (int)m_motbinAnimKeys.size(); ++i)
+            m_hashToAnimKey.emplace(ml[i], m_motbinAnimKeys[i]);
 
-    for (int cat = 0; cat < 6; ++cat)
-    {
-        const auto& pool = m_anmbin.pool[cat];
+        const auto& pool = m_anmbin.pool[0];
         for (int j = 0; j < (int)pool.size(); ++j)
         {
             uint32_t hash = static_cast<uint32_t>(pool[j].animKey & 0xFFFFFFFF);
             auto it = m_hashToAnimKey.find(hash);
             if (it != m_hashToAnimKey.end())
-                m_animKeyToPoolIdx[cat].emplace(it->second, j);
+                m_animKeyToPoolIdx[0].emplace(it->second, j);
         }
     }
 
@@ -193,14 +215,7 @@ std::string AnimationManagerWindow::GetNameForPoolIdx(int cat, int poolIdx)
         if (!n.empty()) return n;
     }
 
-    char buf[64];
-    if (cat == 1)
-        snprintf(buf, sizeof(buf), "hnd_%d", poolIdx);
-    else if (!m_charaCode.empty())
-        snprintf(buf, sizeof(buf), "anim_%s_%d", m_charaCode.c_str(), poolIdx);
-    else
-        snprintf(buf, sizeof(buf), "anim_%d", poolIdx);
-    return buf;
+    return GeneratedAnimName(cat, poolIdx, m_charaCode);
 }
 
 // Hand-key index helpers — keyIdx is an index into moveList[1] ("handKeys"),
@@ -380,12 +395,17 @@ void AnimationManagerWindow::DoAdd(int cat)
 {
     if (!m_moves || !m_animNameDB) { m_statusMsg = "Not ready (no moves data)"; m_statusOk = false; m_statusWarn = false; return; }
 
-    // Open file dialog
-    const char* filter;
-    switch (cat) {
-        case 0:  filter = "Fullbody Animation (*.bin)\0*.bin\0All files (*.*)\0*.*\0\0";    break;
-        case 1:  filter = "Hand Animation (*.anmhd)\0*.anmhd\0All files (*.*)\0*.*\0\0";   break;
-        default: filter = "All files (*.*)\0*.*\0\0"; break;
+    if (cat < 0 || cat >= 6) return;
+
+    // Open file dialog -- filter on this category's extension (e.g. "Facial Animation (*.anmfa)").
+    std::string filter;
+    {
+        const std::string ext = AnmbinCategoryExt(cat);
+        filter  = std::string(AnmbinCategoryName(cat)) + " Animation (*" + ext + ")";
+        filter += '\0'; filter += "*" + ext;
+        filter += '\0'; filter += "All files (*.*)";
+        filter += '\0'; filter += "*.*";
+        filter += '\0'; filter += '\0';
     }
     // Multi-select buffer: on multi-selection the API fills it as
     // "dir\0file1\0file2\0...\0\0"; on single selection it's the full path.
@@ -393,7 +413,7 @@ void AnimationManagerWindow::DoAdd(int cat)
     OPENFILENAMEA ofn = {};
     ofn.lStructSize = sizeof(ofn);
     ofn.hwndOwner   = NULL;
-    ofn.lpstrFilter = filter;
+    ofn.lpstrFilter = filter.c_str();
     ofn.lpstrFile   = fileBuf.data();
     ofn.nMaxFile    = (DWORD)fileBuf.size();
     ofn.Flags       = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_ALLOWMULTISELECT | OFN_EXPLORER;
@@ -418,7 +438,7 @@ void AnimationManagerWindow::DoAdd(int cat)
     }
     if (paths.empty()) return;
 
-    int addedCount = 0, failCount = 0, skipCount = 0, lastHandKey = -1;
+    int addedCount = 0, failCount = 0, skipCount = 0, lastKey = -1;
     std::string lastStem, firstErr, firstSkip;
     uint32_t lastCrc = 0;
     m_skips.clear();
@@ -479,19 +499,21 @@ void AnimationManagerWindow::DoAdd(int cat)
         if (m_onAnimAdded) m_onAnimAdded(cat, animName, crc32);
         ++addedCount; lastStem = animName; lastCrc = crc32;
 
-        // For Hand animations, auto-assign the first free hand key index. Reload
-        // first so the free-key search reflects keys assigned earlier in this loop.
-        if (cat == 1) {
+        // Non-Fullbody categories are referenced through their key table (moveList[cat]:
+        // hand key N, facial key N, ...), so give the new animation a key slot -- the first
+        // free (0) slot, else a new one at the end. Fullbody is referenced per move instead.
+        // Reload first so the free-slot search sees keys assigned earlier in this loop.
+        if (cat >= 1) {
             ForceReload(); TryLoad();
-            const auto& ml = m_anmbin.moveList[1];
+            const auto& ml = m_anmbin.moveList[cat];
             int freeIdx = -1;
             for (int k = 0; k < (int)ml.size(); ++k)
                 if (ml[k] == 0) { freeIdx = k; break; }
             if (freeIdx < 0) freeIdx = (int)ml.size(); // extend
 
             std::string assignErr;
-            if (AssignHandKeyInAnmbin(m_folderPath, freeIdx, crc32, assignErr))
-                lastHandKey = freeIdx;
+            if (AssignAnimKeyInAnmbin(m_folderPath, cat, freeIdx, crc32, assignErr))
+                lastKey = freeIdx;
             else if (firstErr.empty())
                 firstErr = "key assign failed: " + assignErr;
         }
@@ -526,9 +548,9 @@ void AnimationManagerWindow::DoAdd(int cat)
         snprintf(msg, sizeof(msg), "Add failed: %s%s", firstErr.c_str(), skipNote);
         m_statusOk = false;
     } else if (addedCount == 1 && failCount == 0 && skipCount == 0) {
-        if (cat == 1 && lastHandKey >= 0)
-            snprintf(msg, sizeof(msg), "Added: %s  (0x%08X)  \xE2\x86\x92 Hand Key #%d",
-                     lastStem.c_str(), lastCrc, lastHandKey);
+        if (cat >= 1 && lastKey >= 0)
+            snprintf(msg, sizeof(msg), "Added: %s  (0x%08X)  \xE2\x86\x92 %s Key #%d",
+                     lastStem.c_str(), lastCrc, AnmbinCategoryName(cat), lastKey);
         else
             snprintf(msg, sizeof(msg), "Added: %s  (0x%08X)", lastStem.c_str(), lastCrc);
         m_statusOk = true;
@@ -586,12 +608,8 @@ void AnimationManagerWindow::DoExtract(int cat, int poolIdx)
             }
         }
         if (!named)
-        {
-            if (cat == 0 && !m_charaCode.empty())
-                snprintf(defName, sizeof(defName), "anim_%s_%d%s", m_charaCode.c_str(), poolIdx, ext);
-            else
-                snprintf(defName, sizeof(defName), "anim_%d%s", poolIdx, ext);
-        }
+            snprintf(defName, sizeof(defName), "%s%s",
+                     GeneratedAnimName(cat, poolIdx, m_charaCode).c_str(), ext);
     }
 
     OPENFILENAMEA ofn = {};
@@ -635,39 +653,93 @@ void AnimationManagerWindow::DoExtract(int cat, int poolIdx)
 void AnimationManagerWindow::DoRemove(int cat, int poolIdx)
 {
     m_statusWarn = false;
-    uint32_t removedHash = 0;
+    TryLoad();
+    if (!m_anmbin.loaded || cat < 0 || cat >= 6 ||
+        poolIdx < 0 || poolIdx >= (int)m_anmbin.pool[cat].size())
+    { m_statusMsg = "Remove failed: invalid entry"; m_statusOk = false; return; }
+    BuildAnimKeyMap();
+
+    // Collect every key that refers to this entry BEFORE removing it -- pool indices (and
+    // index-based names) shift once it's gone.
+    const uint32_t hash32 = static_cast<uint32_t>(m_anmbin.pool[cat][poolIdx].animKey & 0xFFFFFFFF);
+    const std::string removedName = GetNameForPoolIdx(cat, poolIdx);
+    std::vector<uint32_t> linkedKeys;
+    auto addKey = [&](uint32_t k) {
+        if (std::find(linkedKeys.begin(), linkedKeys.end(), k) == linkedKeys.end()) linkedKeys.push_back(k);
+    };
+    addKey(hash32);                                     // CRC-keyed (user-added) animation
+    if (cat == 0)
+    {
+        // Original animations: the encrypted motbin key(s) of the moves that play it...
+        const auto& ml0 = m_anmbin.moveList[0];
+        for (size_t i = 0; i < ml0.size() && i < m_motbinAnimKeys.size(); ++i)
+            if (ml0[i] == hash32) addKey(m_motbinAnimKeys[i]);
+        // ...and the key named after its pool index (resolved by index at save time).
+        uint32_t k = 0;
+        if (m_animNameDB && m_animNameDB->NameToAnimKey(GeneratedAnimName(0, poolIdx, m_charaCode), k))
+            addKey(k);
+    }
+
+    uint32_t removedHash = 0, fallbackHash = 0;
+    bool     stillPresent = false;
+    int      repointed    = 0;
     std::string err;
-    bool ok = RemoveAnimFromAnmbin(m_folderPath, cat, poolIdx, removedHash, err);
+    if (!RemoveAnimFromAnmbin(m_folderPath, cat, poolIdx, removedHash, err,
+                              &fallbackHash, &stillPresent, &repointed))
+    { m_statusMsg = "Remove failed: " + err; m_statusOk = false; return; }
 
-    if (ok)
+    // Clamp selection; drop the preview if it showed this category (its indices shifted).
+    if (m_selRow[cat] >= poolIdx && m_selRow[cat] > 0) --m_selRow[cat];
+    if (m_previewCat == cat)
     {
-        // Clamp selection, then reload so we can inspect the post-removal pool.
-        if (m_selRow[cat] >= poolIdx && m_selRow[cat] > 0) --m_selRow[cat];
-        ForceReload();
-        TryLoad();
-
-        // Only repoint moves / drop the name when the removed key is truly gone from
-        // ALL pools. If another entry still carries this key (e.g. a legacy duplicate),
-        // the key is still valid -- clearing it would strip a live animation's name.
-        bool stillPresent = false;
-        for (int c = 0; c < 6 && !stillPresent; ++c)
-            for (const auto& e : m_anmbin.pool[c])
-                if (static_cast<uint32_t>(e.animKey & 0xFFFFFFFF) == removedHash) { stillPresent = true; break; }
-
-        if (!stillPresent && m_onAnimRemoved) m_onAnimRemoved(removedHash);
-
-        char msg[112];
-        snprintf(msg, sizeof(msg), "Removed pool[%d][%d]  (key 0x%08X)%s",
-                 cat, poolIdx, removedHash,
-                 stillPresent ? "  (key still used by another entry; name kept)" : "");
-        m_statusMsg = msg;
-        m_statusOk  = true;
+        m_previewPoolIdx = -1; m_animLoaded = false; m_playing = false;
+        if (m_preview) m_preview->SetAnim(nullptr, 0);
     }
+    ForceReload();
+    TryLoad();
+
+    // A hash still carried by some pool entry (any category) keeps its name: that name
+    // belongs to the surviving entry.
+    bool hashAlive = false;
+    for (int c = 0; c < 6 && !hashAlive; ++c)
+        for (const auto& e : m_anmbin.pool[c])
+            if (static_cast<uint32_t>(e.animKey & 0xFFFFFFFF) == removedHash) { hashAlive = true; break; }
+    if (hashAlive)
+        linkedKeys.erase(std::remove(linkedKeys.begin(), linkedKeys.end(), removedHash), linkedKeys.end());
+
+    std::unordered_set<uint32_t> poolHashes0;
+    for (const auto& e : m_anmbin.pool[0])
+        poolHashes0.insert(static_cast<uint32_t>(e.animKey & 0xFFFFFFFF));
+
+    if (m_onAnimRemoved)
+        m_onAnimRemoved(cat, poolIdx, removedHash, linkedKeys, stillPresent, poolHashes0);
+
+    // Status: what happened to the references.
+    std::string fbName;
+    if (repointed > 0 && fallbackHash != 0)
+    {
+        const auto& pool = m_anmbin.pool[cat];
+        for (int j = 0; j < (int)pool.size(); ++j)
+            if (static_cast<uint32_t>(pool[j].animKey & 0xFFFFFFFF) == fallbackHash)
+            { fbName = GetNameForPoolIdx(cat, j); break; }
+        if (fbName.empty()) { char b[16]; snprintf(b, sizeof(b), "0x%08X", fallbackHash); fbName = b; }
+    }
+    char msg[256];
+    if (stillPresent)
+        snprintf(msg, sizeof(msg), "Removed %s (%s #%d)  -- identical entry remains, references kept",
+                 removedName.c_str(), AnmbinCategoryName(cat), poolIdx);
+    else if (repointed > 0 && fallbackHash == 0)
+        snprintf(msg, sizeof(msg), "Removed %s (%s #%d)  -- %d key slot(s) cleared (reused by next Add)",
+                 removedName.c_str(), AnmbinCategoryName(cat), poolIdx, repointed);
+    else if (repointed > 0)
+        snprintf(msg, sizeof(msg), "Removed %s (%s #%d)  -- %d %s repointed to %s",
+                 removedName.c_str(), AnmbinCategoryName(cat), poolIdx, repointed,
+                 cat == 0 ? "move(s)" : "key slot(s)", fbName.c_str());
     else
-    {
-        m_statusMsg = "Remove failed: " + err;
-        m_statusOk  = false;
-    }
+        snprintf(msg, sizeof(msg), "Removed %s (%s #%d)",
+                 removedName.c_str(), AnmbinCategoryName(cat), poolIdx);
+    m_statusMsg = msg;
+    m_statusOk  = true;
 }
 
 // -------------------------------------------------------------
@@ -904,9 +976,10 @@ void AnimationManagerWindow::RenderTabContent(int cat)
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
         ImGui::SetTooltip("Filter by name");
 
-    const bool isFullbody = (cat == 0);
-    const bool isHand     = (cat == 1);
-    const bool has3Cols   = (isFullbody || isHand);
+    // Fullbody: motbin anim_key column. Other categories: "Key #" column listing the key-table
+    // slots (moveList[cat]) that reference each animation -- the index properties use.
+    const bool isKeyTable = (cat >= 1);
+    const bool has3Cols   = true;
     ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(4.f, 2.f));
     if (ImGui::BeginTable("##anm_list", has3Cols ? 3 : 2,
         ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_RowBg |
@@ -915,8 +988,8 @@ void AnimationManagerWindow::RenderTabContent(int cat)
     {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("Name",     ImGuiTableColumnFlags_WidthStretch);
-        if (has3Cols)
-            ImGui::TableSetupColumn("Anim_Key", ImGuiTableColumnFlags_WidthFixed, isHand ? 130.f : 110.f);
+        ImGui::TableSetupColumn(isKeyTable ? "Key #" : "Anim_Key",
+                                ImGuiTableColumnFlags_WidthFixed, isKeyTable ? 130.f : 110.f);
         ImGui::TableSetupColumn("Size",     ImGuiTableColumnFlags_WidthFixed,  72.f);
         ImGui::TableHeadersRow();
 
@@ -953,18 +1026,8 @@ void AnimationManagerWindow::RenderTabContent(int cat)
                 }
             }
 
-            // Priority 3: generated pool-index name
-            char buf[64];
-            bool isCom = (pool[i].animDataPtr == 0);
-            if (isCom)
-                snprintf(buf, sizeof(buf), "com_%d", i);
-            else if (cat == 1)
-                snprintf(buf, sizeof(buf), "hnd_%d", i);   // pool-order index, distinct from fullbody
-            else if (!m_charaCode.empty())
-                snprintf(buf, sizeof(buf), "anim_%s_%d", m_charaCode.c_str(), i);
-            else
-                snprintf(buf, sizeof(buf), "anim_%d", i);
-            return buf;
+            // Priority 3: generated pool-index name (per-category prefix)
+            return GeneratedAnimName(cat, i, m_charaCode, pool[i].animDataPtr == 0);
         };
 
         // Pre-compute PANM sizes for this category (one file-open for the whole list)
@@ -1001,20 +1064,20 @@ void AnimationManagerWindow::RenderTabContent(int cat)
             }
         }
 
-        // Reverse map: pool[1] hash → list of moveList[1] indices referencing it
-        std::unordered_map<uint32_t, std::vector<int>> handKeyRefs;
-        if (isHand) {
-            const auto& ml = m_anmbin.moveList[1];
+        // Reverse map: pool[cat] hash → list of moveList[cat] key slots referencing it
+        std::unordered_map<uint32_t, std::vector<int>> keyRefs;
+        if (isKeyTable) {
+            const auto& ml = m_anmbin.moveList[cat];
             for (int k = 0; k < (int)ml.size(); ++k)
-                if (ml[k]) handKeyRefs[ml[k]].push_back(k);
+                if (ml[k]) keyRefs[ml[k]].push_back(k);
         }
 
-        // Helper: Anim_Key column display
+        // Helper: Anim_Key / Key # column display
         auto showAnimKey = [&](int i) {
             uint32_t hash32 = static_cast<uint32_t>(pool[i].animKey & 0xFFFFFFFF);
-            if (isHand) {
-                auto it = handKeyRefs.find(hash32);
-                if (it == handKeyRefs.end() || it->second.empty()) {
+            if (isKeyTable) {
+                auto it = keyRefs.find(hash32);
+                if (it == keyRefs.end() || it->second.empty()) {
                     ImGui::TextDisabled("-"); return;
                 }
                 const auto& refs = it->second;
@@ -1065,7 +1128,20 @@ void AnimationManagerWindow::RenderTabContent(int cat)
             return strstr(lname, lowerSearch) != nullptr;
         };
 
-        for (int i = 0; i < (int)pool.size(); ++i)
+        // Display order: key-table categories list keyed entries by their lowest key index
+        // (ascending), then unkeyed entries in pool order. Fullbody keeps pool order.
+        std::vector<int> order(pool.size());
+        for (int i = 0; i < (int)pool.size(); ++i) order[i] = i;
+        if (isKeyTable) {
+            auto minKey = [&](int i) -> int {
+                auto it = keyRefs.find(static_cast<uint32_t>(pool[i].animKey & 0xFFFFFFFF));
+                return (it == keyRefs.end() || it->second.empty()) ? INT_MAX : it->second.front();
+            };
+            std::stable_sort(order.begin(), order.end(),
+                             [&](int a, int b) { return minKey(a) < minKey(b); });
+        }
+
+        for (int i : order)
         {
             if (pool[i].animDataPtr == 0) continue; // skip com refs
 
@@ -1425,14 +1501,12 @@ bool AnimationManagerWindow::Render()
 
     if (ImGui::BeginPopup("##add_menu"))
     {
-        if (ImGui::MenuItem("Fullbody"))  { DoAdd(0); ImGui::CloseCurrentPopup(); }
-        if (ImGui::MenuItem("Hand"))      { DoAdd(1); ImGui::CloseCurrentPopup(); }
-        ImGui::BeginDisabled();
-        ImGui::MenuItem("Facial");
-        ImGui::MenuItem("Swing");
-        ImGui::MenuItem("Camera");
-        ImGui::MenuItem("Extra");
-        ImGui::EndDisabled();
+        for (int c = 0; c < 6; ++c)
+        {
+            char item[48];
+            snprintf(item, sizeof(item), "%s  (*%s)", AnmbinCategoryName(c), AnmbinCategoryExt(c));
+            if (ImGui::MenuItem(item)) { DoAdd(c); ImGui::CloseCurrentPopup(); }
+        }
         ImGui::EndPopup();
     }
 
@@ -1477,7 +1551,9 @@ bool AnimationManagerWindow::Render()
                 if (e.animDataPtr != 0) ++localCount;
 
             char tabLabel[40];
-            snprintf(tabLabel, sizeof(tabLabel), "%s (%d)##cat%d",
+            // "###" keeps the tab ID independent of the count, so the selected tab
+            // survives an add/remove that changes the label.
+            snprintf(tabLabel, sizeof(tabLabel), "%s (%d)###cat%d",
                      AnmbinCategoryName(cat), localCount, cat);
 
             ImGuiTabItemFlags tabFlags = (m_pendingTab == cat)
@@ -1539,12 +1615,18 @@ bool AnimationManagerWindow::Render()
                                ImGuiWindowFlags_AlwaysAutoResize))
     {
         ImGui::Text("Remove animation from anmbin?");
-        ImGui::Text("  %s  (pool[%d][%d])",
+        ImGui::Text("  %s  (%s #%d)",
                     m_removeConfirm.animName.c_str(),
-                    m_removeConfirm.cat,
+                    AnmbinCategoryName(m_removeConfirm.cat),
                     m_removeConfirm.poolIdx);
-        ImGui::TextColored(ImVec4(1.f,0.8f,0.3f,1.f),
-            "Moves referencing this animation will be repointed to move 0's animation.");
+        if (m_removeConfirm.cat == 0)
+            ImGui::TextColored(ImVec4(1.f,0.8f,0.3f,1.f),
+                "Moves referencing this animation will be repointed to move 0's animation.");
+        else
+            ImGui::TextColored(ImVec4(1.f,0.8f,0.3f,1.f),
+                "%s key slots referencing this animation will be cleared (empty)\n"
+                "until the next Add fills them. Properties using those keys point at nothing.",
+                AnmbinCategoryName(m_removeConfirm.cat));
         ImGui::Spacing();
         if (ImGui::Button("Remove", ImVec2(100.f, 0.f)))
         {

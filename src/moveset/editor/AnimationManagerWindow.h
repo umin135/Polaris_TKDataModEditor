@@ -30,7 +30,12 @@ public:
     void NavigateTo(int cat, int moveIdx);
 
     // Provide per-move anim_key values from motbin (moves[i].anim_key).
+    // Must stay paired with the anmbin's moveList[0] (load time / right after a save).
     void SetMotbinAnimKeys(const std::vector<uint32_t>& animKeys);
+
+    // Mirror a motbin-side repoint (moves using any of fromKeys now use toKey) in the move-key
+    // snapshot, keeping it paired with the anmbin whose slots were repointed the same way.
+    void ReplaceMotbinAnimKeys(const std::vector<uint32_t>& fromKeys, uint32_t toKey);
 
     // Provide the AnimNameDB (read-only; used for key lookups and moveList patching).
     void SetAnimNameDB(const AnimNameDB* db) { m_animNameDB = db; }
@@ -43,10 +48,17 @@ public:
     void SetOnAnimAdded(std::function<void(int cat, const std::string& name, uint32_t crc32)> cb)
     { m_onAnimAdded = std::move(cb); }
 
-    // Called when an animation was successfully removed:
-    //   MovesetEditorWindow clears anim_key references and marks motbin dirty.
-    void SetOnAnimRemoved(std::function<void(uint32_t removedHash)> cb)
-    { m_onAnimRemoved = std::move(cb); }
+    // Called when an animation was successfully removed from pool[cat][poolIdx]:
+    //   linkedKeys  = every motbin key / name key that referred to it (its pool hash, plus for
+    //                 Fullbody the encrypted motbin key(s) mapped to it by name or move table).
+    //   stillPresent= another pool entry still carries the same hash (references stay valid).
+    //   poolHashes0 = Fullbody pool hashes after removal (to tell hash-keyed names apart).
+    //   MovesetEditorWindow repoints moves (Fullbody), drops names and re-indexes names.
+    using AnimRemovedFn = std::function<void(int cat, int poolIdx, uint32_t removedHash,
+                                             const std::vector<uint32_t>& linkedKeys,
+                                             bool stillPresent,
+                                             const std::unordered_set<uint32_t>& poolHashes0)>;
+    void SetOnAnimRemoved(AnimRemovedFn cb) { m_onAnimRemoved = std::move(cb); }
 
     // Called when the user renames an animation (right-click -> Rename):
     //   MovesetEditorWindow updates AnimNameDB (name <-> key) and persists.
@@ -133,7 +145,7 @@ private:
     std::string                    m_charaCode;
 
     std::function<void(int, const std::string&, uint32_t)> m_onAnimAdded;
-    std::function<void(uint32_t)>                          m_onAnimRemoved;
+    AnimRemovedFn                                          m_onAnimRemoved;
     std::function<void(uint32_t, const std::string&)>      m_onAnimRenamed;
 
     // Status message shown in toolbar (Add/Remove/Extract results)

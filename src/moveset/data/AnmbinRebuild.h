@@ -63,10 +63,20 @@ bool AddAnimToAnmbin(const std::string&             folderPath,
 //
 //  Reads moveset.anmbin, rebuilds pool[cat] without the entry at
 //  poolIdx (appended at end-of-file, patch-in-place strategy),
-//  updates the header, zeros any moveList[cat] hashes that matched
-//  the removed entry, and writes back.
+//  updates the header, and writes back. Works for all 6 categories.
+//
+//  moveList[cat] slots that referenced the removed hash:
+//    Fullbody -- repointed to a fallback animation (move 0's anim if it
+//                isn't the removed one, else the first remaining entry).
+//    others   -- cleared to 0 (the next Add reuses the first 0 slot);
+//                if the category became empty, trailing 0 slots are trimmed.
+//  If another pool[cat] entry still carries the same hash (legacy
+//  duplicate), slots are left untouched since they remain valid.
 //
 //  outRemovedHash receives the animKey (low32) of the removed entry.
+//  outFallbackHash / outStillPresent / outRepointed (optional) report
+//  what happened to the referencing slots (fallback is 0 when cleared;
+//  outRepointed counts repointed or cleared slots).
 //  The PANM blob becomes orphaned bytes (not compacted).
 //  Returns true on success.
 // -------------------------------------------------------------
@@ -74,15 +84,28 @@ bool RemoveAnimFromAnmbin(const std::string& folderPath,
                           int                cat,
                           int                poolIdx,
                           uint32_t&          outRemovedHash,
-                          std::string&       errorMsg);
+                          std::string&       errorMsg,
+                          uint32_t*          outFallbackHash = nullptr,
+                          bool*              outStillPresent = nullptr,
+                          int*               outRepointed    = nullptr);
 
 // -------------------------------------------------------------
-//  AssignHandKeyInAnmbin  --  set moveList[1][keyIdx] = crc32
+//  AssignAnimKeyInAnmbin  --  set moveList[cat][keyIdx] = crc32
 //
-//  Directly patches one u32 in the Hand (cat=1) moveList so that
-//  hand key index <keyIdx> references the animation with <crc32>.
-//  Returns true on success; false if keyIdx is out of range.
+//  moveList[cat] is the category's key table (slot -> pool hash):
+//  Hand keys, Facial keys, etc. Patches one u32 so that key index
+//  <keyIdx> references the animation with <crc32>. When keyIdx is past
+//  the end (or the table is empty), the table is relocated to the end
+//  of the file and zero-extended up to keyIdx. Not for Fullbody (cat 0),
+//  whose table is indexed by move and patched from the motbin instead.
 // -------------------------------------------------------------
+bool AssignAnimKeyInAnmbin(const std::string& folderPath,
+                           int                cat,
+                           int                keyIdx,
+                           uint32_t           crc32,
+                           std::string&       errorMsg);
+
+// Hand (cat 1) shorthand for AssignAnimKeyInAnmbin.
 bool AssignHandKeyInAnmbin(const std::string& folderPath,
                            int                keyIdx,
                            uint32_t           crc32,
