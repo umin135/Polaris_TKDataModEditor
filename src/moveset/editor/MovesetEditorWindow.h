@@ -153,9 +153,12 @@ private:
     void LoadEditorDatas();
     void SaveEditorDatas();
     void SaveToFile();
-    void ImportToPlayer(int playerId); // 0=P1, 1=P2 — live inject into game
+    void ImportToPlayer(int playerId);  // 0=P1, 1=P2 — live inject into game
+    void RestorePlayer(int playerId);
+    void ShowImportAlert(const std::string& message, bool ok);
     void RequestClose();
     void RenderCloseConfirmModal();
+    void RenderImportAlertModal();
     void RenderSavePopups();
     void RenderSubWin_Requirements();
     void RenderSubWin_Cancels();
@@ -194,6 +197,9 @@ private:
     bool        m_moveListScrollPending = false; // request scroll-to-selected on next render
     bool        m_dirty            = false; // unsaved changes exist
     bool        m_pendingClose     = false; // close requested while dirty
+    bool        m_importAlertOpen  = false;
+    bool        m_importAlertOk    = true;
+    std::string m_importAlertMsg;
 
     // Per-sub-window section widths (drag-splitter state), keyed by a stable string id.
     // Persistent per editor-window instance; the first access seeds the value from LayoutStore

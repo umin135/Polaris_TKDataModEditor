@@ -10,8 +10,10 @@
 
 namespace {
 
-// Five contiguous tk_moveset* slots relative to parent (AoB) offset.
-static constexpr uintptr_t kMotbinSlotRel[5] = { 0x00, 0x08, 0x10, 0x18, 0x20 };
+// Four motbin slots relative to AoB parent (+0x39E8):
+// +0x00, +0x08, +0x10, +0x20 — NOT +0x18 (gap / non-pointer field).
+// static constexpr uintptr_t kMotbinSlotRel[4] = { 0x00, 0x08, 0x10, 0x20 };
+static constexpr uintptr_t kMotbinSlotRel[] = { 0x0 };
 
 struct SlotState {
     uintptr_t injectedAddr  = 0;
@@ -46,6 +48,13 @@ static bool ReadTekAndWritten(const GameProcessInfo& gp, uintptr_t addr,
 } // namespace
 
 namespace MovesetInjector {
+
+bool CanRestore(int playerId)
+{
+    if (playerId < 0 || playerId > 1) return false;
+    const SlotState& st = s_slots[playerId];
+    return st.active && st.originalAddr != 0;
+}
 
 bool IsLiveMoveset(uintptr_t addr)
 {
@@ -240,7 +249,9 @@ InjectResult Inject(MotbinData& data, int playerId,
     st.allocSize    = allocSize;
     st.active       = true;
 
-    GameLiveEdit::RetriggerCurrentMove(gp, playerId);
+    // Don't retarget next_move here: current move id may be an alias (>=0x8000).
+    // Ton-Chan's importer only swaps the motbin pointer; the game continues fine.
+    // GameLiveEdit::RetriggerCurrentMove(gp, playerId);
 
     CloseGameProcess(gp);
 
@@ -329,7 +340,7 @@ InjectResult Restore(int playerId)
     if (st.injectedAddr)
         FreeGameMemory(gp, st.injectedAddr);
 
-    GameLiveEdit::RetriggerCurrentMove(gp, playerId);
+    // GameLiveEdit::RetriggerCurrentMove(gp, playerId);
     CloseGameProcess(gp);
 
     r.ok = true;

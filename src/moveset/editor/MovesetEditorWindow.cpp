@@ -605,6 +605,7 @@ bool MovesetEditorWindow::Render()
         // Still render overlays so popups survive window collapse/minimize.
         RenderSavePopups();
         RenderCloseConfirmModal();
+        RenderImportAlertModal();
         RenderRemoveConfirmModal();
         return m_open;
     }
@@ -659,6 +660,7 @@ bool MovesetEditorWindow::Render()
         ImGui::End();
         RenderSavePopups();
         RenderCloseConfirmModal();
+        RenderImportAlertModal();
         RenderRemoveConfirmModal();
         return m_open;
     }
@@ -732,6 +734,7 @@ bool MovesetEditorWindow::Render()
     // Overlay-style dialogs rendered LAST so they appear on top of all sub-windows.
     RenderSavePopups();
     RenderCloseConfirmModal();
+    RenderImportAlertModal();
     RenderRemoveConfirmModal();
 
     // Capture the live sub-window sizes / section widths into LayoutStore (persisted on close).
@@ -2659,12 +2662,18 @@ void MovesetEditorWindow::RenderMenuBar()
         ImGui::EndMenu();
     }
 
-    if (ImGui::BeginMenu("Import"))
+    if (ImGui::BeginMenu("Import Motbin"))
     {
         if (ImGui::MenuItem("Player 1"))
             ImportToPlayer(0);
         if (ImGui::MenuItem("Player 2"))
             ImportToPlayer(1);
+        // Temporarily hidden
+        // ImGui::Separator();
+        // if (ImGui::MenuItem("Restore Player 1", nullptr, false, MovesetInjector::CanRestore(0)))
+        //     RestorePlayer(0);
+        // if (ImGui::MenuItem("Restore Player 2", nullptr, false, MovesetInjector::CanRestore(1)))
+        //     RestorePlayer(1);
         ImGui::EndMenu();
     }
 
@@ -2865,12 +2874,25 @@ void MovesetEditorWindow::SaveToFile()
     });
 }
 
+void MovesetEditorWindow::ShowImportAlert(const std::string& message, bool ok)
+{
+    m_importAlertMsg  = message;
+    m_importAlertOk   = ok;
+    m_importAlertOpen = true;
+}
+
 void MovesetEditorWindow::ImportToPlayer(int playerId)
 {
     auto result = MovesetInjector::Inject(m_data, playerId, 0, true);
-    MessageBoxA(nullptr, result.message.c_str(),
-                result.ok ? "Import" : "Import failed",
-                result.ok ? MB_OK | MB_ICONINFORMATION : MB_OK | MB_ICONWARNING);
+    ShowImportAlert(result.message, result.ok);
+}
+
+void MovesetEditorWindow::RestorePlayer(int playerId)
+{
+    if (!MovesetInjector::CanRestore(playerId))
+        return;
+    auto result = MovesetInjector::Restore(playerId);
+    ShowImportAlert(result.message, result.ok);
 }
 
 void MovesetEditorWindow::RequestClose()
@@ -2879,6 +2901,62 @@ void MovesetEditorWindow::RequestClose()
         m_pendingClose = true;
     else
         m_open = false;
+}
+
+void MovesetEditorWindow::RenderImportAlertModal()
+{
+    if (!m_importAlertOpen) return;
+
+    ImGuiViewport* edVp = (m_viewportId != 0) ? ImGui::FindViewportByID(m_viewportId) : nullptr;
+    if (!edVp) edVp = ImGui::GetMainViewport();
+    const ImVec2 vpPos  = edVp->Pos;
+    const ImVec2 vpSize = edVp->Size;
+    const ImVec2 center(vpPos.x + vpSize.x * 0.5f, vpPos.y + vpSize.y * 0.5f);
+
+    constexpr ImGuiWindowFlags kOvFlags =
+        ImGuiWindowFlags_NoTitleBar     | ImGuiWindowFlags_NoResize    |
+        ImGuiWindowFlags_NoMove         | ImGuiWindowFlags_NoDocking   |
+        ImGuiWindowFlags_NoSavedSettings| ImGuiWindowFlags_NoScrollbar |
+        ImGuiWindowFlags_NoNav          | ImGuiWindowFlags_NoFocusOnAppearing;
+
+    ImGui::SetNextWindowViewport(edVp->ID);
+    ImGui::SetNextWindowPos(vpPos);
+    ImGui::SetNextWindowSize(vpSize);
+    ImGui::SetNextWindowBgAlpha(0.28f);
+    ImGui::Begin(WinId("##imp_dim").c_str(), nullptr, kOvFlags);
+    ImGui::End();
+
+    const float pad   = ImGui::GetStyle().WindowPadding.x;
+    const float lineH = ImGui::GetTextLineHeightWithSpacing();
+    const float wrapW = 360.f;
+    const ImVec2 textSz = ImGui::CalcTextSize(m_importAlertMsg.c_str(), nullptr, false, wrapW);
+    const float boxW  = wrapW + pad * 2.f + 16.f;
+    const float boxH  = textSz.y + lineH * 2.f + pad * 2.f + 16.f;
+
+    ImGui::SetNextWindowViewport(edVp->ID);
+    ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(boxW, boxH), ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.96f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.f);
+    ImGui::Begin(WinId("##imp_box").c_str(), nullptr, kOvFlags);
+    ImGui::PopStyleVar();
+    ImGui::SetCursorPosY(ImGui::GetStyle().WindowPadding.y + 4.f);
+
+    const ImVec4 col = m_importAlertOk
+        ? ImVec4(0.35f, 1.f, 0.45f, 1.f)
+        : ImVec4(1.f, 0.55f, 0.35f, 1.f);
+    ImGui::PushStyleColor(ImGuiCol_Text, col);
+    ImGui::PushTextWrapPos(ImGui::GetCursorPos().x + wrapW);
+    ImGui::TextUnformatted(m_importAlertMsg.c_str());
+    ImGui::PopTextWrapPos();
+    ImGui::PopStyleColor();
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+    if (ImGui::Button("OK", ImVec2(80, 0)))
+        m_importAlertOpen = false;
+    ImGui::End();
 }
 
 void MovesetEditorWindow::RenderCloseConfirmModal()

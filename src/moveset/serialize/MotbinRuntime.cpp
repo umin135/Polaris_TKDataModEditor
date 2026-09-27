@@ -168,10 +168,8 @@ std::vector<uint8_t> BuildRuntimeBlob(const std::vector<uint8_t>& state1,
     const bool haveLive = liveState3 && liveSize >= kBase && liveBase != 0;
 
     // -- Header flags -------------------------------------------------
-    // Keep skip_anim_lookup=0 like a normal game-loaded motbin. Handles at
-    // move+0x50/0x54 are already filled; setting skip=1 was unnecessary and
-    // diverged from vanilla.
-    dst[0x00] = haveLive ? liveState3[0x00] : 0;
+    // skip_anim_lookup must be 0 — matches runtime-imported movesets.
+    dst[0x00] = 0;
     dst[0x02] = 1;
 
     // Dummy character special-case
