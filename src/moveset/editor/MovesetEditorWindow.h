@@ -153,6 +153,7 @@ private:
     void LoadEditorDatas();
     void SaveEditorDatas();
     void SaveToFile();
+    void ImportToPlayer(int playerId); // 0=P1, 1=P2 — live inject into game
     void RequestClose();
     void RenderCloseConfirmModal();
     void RenderSavePopups();

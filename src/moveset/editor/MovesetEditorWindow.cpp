@@ -9,6 +9,7 @@
 #include "moveset/data/EditorFieldLabel.h"
 #include "moveset/labels/FieldTooltips.h"
 #include "moveset/live/GameLiveEdit.h"
+#include "moveset/live/MovesetInjector.h"
 #include "moveset/data/KamuiHash.h"
 #include "moveset/editor/ListKeybinds.h"
 #include "LayoutStore.h"
@@ -2143,9 +2144,9 @@ void MovesetEditorWindow::RenderSection_Overview(ParsedMove& m, bool& dirty)
             }
         }
 
-        // 4. skeleton_id
+        // 4. skeleton_id (runtime handle high dword)
         FieldRow(SkeletonId, FieldTT::Move::SkeletonId);
-        { char buf[14]; snprintf(buf, sizeof(buf), "0x%08X", m.anmbin_body_sub_idx);
+        { char buf[14]; snprintf(buf, sizeof(buf), "0x%08X", m.anim_handle_hi ? m.anim_handle_hi : m.anmbin_body_sub_idx);
           ImGui::SetNextItemWidth(-1.0f);
           ImGui::InputText("##skelid_ro", buf, sizeof(buf), ImGuiInputTextFlags_ReadOnly); }
 
@@ -2658,6 +2659,15 @@ void MovesetEditorWindow::RenderMenuBar()
         ImGui::EndMenu();
     }
 
+    if (ImGui::BeginMenu("Import"))
+    {
+        if (ImGui::MenuItem("Player 1"))
+            ImportToPlayer(0);
+        if (ImGui::MenuItem("Player 2"))
+            ImportToPlayer(1);
+        ImGui::EndMenu();
+    }
+
     ImGui::EndMenuBar();
 }
 
@@ -2853,6 +2863,14 @@ void MovesetEditorWindow::SaveToFile()
             RebuildAnmbin(m_data.folderPath, m_animNameDB, m_data.moves, anmbinErr);
         }
     });
+}
+
+void MovesetEditorWindow::ImportToPlayer(int playerId)
+{
+    auto result = MovesetInjector::Inject(m_data, playerId, 0, true);
+    MessageBoxA(nullptr, result.message.c_str(),
+                result.ok ? "Import" : "Import failed",
+                result.ok ? MB_OK | MB_ICONINFORMATION : MB_OK | MB_ICONWARNING);
 }
 
 void MovesetEditorWindow::RequestClose()

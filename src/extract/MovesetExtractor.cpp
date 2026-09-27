@@ -489,6 +489,21 @@ void MovesetExtractor::RefreshSlots()
     ReadSlot(1, m_slots[1]);
 }
 
+bool MovesetExtractor::DumpSlotMotbin(int slotIndex, std::vector<uint8_t>& outBytes, std::string& errorMsg)
+{
+    if (!m_proc.valid)
+    {
+        errorMsg = "Not connected.";
+        return false;
+    }
+    if (slotIndex < 0 || slotIndex > 1 || !m_slots[slotIndex].valid)
+    {
+        errorMsg = "Invalid slot.";
+        return false;
+    }
+    return ReadMotbin(m_slots[slotIndex].motbinAddr, outBytes, errorMsg);
+}
+
 // -------------------------------------------------------------
 //  ReadAndFixupMotbin -- raw memory dump + pointer fixup
 // -------------------------------------------------------------
@@ -1199,6 +1214,34 @@ bool MovesetExtractor::ExtractToFile(int slotIndex,
             }
             fprintf(jf, "]}");
             fclose(jf);
+        }
+
+        // .tkedit/anim_runtime.json — runtime handle high dword (+0x54) + cross-checks
+        // from the live state-3 dump (before ExportLoaderBin overwrote 0x50/0x54).
+        {
+            std::string arPath = tkeditDir + "\\anim_runtime.json";
+            FILE* af = nullptr;
+            if (fopen_s(&af, arPath.c_str(), "w") == 0 && af) {
+                uint64_t moveBlockAbs = ReadBuf<uint64_t>(bytes.data(), 0x230);
+                uint64_t moveCount    = ReadBuf<uint64_t>(bytes.data(), 0x238);
+                fprintf(af, "{\"moves\":[");
+                bool first = true;
+                if (moveBlockAbs >= static_cast<uint64_t>(slot.motbinAddr) && moveCount > 0) {
+                    size_t moveOff = static_cast<size_t>(moveBlockAbs - slot.motbinAddr);
+                    for (uint64_t mi = 0; mi < moveCount; ++mi) {
+                        size_t e = moveOff + static_cast<size_t>(mi * 0x448);
+                        if (e + 0x124 > bytes.size()) break;
+                        uint32_t lo  = ReadBuf<uint32_t>(bytes.data(), e + 0x50);
+                        uint32_t hi  = ReadBuf<uint32_t>(bytes.data(), e + 0x54);
+                        uint32_t len = ReadBuf<uint32_t>(bytes.data(), e + 0x120);
+                        if (!first) fprintf(af, ",");
+                        first = false;
+                        fprintf(af, "{\"h\":%u,\"lo\":%u,\"len\":%u}", hi, lo, len);
+                    }
+                }
+                fprintf(af, "]}");
+                fclose(af);
+            }
         }
     }
 

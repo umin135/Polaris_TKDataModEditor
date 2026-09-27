@@ -201,8 +201,10 @@ if "$(Configuration)|$(Platform)"=="Release|x64" xcopy /Y /E /Q "$(OutDir)res\" 
     <ClCompile Include="src\moveset\preview\PreviewMesh.cpp" />
     <ClCompile Include="src\moveset\preview\PreviewRenderer.cpp" />
     <ClCompile Include="src\moveset\live\GameLiveEdit.cpp" />
+    <ClCompile Include="src\moveset\live\MovesetInjector.cpp" />
     <ClCompile Include="src\moveset\labels\LabelDB.cpp" />
     <ClCompile Include="src\moveset\serialize\MotbinSerialize.cpp" />
+    <ClCompile Include="src\moveset\serialize\MotbinRuntime.cpp" />
     <ClCompile Include="src\extract\GameProcess.cpp" />
     <ClCompile Include="src\extract\MovesetExtractor.cpp" />
     <ClCompile Include="src\extract\AnmbinExtractor.cpp" />
@@ -250,9 +252,11 @@ if "$(Configuration)|$(Platform)"=="Release|x64" xcopy /Y /E /Q "$(OutDir)res\" 
     <ClInclude Include="src\moveset\preview\PreviewMesh.h" />
     <ClInclude Include="src\moveset\preview\PreviewRenderer.h" />
     <ClInclude Include="src\moveset\live\GameLiveEdit.h" />
+    <ClInclude Include="src\moveset\live\MovesetInjector.h" />
     <ClInclude Include="src\moveset\labels\LabelDB.h" />
     <ClInclude Include="src\moveset\data\EditorFieldLabel.h" />
     <ClInclude Include="src\moveset\serialize\MotbinSerialize.h" />
+    <ClInclude Include="src\moveset\serialize\MotbinRuntime.h" />
     <ClInclude Include="src\extract\GameProcess.h" />
     <ClInclude Include="src\extract\MovesetExtractor.h" />
     <ClInclude Include="src\extract\AnmbinExtractor.h" />

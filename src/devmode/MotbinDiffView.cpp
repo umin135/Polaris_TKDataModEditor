@@ -1,10 +1,12 @@
 ﻿#ifdef _DEBUG
 
+#define NOMINMAX
 #include "MotbinDiffView.h"
 #include "Config.h"
+#include "extract/MovesetExtractor.h"
+#include "moveset/serialize/MotbinRuntime.h"
 #include "imgui/imgui.h"
 
-#define NOMINMAX
 #include <windows.h>
 #include <shobjidl.h>
 #include <cstdio>
@@ -538,6 +540,13 @@ void MotbinDiffView::Render()
         ImGui::TextDisabled("<- set Moveset Root in Settings");
     }
 
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+    ImGui::TextUnformatted("Live round-trip (P1 state-3 -> state-1 -> state-3 @ same base):");
+    if (ImGui::Button("Run Live Round-Trip", ImVec2(180.0f, 0.0f)))
+        RunLiveRoundTrip();
+
     if (!m_status.empty())
     {
         ImGui::SameLine();
@@ -553,6 +562,91 @@ void MotbinDiffView::RunReport()
 {
     m_status   = BuildDiffReport(m_pathA, m_pathB, Config::Get().data.MovesetDir());
     m_statusOk = (m_status.find("Error") == std::string::npos);
+}
+
+void MotbinDiffView::RunLiveRoundTrip()
+{
+    MovesetExtractor ex;
+    if (!ex.Connect())
+    {
+        m_status = "Game not running.";
+        m_statusOk = false;
+        return;
+    }
+    ex.RefreshSlots();
+    const auto& slot = ex.GetSlot(0);
+    if (!slot.valid)
+    {
+        m_status = "P1 slot invalid.";
+        m_statusOk = false;
+        return;
+    }
+    std::vector<uint8_t> live;
+    std::string err;
+    if (!ex.DumpSlotMotbin(0, live, err))
+    {
+        m_status = err;
+        m_statusOk = false;
+        return;
+    }
+
+    auto rebuilt = RoundTripRuntimeBlob(live, slot.motbinAddr, nullptr, slot.charaId, err);
+    if (rebuilt.empty())
+    {
+        m_status = err.empty() ? "RoundTrip failed." : err;
+        m_statusOk = false;
+        return;
+    }
+
+    // Compare up to min size (rebuilt has +2 for "?")
+    size_t n = (std::min)(live.size(), rebuilt.size());
+    size_t diffs = 0;
+    size_t firstDiff = SIZE_MAX;
+    // Whitelist: move cancel1/2/3 region 0xA0..0xC8 often zeroed by ExportLoaderBin
+    auto isWhitelisted = [&](size_t off) -> bool {
+        uint64_t absMoves = 0;
+        if (live.size() >= 0x238) memcpy(&absMoves, live.data() + 0x230, 8);
+        if (absMoves < slot.motbinAddr) return false;
+        size_t mOff = static_cast<size_t>(absMoves - slot.motbinAddr);
+        uint64_t mCnt = 0;
+        memcpy(&mCnt, live.data() + 0x238, 8);
+        for (uint64_t i = 0; i < mCnt; ++i)
+        {
+            size_t e = mOff + static_cast<size_t>(i * 0x448);
+            if (off >= e + 0xA0 && off < e + 0xC8) return true;
+            // Encrypted 0x20 blocks — game may use different per-field keys than our default
+            for (size_t enc : {0x00ull, 0x20ull, 0x58ull, 0x78ull, 0xD0ull, 0xF0ull})
+            {
+                if (off >= e + enc && off < e + enc + 0x20) return true;
+            }
+            // name/anim string ptrs point to "?"
+            if ((off >= e + 0x40 && off < e + 0x50)) return true;
+        }
+        // Header string ptrs
+        if (off >= 0x10 && off < 0x30) return true;
+        return false;
+    };
+
+    for (size_t i = 0; i < n; ++i)
+    {
+        if (live[i] != rebuilt[i] && !isWhitelisted(i))
+        {
+            if (firstDiff == SIZE_MAX) firstDiff = i;
+            ++diffs;
+        }
+    }
+    if (diffs == 0)
+    {
+        m_status = "Round-trip OK (" + std::to_string(n) + " bytes compared).";
+        m_statusOk = true;
+    }
+    else
+    {
+        char buf[128];
+        snprintf(buf, sizeof(buf), "Round-trip: %zu diffs, first @ 0x%zX", diffs, firstDiff);
+        m_status = buf;
+        m_statusOk = false;
+    }
 }
 
 #endif // _DEBUG

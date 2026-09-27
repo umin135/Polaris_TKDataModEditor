@@ -209,3 +209,17 @@ uintptr_t AobScan(const GameProcessInfo& info,
     }
     return 0;
 }
+
+uintptr_t AllocGameMemory(const GameProcessInfo& info, size_t size)
+{
+    if (!info.valid || size == 0) return 0;
+    LPVOID p = VirtualAllocEx(info.handle, nullptr, size,
+                              MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    return reinterpret_cast<uintptr_t>(p);
+}
+
+bool FreeGameMemory(const GameProcessInfo& info, uintptr_t addr)
+{
+    if (!info.valid || !addr) return false;
+    return VirtualFreeEx(info.handle, reinterpret_cast<LPVOID>(addr), 0, MEM_RELEASE) != 0;
+}

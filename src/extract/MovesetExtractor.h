@@ -56,6 +56,9 @@ public:
     const PlayerSlotInfo& GetSlot(int i) const { return m_slots[i]; }
     const std::string& GetStatusMsg() const     { return m_statusMsg; }
 
+    // Dump live state-3 motbin bytes for a slot (for round-trip verification).
+    bool DumpSlotMotbin(int slotIndex, std::vector<uint8_t>& outBytes, std::string& errorMsg);
+
 private:
     bool ReadSlot(int slotIndex, PlayerSlotInfo& slot);
     bool ReadMotbin(uintptr_t motbinAddr,
