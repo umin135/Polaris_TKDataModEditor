@@ -252,15 +252,22 @@ InjectResult Inject(MotbinData& data, int playerId,
         return r;
     }
 
-    // Free previous inject if we replaced our own
-    if (st.active && st.injectedAddr && st.injectedAddr != target &&
-        st.injectedAddr != oldPtr)
+    // Re-import on top of our own inject: deferred-free the previous alloc.
+    // Never free the frozen game original (originalAddr).
+    uintptr_t prevInjectToFree = 0;
+    if (st.active && st.injectedAddr &&
+        st.injectedAddr == oldPtr &&
+        st.injectedAddr != target &&
+        st.injectedAddr != st.originalAddr)
     {
-        FreeGameMemory(gp, st.injectedAddr);
+        prevInjectToFree = st.injectedAddr;
     }
 
+    // Freeze the game-populated moveset from the first successful inject only.
+    if (!st.originalAddr)
+        st.originalAddr = oldPtr;
+
     st.injectedAddr = target;
-    st.originalAddr = oldPtr;
     st.allocSize    = allocSize;
     st.active       = true;
 
@@ -269,6 +276,9 @@ InjectResult Inject(MotbinData& data, int playerId,
     // GameLiveEdit::RetriggerCurrentMove(gp, playerId);
 
     CloseGameProcess(gp);
+
+    if (prevInjectToFree)
+        ScheduleDeferredFree(prevInjectToFree);
 
     r.ok            = true;
     r.allocatedAddr = target;
@@ -279,7 +289,8 @@ InjectResult Inject(MotbinData& data, int playerId,
                           snprintf(buf, sizeof(buf), "%llX", (unsigned long long)target);
                           return std::string(buf);
                       }() +
-                      " -> P" + std::to_string(playerId + 1);
+                      " -> P" + std::to_string(playerId + 1) +
+                      (prevInjectToFree ? " (previous inject free scheduled in 5s)." : "");
     return r;
 }
 

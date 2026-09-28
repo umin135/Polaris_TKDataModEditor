@@ -2662,13 +2662,22 @@ void MovesetEditorWindow::RenderMenuBar()
         ImGui::EndMenu();
     }
 
-    if (ImGui::BeginMenu("Import Motbin"))
+    const bool importMenuOpen = ImGui::BeginMenu("Import Motbin");
+    ImGui::SetItemTooltip(
+        "Imports Motbin data only.\n"
+        "For animation (anmbin) changes, reload the moveset via TkModLoader.");
+    if (importMenuOpen)
     {
         if (ImGui::MenuItem("Player 1"))
             ImportToPlayer(0);
+        ImGui::SetItemTooltip(
+            "Imports Motbin data only.\n"
+            "For animation (anmbin) changes, reload the moveset via TkModLoader.");
         if (ImGui::MenuItem("Player 2"))
             ImportToPlayer(1);
-        // Temporarily hidden
+        ImGui::SetItemTooltip(
+            "Imports Motbin data only.\n"
+            "For animation (anmbin) changes, reload the moveset via TkModLoader.");
         ImGui::Separator();
         if (ImGui::MenuItem("Restore Player 1", nullptr, false, MovesetInjector::CanRestore(0)))
             RestorePlayer(0);
