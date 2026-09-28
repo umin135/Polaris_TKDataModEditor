@@ -2876,9 +2876,10 @@ void MovesetEditorWindow::SaveToFile()
 
 void MovesetEditorWindow::ShowImportAlert(const std::string& message, bool ok)
 {
-    m_importAlertMsg  = message;
-    m_importAlertOk   = ok;
-    m_importAlertOpen = true;
+    m_importAlertMsg     = message;
+    m_importAlertOk      = ok;
+    m_importAlertOpen    = true;
+    m_importAlertPending = true; // re-open popup every time (OpenPopup is one-shot)
 }
 
 void MovesetEditorWindow::ImportToPlayer(int playerId)
@@ -2905,7 +2906,7 @@ void MovesetEditorWindow::RequestClose()
 
 void MovesetEditorWindow::RenderImportAlertModal()
 {
-    if (!m_importAlertOpen) return;
+    if (!m_importAlertOpen && !m_importAlertPending) return;
 
     ImGuiViewport* edVp = (m_viewportId != 0) ? ImGui::FindViewportByID(m_viewportId) : nullptr;
     if (!edVp) edVp = ImGui::GetMainViewport();
@@ -2913,18 +2914,24 @@ void MovesetEditorWindow::RenderImportAlertModal()
     const ImVec2 vpSize = edVp->Size;
     const ImVec2 center(vpPos.x + vpSize.x * 0.5f, vpPos.y + vpSize.y * 0.5f);
 
-    constexpr ImGuiWindowFlags kOvFlags =
+    // Same host-window + OpenPopup pattern as remove/insert dialogs so the
+    // alert re-opens every import (plain Begin windows only worked once).
+    constexpr ImGuiWindowFlags kHostFlags =
         ImGuiWindowFlags_NoTitleBar     | ImGuiWindowFlags_NoResize    |
         ImGuiWindowFlags_NoMove         | ImGuiWindowFlags_NoDocking   |
         ImGuiWindowFlags_NoSavedSettings| ImGuiWindowFlags_NoScrollbar |
-        ImGuiWindowFlags_NoNav          | ImGuiWindowFlags_NoFocusOnAppearing;
-
+        ImGuiWindowFlags_NoNav          | ImGuiWindowFlags_NoFocusOnAppearing |
+        ImGuiWindowFlags_NoBackground   | ImGuiWindowFlags_NoMouseInputs;
     ImGui::SetNextWindowViewport(edVp->ID);
-    ImGui::SetNextWindowPos(vpPos);
-    ImGui::SetNextWindowSize(vpSize);
-    ImGui::SetNextWindowBgAlpha(0.28f);
-    ImGui::Begin(WinId("##imp_dim").c_str(), nullptr, kOvFlags);
-    ImGui::End();
+    ImGui::SetNextWindowPos(ImVec2(vpPos.x - 100.f, vpPos.y - 100.f));
+    ImGui::SetNextWindowSize(ImVec2(1.f, 1.f));
+    ImGui::Begin(WinId("##imp_dlg_host").c_str(), nullptr, kHostFlags);
+
+    if (m_importAlertPending)
+    {
+        ImGui::OpenPopup(WinId("##imp_alert").c_str());
+        m_importAlertPending = false;
+    }
 
     const float pad   = ImGui::GetStyle().WindowPadding.x;
     const float lineH = ImGui::GetTextLineHeightWithSpacing();
@@ -2933,30 +2940,53 @@ void MovesetEditorWindow::RenderImportAlertModal()
     const float boxW  = wrapW + pad * 2.f + 16.f;
     const float boxH  = textSz.y + lineH * 2.f + pad * 2.f + 16.f;
 
+    constexpr ImGuiWindowFlags kDlgFlags =
+        ImGuiWindowFlags_NoTitleBar     | ImGuiWindowFlags_NoResize    |
+        ImGuiWindowFlags_NoMove         | ImGuiWindowFlags_NoDocking   |
+        ImGuiWindowFlags_NoSavedSettings| ImGuiWindowFlags_NoScrollbar |
+        ImGuiWindowFlags_NoNav;
+
     ImGui::SetNextWindowViewport(edVp->ID);
     ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowSize(ImVec2(boxW, boxH), ImGuiCond_Always);
     ImGui::SetNextWindowBgAlpha(0.96f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.f);
-    ImGui::Begin(WinId("##imp_box").c_str(), nullptr, kOvFlags);
-    ImGui::PopStyleVar();
-    ImGui::SetCursorPosY(ImGui::GetStyle().WindowPadding.y + 4.f);
+    ImGui::PushStyleColor(ImGuiCol_ModalWindowDimBg, ImVec4(0.f, 0.f, 0.f, 0.28f));
+    if (ImGui::BeginPopupModal(WinId("##imp_alert").c_str(), nullptr, kDlgFlags))
+    {
+        ImGui::PopStyleColor();
+        ImGui::PopStyleVar();
+        ImGui::SetCursorPosY(ImGui::GetStyle().WindowPadding.y + 4.f);
 
-    const ImVec4 col = m_importAlertOk
-        ? ImVec4(0.35f, 1.f, 0.45f, 1.f)
-        : ImVec4(1.f, 0.55f, 0.35f, 1.f);
-    ImGui::PushStyleColor(ImGuiCol_Text, col);
-    ImGui::PushTextWrapPos(ImGui::GetCursorPos().x + wrapW);
-    ImGui::TextUnformatted(m_importAlertMsg.c_str());
-    ImGui::PopTextWrapPos();
-    ImGui::PopStyleColor();
+        const ImVec4 col = m_importAlertOk
+            ? ImVec4(0.35f, 1.f, 0.45f, 1.f)
+            : ImVec4(1.f, 0.55f, 0.35f, 1.f);
+        ImGui::PushStyleColor(ImGuiCol_Text, col);
+        ImGui::PushTextWrapPos(ImGui::GetCursorPos().x + wrapW);
+        ImGui::TextUnformatted(m_importAlertMsg.c_str());
+        ImGui::PopTextWrapPos();
+        ImGui::PopStyleColor();
 
-    ImGui::Spacing();
-    ImGui::Separator();
-    ImGui::Spacing();
-    if (ImGui::Button("OK", ImVec2(80, 0)))
-        m_importAlertOpen = false;
-    ImGui::End();
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+        if (ImGui::Button("OK", ImVec2(80, 0)))
+        {
+            m_importAlertOpen = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+        else
+        {
+            ImGui::PopStyleColor();
+            ImGui::PopStyleVar();
+            // Popup closed externally (e.g. ESC) → clear so next import can reopen.
+            if (m_importAlertOpen)
+                m_importAlertOpen = false;
+        }
+
+    ImGui::End(); // ##imp_dlg_host
 }
 
 void MovesetEditorWindow::RenderCloseConfirmModal()

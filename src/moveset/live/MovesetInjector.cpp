@@ -182,8 +182,8 @@ InjectResult Inject(MotbinData& data, int playerId,
         return r;
     }
 
-    // Snapshot the live motbin so BuildRuntimeBlob can reuse validated
-    // encryption blocks and the game's static "?" string pointers.
+    // Snapshot the live motbin so BuildRuntimeBlob can reuse the game's
+    // static "?" string pointers from the header / moves.
     std::vector<uint8_t> liveBytes;
     if (live.motbinAddr)
     {

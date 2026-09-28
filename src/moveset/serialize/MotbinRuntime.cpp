@@ -196,7 +196,7 @@ std::vector<uint8_t> BuildRuntimeBlob(const std::vector<uint8_t>& state1,
     }
     W64(dst, 0x170, 0); // string_block_end_offset
 
-    // Live moves array (absolute -> file-relative) for enc/string reuse
+    // Live moves array (absolute -> file-relative) for "?" string ptr reuse
     size_t liveMovesOff = 0;
     uint64_t liveMovesCnt = 0;
     if (haveLive && liveSize >= 0x240)
@@ -438,18 +438,8 @@ std::vector<uint8_t> BuildRuntimeBlob(const std::vector<uint8_t>& state1,
             W64(dst, e + 0x48, qMarkAbs);
         }
 
-        // Encrypt six fields. Prefer copying the live 0x20 block when the
-        // decrypted plaintext still matches — preserves game keys + related[].
+        // Encrypt six fields (value@+0x00, key@+0x08; related@+0x10.. zeroed).
         auto writeEnc = [&](size_t off, uint32_t value) {
-            if (liveMove)
-            {
-                uint32_t liveVal = TkDecrypt32(liveMove + off);
-                if (liveVal == value)
-                {
-                    memcpy(dst + e + off, liveMove + off, 0x20);
-                    return;
-                }
-            }
             memset(dst + e + off, 0, 0x20);
             TkEncrypt32(dst + e + off, value);
         };

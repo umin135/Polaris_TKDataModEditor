@@ -197,8 +197,9 @@ private:
     bool        m_moveListScrollPending = false; // request scroll-to-selected on next render
     bool        m_dirty            = false; // unsaved changes exist
     bool        m_pendingClose     = false; // close requested while dirty
-    bool        m_importAlertOpen  = false;
-    bool        m_importAlertOk    = true;
+    bool        m_importAlertOpen    = false;
+    bool        m_importAlertPending = false; // one-shot OpenPopup trigger
+    bool        m_importAlertOk      = true;
     std::string m_importAlertMsg;
 
     // Per-sub-window section widths (drag-splitter state), keyed by a stable string id.

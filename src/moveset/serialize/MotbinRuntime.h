@@ -26,8 +26,7 @@ uint32_t TkDecrypt32(const uint8_t* src16);
 // model   : MotbinData (decrypted fields + anim_handle_lo/hi / anim_len)
 // charId  : fighter id (Dummy=116 special-case)
 // liveState3 / liveBase : optional currently-loaded motbin; when provided,
-//   unchanged encrypted fields and name/"?" string pointers are copied from
-//   live so we don't rewrite ciphertext/keys the game already validated.
+//   header/move "?" string pointers are copied from live (game static).
 // Returns empty on failure; err is set.
 std::vector<uint8_t> BuildRuntimeBlob(const std::vector<uint8_t>& state1,
                                       const MotbinData& model,
