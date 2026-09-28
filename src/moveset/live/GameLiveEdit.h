@@ -27,6 +27,7 @@ bool PlayMove(int moveIdx);
 bool PlayMoveOnPlayer(int playerId, int moveIdx);
 
 // Force current move re-trigger on an open process (after moveset swap).
+// Resolves alias IDs (>= 0x8000) via current_aliases / original_aliases.
 bool RetriggerCurrentMove(const GameProcessInfo& gp, int playerId);
 
 void InvalidateCache();

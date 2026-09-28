@@ -145,10 +145,30 @@ bool RetriggerCurrentMove(const GameProcessInfo& gp, int playerId)
     if (!ReadGamePointer(gp, movesetPtr + kMovelistOffset, movelistPtr) || !movelistPtr)
         return false;
 
-    uintptr_t moveAddr = movelistPtr + (uintptr_t)moveId * kMoveSize;
+    // Alias IDs (>= 0x8000) index current_aliases / original_aliases, not the move array.
+    uint32_t moveIdx = moveId;
+    if (moveId >= 0x8000u)
+    {
+        const uint32_t aliasIdx = moveId - 0x8000u;
+        if (aliasIdx >= 60u)
+            return false;
+        uint16_t curAlias = 0, origAlias = 0;
+        if (!ReadGameValue(gp, movesetPtr + 0xA8 + aliasIdx * 2ull, curAlias))
+            return false;
+        if (!ReadGameValue(gp, movesetPtr + 0x30 + aliasIdx * 2ull, origAlias))
+            return false;
+        moveIdx = curAlias ? curAlias : origAlias;
+    }
+
+    uint64_t movesCnt = 0;
+    if (!ReadGameValue(gp, movesetPtr + 0x238, movesCnt) || moveIdx >= movesCnt)
+        return false;
+
+    uintptr_t moveAddr = movelistPtr + (uintptr_t)moveIdx * kMoveSize;
     uint32_t  timer    = 99999;
     WriteGameValue(gp, playerAddr + kFrameTimerOffset, timer);
     WriteGameValue(gp, playerAddr + kNextMoveOffset,   moveAddr);
+    // Keep the raw id (may be an alias) — only next_move must be a real move pointer.
     WriteGameValue(gp, playerAddr + kCurrMoveOffset,   moveId);
     return true;
 }

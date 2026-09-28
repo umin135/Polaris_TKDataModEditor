@@ -4,8 +4,10 @@
 #include "moveset/serialize/MotbinRuntime.h"
 #include "extract/GameProcess.h"
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 #include <cstdio>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -43,6 +45,19 @@ static bool ReadTekAndWritten(const GameProcessInfo& gp, uintptr_t addr,
     outWritten = (written != 0);
     memset(sig, 0, 4);
     return ReadGameMemory(gp, addr + 0x08, sig, 3);
+}
+
+// Free an injected block after the game has had time to drop stale pointers.
+static void ScheduleDeferredFree(uintptr_t addr)
+{
+    if (!addr) return;
+    std::thread([addr]() {
+        std::this_thread::sleep_for(std::chrono::seconds(5));
+        GameProcessInfo gp;
+        if (!FindGameProcess(gp)) return;
+        FreeGameMemory(gp, addr);
+        CloseGameProcess(gp);
+    }).detach();
 }
 
 } // namespace
@@ -337,14 +352,18 @@ InjectResult Restore(int playerId)
         return r;
     }
 
-    if (st.injectedAddr)
-        FreeGameMemory(gp, st.injectedAddr);
+    // Retarget next_move onto the restored motbin (alias-aware).
+    GameLiveEdit::RetriggerCurrentMove(gp, playerId);
 
-    // GameLiveEdit::RetriggerCurrentMove(gp, playerId);
+    const uintptr_t toFree = st.injectedAddr;
     CloseGameProcess(gp);
 
+    // Free the inject after a delay so in-flight game pointers can drain.
+    ScheduleDeferredFree(toFree);
+
     r.ok = true;
-    r.message = "Restored original moveset for P" + std::to_string(playerId + 1);
+    r.message = "Restored original moveset for P" + std::to_string(playerId + 1) +
+                " (inject free scheduled in 5s).";
     st = {};
     return r;
 }

@@ -2669,11 +2669,11 @@ void MovesetEditorWindow::RenderMenuBar()
         if (ImGui::MenuItem("Player 2"))
             ImportToPlayer(1);
         // Temporarily hidden
-        // ImGui::Separator();
-        // if (ImGui::MenuItem("Restore Player 1", nullptr, false, MovesetInjector::CanRestore(0)))
-        //     RestorePlayer(0);
-        // if (ImGui::MenuItem("Restore Player 2", nullptr, false, MovesetInjector::CanRestore(1)))
-        //     RestorePlayer(1);
+        ImGui::Separator();
+        if (ImGui::MenuItem("Restore Player 1", nullptr, false, MovesetInjector::CanRestore(0)))
+            RestorePlayer(0);
+        if (ImGui::MenuItem("Restore Player 2", nullptr, false, MovesetInjector::CanRestore(1)))
+            RestorePlayer(1);
         ImGui::EndMenu();
     }
 
