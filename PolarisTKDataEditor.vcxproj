@@ -202,6 +202,7 @@ if "$(Configuration)|$(Platform)"=="Release|x64" xcopy /Y /E /Q "$(OutDir)res\" 
     <ClCompile Include="src\moveset\preview\PreviewRenderer.cpp" />
     <ClCompile Include="src\moveset\live\GameLiveEdit.cpp" />
     <ClCompile Include="src\moveset\live\MovesetInjector.cpp" />
+    <ClCompile Include="src\moveset\live\MotbinLivePatch.cpp" />
     <ClCompile Include="src\moveset\labels\LabelDB.cpp" />
     <ClCompile Include="src\moveset\serialize\MotbinSerialize.cpp" />
     <ClCompile Include="src\moveset\serialize\MotbinRuntime.cpp" />
@@ -253,6 +254,7 @@ if "$(Configuration)|$(Platform)"=="Release|x64" xcopy /Y /E /Q "$(OutDir)res\" 
     <ClInclude Include="src\moveset\preview\PreviewRenderer.h" />
     <ClInclude Include="src\moveset\live\GameLiveEdit.h" />
     <ClInclude Include="src\moveset\live\MovesetInjector.h" />
+    <ClInclude Include="src\moveset\live\MotbinLivePatch.h" />
     <ClInclude Include="src\moveset\labels\LabelDB.h" />
     <ClInclude Include="src\moveset\data\EditorFieldLabel.h" />
     <ClInclude Include="src\moveset\serialize\MotbinSerialize.h" />

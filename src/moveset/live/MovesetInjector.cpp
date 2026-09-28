@@ -71,6 +71,13 @@ bool CanRestore(int playerId)
     return st.active && st.originalAddr != 0;
 }
 
+uintptr_t GetInjectedAddr(int playerId)
+{
+    if (playerId < 0 || playerId > 1) return 0;
+    const SlotState& st = s_slots[playerId];
+    return (st.active && st.injectedAddr) ? st.injectedAddr : 0;
+}
+
 bool IsLiveMoveset(uintptr_t addr)
 {
     if (!addr) return false;

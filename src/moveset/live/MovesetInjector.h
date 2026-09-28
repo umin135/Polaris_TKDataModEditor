@@ -30,6 +30,9 @@ InjectResult Restore(int playerId);
 // True if this slot has a tracked inject that Restore can attempt.
 bool CanRestore(int playerId);
 
+// Current injected motbin base for playerId, or 0 if none tracked.
+uintptr_t GetInjectedAddr(int playerId);
+
 // True if addr looks like a populated moveset (is_written@+2, TEK@+8).
 bool IsLiveMoveset(uintptr_t addr);
 

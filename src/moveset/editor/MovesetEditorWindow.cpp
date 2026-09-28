@@ -10,6 +10,7 @@
 #include "moveset/labels/FieldTooltips.h"
 #include "moveset/live/GameLiveEdit.h"
 #include "moveset/live/MovesetInjector.h"
+#include "moveset/live/MotbinLivePatch.h"
 #include "moveset/data/KamuiHash.h"
 #include "moveset/editor/ListKeybinds.h"
 #include "LayoutStore.h"
@@ -277,31 +278,37 @@ static bool ApplyRowAction2Level(
     ListAction act, int rowK, bool insAfter,
     void(*fixup)(MotbinData&, uint32_t, bool, bool),
     uint32_t(*count)(const MotbinData&, uint32_t),
-    const T& newItem, const char* typeName)
+    const T& newItem, const char* typeName,
+    MovesetEditorWindow::LiveTouch liveKind = MovesetEditorWindow::LiveTouch::None)
 {
     uint32_t idx = gf + (uint32_t)rowK;
     if (act == ListAction::Insert) {
         uint32_t pos = insAfter ? idx + 1 : idx;
         block.insert(block.begin() + pos, newItem);
         fixup(data, pos, true, (pos == gf));
-        innerSel = (int)(pos - gf); dirty = true; return true;
+        innerSel = (int)(pos - gf); dirty = true;
+        if (win) win->DisableLiveEditing();
+        return true;
     }
     if (act == ListAction::Duplicate) {
         uint32_t pos = idx + 1;
         block.insert(block.begin() + pos, block[idx]);
         fixup(data, pos, true, false);
-        innerSel = (int)(pos - gf); dirty = true; return true;
+        innerSel = (int)(pos - gf); dirty = true;
+        if (win) win->DisableLiveEditing();
+        return true;
     }
     if (act == ListAction::Remove) {
         uint32_t cai = idx;
         bool keepRefs = (cai == gf) && (gc >= 3);
         uint32_t refs = keepRefs ? 0 : count(data, cai);
         std::vector<T>* bp = &block; int* sp = &innerSel; bool* dp = &dirty; MotbinData* mp = &data;
-        auto doRem = [bp, sp, dp, mp, cai, keepRefs, fixup]() {
+        auto doRem = [bp, sp, dp, mp, cai, keepRefs, fixup, win]() {
             fixup(*mp, cai, false, keepRefs);
             bp->erase(bp->begin() + cai);
             if (*sp > 0) (*sp)--;
             *dp = true;
+            if (win) win->DisableLiveEditing();
         };
         if (refs > 0) {
             snprintf(win->m_removeConfirm.message, sizeof(win->m_removeConfirm.message),
@@ -315,7 +322,12 @@ static bool ApplyRowAction2Level(
     }
     if (act == ListAction::MoveUp || act == ListAction::MoveDown) {
         int ni = ReorderInnerSwap(block, gf, gc, rowK, act == ListAction::MoveUp ? -1 : 1);
-        if (ni >= 0) { innerSel = ni; dirty = true; return true; }
+        if (ni >= 0) {
+            innerSel = ni; dirty = true;
+            if (win && liveKind != MovesetEditorWindow::LiveTouch::None)
+                win->QueueLiveTouch(liveKind, gf + (uint32_t)rowK, gf + (uint32_t)ni);
+            return true;
+        }
     }
     return false;
 }
@@ -331,7 +343,8 @@ static bool ApplyRowActionFlat(
     void(*fixup)(MotbinData&, uint32_t, bool),
     uint32_t(*count)(const MotbinData&, uint32_t),
     void(*swapRefs)(MotbinData&, uint32_t, uint32_t),
-    const T& newItem, const char* typeName)
+    const T& newItem, const char* typeName,
+    MovesetEditorWindow::LiveTouch liveKind = MovesetEditorWindow::LiveTouch::None)
 {
     int n = (int)block.size();
     uint32_t idx = (uint32_t)rowK;
@@ -340,23 +353,28 @@ static bool ApplyRowActionFlat(
         if (pos > (uint32_t)n) pos = (uint32_t)n;
         block.insert(block.begin() + pos, newItem);
         if (fixup) fixup(data, pos, true);
-        sel = (int)pos; dirty = true; return true;
+        sel = (int)pos; dirty = true;
+        if (win) win->DisableLiveEditing();
+        return true;
     }
     if (act == ListAction::Duplicate) {
         uint32_t pos = idx + 1;
         block.insert(block.begin() + pos, block[idx]);
         if (fixup) fixup(data, pos, true);
-        sel = (int)pos; dirty = true; return true;
+        sel = (int)pos; dirty = true;
+        if (win) win->DisableLiveEditing();
+        return true;
     }
     if (act == ListAction::Remove) {
         uint32_t cai = idx;
         uint32_t refs = count ? count(data, cai) : 0;
         std::vector<T>* bp = &block; int* sp = &sel; bool* dp = &dirty; MotbinData* mp = &data;
-        auto doRem = [bp, sp, dp, mp, cai, fixup]() {
+        auto doRem = [bp, sp, dp, mp, cai, fixup, win]() {
             if (fixup) fixup(*mp, cai, false);
             bp->erase(bp->begin() + cai);
             if (*sp > 0) (*sp)--;
             *dp = true;
+            if (win) win->DisableLiveEditing();
         };
         if (refs > 0) {
             snprintf(win->m_removeConfirm.message, sizeof(win->m_removeConfirm.message),
@@ -373,7 +391,10 @@ static bool ApplyRowActionFlat(
         if (ni < 0 || ni >= n) return false;
         std::swap(block[rowK], block[ni]);
         if (swapRefs) swapRefs(data, (uint32_t)rowK, (uint32_t)ni);
-        sel = ni; dirty = true; return true;
+        sel = ni; dirty = true;
+        if (win && liveKind != MovesetEditorWindow::LiveTouch::None)
+            win->QueueLiveTouch(liveKind, (uint32_t)rowK, (uint32_t)ni);
+        return true;
     }
     return false;
 }
@@ -736,6 +757,9 @@ bool MovesetEditorWindow::Render()
     RenderCloseConfirmModal();
     RenderImportAlertModal();
     RenderRemoveConfirmModal();
+
+    // Push any queued field edits into the injected motbin.
+    FlushLiveTouch();
 
     // Capture the live sub-window sizes / section widths into LayoutStore (persisted on close).
     PersistLayout();
@@ -1144,6 +1168,7 @@ void MovesetEditorWindow::RenderMoveList()
             ApplyKamuiHashes(empty, empty.displayName, m_data.charaCode);
             m_data.moves.push_back(empty);
             m_dirty = true;
+            DisableLiveEditing();
         }
         if (ImGui::MenuItem("Duplicate Current Move")) {
             if (m_selectedIdx >= 0 && m_selectedIdx < (int)m_data.moves.size()) {
@@ -1154,6 +1179,7 @@ void MovesetEditorWindow::RenderMoveList()
                 ApplyKamuiHashes(dup, dup.displayName, m_data.charaCode);
                 m_data.moves.push_back(dup);
                 m_dirty = true;
+                DisableLiveEditing();
             }
         }
         ImGui::EndPopup();
@@ -1773,11 +1799,12 @@ static int FindGroupOuter(const std::vector<std::pair<uint32_t,uint32_t>>& group
 
 // -------------------------------------------------------------
 
-static void RenderSection_Hitboxes(ParsedMove& m, bool& dirty);
+static void RenderSection_Hitboxes(ParsedMove& m, bool& dirty, MovesetEditorWindow* win);
 
 void MovesetEditorWindow::RenderMoveProperties(int idx)
 {
     ParsedMove& m = m_data.moves[idx];
+    m_liveNoteMoveIdx = idx;
 
     // -- Title + summary strip --------------------------------
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.85f, 0.90f, 1.00f, 1.00f));
@@ -1790,7 +1817,7 @@ void MovesetEditorWindow::RenderMoveProperties(int idx)
     ImGui::Separator();
 
     // -- Tab bar ----------------------------------------------
-    if (!ImGui::BeginTabBar("##move_tabs")) return;
+    if (!ImGui::BeginTabBar("##move_tabs")) { m_liveNoteMoveIdx = -1; return; }
 
     {
         char overviewLabel[256];
@@ -1804,7 +1831,7 @@ void MovesetEditorWindow::RenderMoveProperties(int idx)
             ImGui::Spacing();
             ImGui::SeparatorText("Hitboxes");
             ImGui::Spacing();
-            RenderSection_Hitboxes(m, m_dirty);
+            RenderSection_Hitboxes(m, m_dirty, this);
             ImGui::EndTabItem();
         }
     }
@@ -1817,6 +1844,7 @@ void MovesetEditorWindow::RenderMoveProperties(int idx)
     }
 
     ImGui::EndTabBar();
+    m_liveNoteMoveIdx = -1;
 }
 
 // -------------------------------------------------------------
@@ -2050,7 +2078,7 @@ void MovesetEditorWindow::RenderSection_Overview(ParsedMove& m, bool& dirty)
                 if (nameBuf[0] != '\0') m_customNames[m_selectedIdx] = m.displayName;
                 else                    m_customNames.erase(m_selectedIdx);
                 SaveEditorDatas();
-                dirty = true;
+                dirty = true; NoteLiveMoveEdit();
             }
         }
 
@@ -2111,17 +2139,17 @@ void MovesetEditorWindow::RenderSection_Overview(ParsedMove& m, bool& dirty)
                         // but the buffer doesn't match its kamui name — must use kamui name
                         const char* resolvedKamui = LabelDB::Get().GetMoveName(newKey);
                         if (!resolvedKamui || strcmp(m_animKeyBuf, resolvedKamui) == 0) {
-                            m.anim_key = newKey; dirty = true;
+                            m.anim_key = newKey; dirty = true; NoteLiveMoveEdit();
                         }
                     } else {
                         // Try KamuiHash reverse lookup (kamui dict name typed directly)
                         uint32_t kh = (uint32_t)KamuiHash::Compute(m_animKeyBuf);
                         if (LabelDB::Get().GetMoveName(kh) != nullptr) {
-                            m.anim_key = kh; dirty = true;
+                            m.anim_key = kh; dirty = true; NoteLiveMoveEdit();
                         } else if (m_animKeyBuf[0]=='0' && (m_animKeyBuf[1]=='x'||m_animKeyBuf[1]=='X')) {
                             char* end;
                             uint32_t v = (uint32_t)strtoul(m_animKeyBuf + 2, &end, 16);
-                            if (end != m_animKeyBuf + 2) { m.anim_key = v; dirty = true; }
+                            if (end != m_animKeyBuf + 2) { m.anim_key = v; dirty = true; NoteLiveMoveEdit(); }
                         }
                     }
                 }
@@ -2157,13 +2185,13 @@ void MovesetEditorWindow::RenderSection_Overview(ParsedMove& m, bool& dirty)
         FieldRow(Vuln, FieldTT::Move::Vuln);
         { ImGui::SetNextItemWidth(-1.0f);
           int tmp = (int)m.vuln;
-          if (ImGui::InputInt("##vuln", &tmp, 0, 0)) { m.vuln = (uint32_t)tmp; dirty = true; } }
+          if (ImGui::InputInt("##vuln", &tmp, 0, 0)) { m.vuln = (uint32_t)tmp; dirty = true; NoteLiveMoveEdit(); } }
 
         // 6. hitlevel
         FieldRow(Hitlevel, FieldTT::Move::Hitlevel);
         { ImGui::SetNextItemWidth(-1.0f);
           int tmp = (int)m.hitlevel;
-          if (ImGui::InputInt("##hitlevel", &tmp, 0, 0)) { m.hitlevel = (uint32_t)tmp; dirty = true; } }
+          if (ImGui::InputInt("##hitlevel", &tmp, 0, 0)) { m.hitlevel = (uint32_t)tmp; dirty = true; NoteLiveMoveEdit(); } }
 
         // 7. cancel_idx
         ImGui::TableNextRow();
@@ -2171,7 +2199,7 @@ void MovesetEditorWindow::RenderSection_Overview(ParsedMove& m, bool& dirty)
         ImGui::TableSetColumnIndex(1);
         { ImGui::SetNextItemWidth(-(kBtnW + ImGui::GetStyle().ItemSpacing.x));
           int tmp = (m.cancel_idx == 0xFFFFFFFF) ? -1 : (int)m.cancel_idx;
-          if (ImGui::InputInt("##cancel_idx", &tmp, 0, 0)) { m.cancel_idx = (tmp < 0) ? 0xFFFFFFFF : (uint32_t)tmp; dirty = true; }
+          if (ImGui::InputInt("##cancel_idx", &tmp, 0, 0)) { m.cancel_idx = (tmp < 0) ? 0xFFFFFFFF : (uint32_t)tmp; dirty = true; NoteLiveMoveEdit(); }
           ImGui::SameLine(); if (GoButton("Go \xe2\x86\x92##cancel_go", cancelValid)) clickCancel = true; }
 
         // 8. transition
@@ -2180,7 +2208,7 @@ void MovesetEditorWindow::RenderSection_Overview(ParsedMove& m, bool& dirty)
         ImGui::TableSetColumnIndex(1);
         { ImGui::SetNextItemWidth(-(kBtnW + ImGui::GetStyle().ItemSpacing.x));
           int tmp = (int)(uint32_t)m.transition;
-          if (ImGui::InputInt("##transition", &tmp, 0, 0)) { m.transition = (uint16_t)((uint32_t)tmp & 0xFFFFu); dirty = true; }
+          if (ImGui::InputInt("##transition", &tmp, 0, 0)) { m.transition = (uint16_t)((uint32_t)tmp & 0xFFFFu); dirty = true; NoteLiveMoveEdit(); }
           ImGui::SameLine(); if (GoButton("Go \xe2\x86\x92##trans_go", transValid)) clickTrans = true; }
 
         // 9. anim_len (auto-updated from PANM header when anim_key changes; game recalculates at runtime)
@@ -2195,7 +2223,7 @@ void MovesetEditorWindow::RenderSection_Overview(ParsedMove& m, bool& dirty)
         ImGui::TableSetColumnIndex(1);
         { ImGui::SetNextItemWidth(-(kBtnW + ImGui::GetStyle().ItemSpacing.x));
           int tmp = (m.hit_condition_idx == 0xFFFFFFFF) ? -1 : (int)m.hit_condition_idx;
-          if (ImGui::InputInt("##hitcond_idx", &tmp, 0, 0)) { m.hit_condition_idx = (tmp < 0) ? 0xFFFFFFFF : (uint32_t)tmp; dirty = true; }
+          if (ImGui::InputInt("##hitcond_idx", &tmp, 0, 0)) { m.hit_condition_idx = (tmp < 0) ? 0xFFFFFFFF : (uint32_t)tmp; dirty = true; NoteLiveMoveEdit(); }
           ImGui::SameLine(); if (GoButton("Go \xe2\x86\x92##hc_go", hitCondValid)) clickHitCond = true; }
 
         // 11. voiceclip_idx
@@ -2204,7 +2232,7 @@ void MovesetEditorWindow::RenderSection_Overview(ParsedMove& m, bool& dirty)
         ImGui::TableSetColumnIndex(1);
         { ImGui::SetNextItemWidth(-(kBtnW + ImGui::GetStyle().ItemSpacing.x));
           int tmp = (m.voiceclip_idx == 0xFFFFFFFF) ? -1 : (int)m.voiceclip_idx;
-          if (ImGui::InputInt("##voice_idx", &tmp, 0, 0)) { m.voiceclip_idx = (tmp < 0) ? 0xFFFFFFFF : (uint32_t)tmp; dirty = true; }
+          if (ImGui::InputInt("##voice_idx", &tmp, 0, 0)) { m.voiceclip_idx = (tmp < 0) ? 0xFFFFFFFF : (uint32_t)tmp; dirty = true; NoteLiveMoveEdit(); }
           ImGui::SameLine(); if (GoButton("Go \xe2\x86\x92##vc_go", voiceclipValid)) clickVoiceclip = true; }
 
         // 12. extra_prop_idx
@@ -2213,7 +2241,7 @@ void MovesetEditorWindow::RenderSection_Overview(ParsedMove& m, bool& dirty)
         ImGui::TableSetColumnIndex(1);
         { ImGui::SetNextItemWidth(-(kBtnW + ImGui::GetStyle().ItemSpacing.x));
           int tmp = (m.extra_prop_idx == 0xFFFFFFFF) ? -1 : (int)m.extra_prop_idx;
-          if (ImGui::InputInt("##eprop_idx", &tmp, 0, 0)) { m.extra_prop_idx = (tmp < 0) ? 0xFFFFFFFF : (uint32_t)tmp; dirty = true; }
+          if (ImGui::InputInt("##eprop_idx", &tmp, 0, 0)) { m.extra_prop_idx = (tmp < 0) ? 0xFFFFFFFF : (uint32_t)tmp; dirty = true; NoteLiveMoveEdit(); }
           ImGui::SameLine(); if (GoButton("Go \xe2\x86\x92##ep_go", epValid)) clickExtraProp = true; }
 
         // 13. start_prop_idx
@@ -2222,7 +2250,7 @@ void MovesetEditorWindow::RenderSection_Overview(ParsedMove& m, bool& dirty)
         ImGui::TableSetColumnIndex(1);
         { ImGui::SetNextItemWidth(-(kBtnW + ImGui::GetStyle().ItemSpacing.x));
           int tmp = (m.start_prop_idx == 0xFFFFFFFF) ? -1 : (int)m.start_prop_idx;
-          if (ImGui::InputInt("##sprop_idx", &tmp, 0, 0)) { m.start_prop_idx = (tmp < 0) ? 0xFFFFFFFF : (uint32_t)tmp; dirty = true; }
+          if (ImGui::InputInt("##sprop_idx", &tmp, 0, 0)) { m.start_prop_idx = (tmp < 0) ? 0xFFFFFFFF : (uint32_t)tmp; dirty = true; NoteLiveMoveEdit(); }
           ImGui::SameLine(); if (GoButton("Go \xe2\x86\x92##sp_go", spValid)) clickStartProp = true; }
 
         // 14. end_prop_idx
@@ -2231,14 +2259,14 @@ void MovesetEditorWindow::RenderSection_Overview(ParsedMove& m, bool& dirty)
         ImGui::TableSetColumnIndex(1);
         { ImGui::SetNextItemWidth(-(kBtnW + ImGui::GetStyle().ItemSpacing.x));
           int tmp = (m.end_prop_idx == 0xFFFFFFFF) ? -1 : (int)m.end_prop_idx;
-          if (ImGui::InputInt("##nprop_idx", &tmp, 0, 0)) { m.end_prop_idx = (tmp < 0) ? 0xFFFFFFFF : (uint32_t)tmp; dirty = true; }
+          if (ImGui::InputInt("##nprop_idx", &tmp, 0, 0)) { m.end_prop_idx = (tmp < 0) ? 0xFFFFFFFF : (uint32_t)tmp; dirty = true; NoteLiveMoveEdit(); }
           ImGui::SameLine(); if (GoButton("Go \xe2\x86\x92##np_go", npValid)) clickEndProp = true; }
 
         // 15. _0xCE
         FieldRow(CE, FieldTT::Move::CE);
         { ImGui::SetNextItemWidth(-1.0f);
           int tmp = (int)m._0xCE;
-          if (ImGui::InputInt("##0xCE", &tmp, 0, 0)) { m._0xCE = (int16_t)tmp; dirty = true; } }
+          if (ImGui::InputInt("##0xCE", &tmp, 0, 0)) { m._0xCE = (int16_t)tmp; dirty = true; NoteLiveMoveEdit(); } }
 
         ImGui::EndTable();
     } // end left column inner table
@@ -2266,50 +2294,50 @@ void MovesetEditorWindow::RenderSection_Overview(ParsedMove& m, bool& dirty)
           if (ImGui::IsItemDeactivatedAfterEdit())
           {
               const char* p = buf; if (p[0]=='0' && (p[1]=='x'||p[1]=='X')) p += 2;
-              m.moveId = (uint32_t)strtoul(p, nullptr, 16); dirty = true;
+              m.moveId = (uint32_t)strtoul(p, nullptr, 16); dirty = true; NoteLiveMoveEdit();
           } }
 
         // 18. _0x118
         FieldRow(F0x118, FieldTT::Move::F0x118);
         { ImGui::SetNextItemWidth(-1.0f);
           int tmp = (int)m._0x118;
-          if (ImGui::InputInt("##0x118", &tmp, 0, 0)) { m._0x118 = (uint32_t)tmp; dirty = true; } }
+          if (ImGui::InputInt("##0x118", &tmp, 0, 0)) { m._0x118 = (uint32_t)tmp; dirty = true; NoteLiveMoveEdit(); } }
 
         // 19. _0x11C
         FieldRow(F0x11C, FieldTT::Move::F0x11C);
         { ImGui::SetNextItemWidth(-1.0f);
           int tmp = (int)m._0x11C;
-          if (ImGui::InputInt("##0x11C", &tmp, 0, 0)) { m._0x11C = (uint32_t)tmp; dirty = true; } }
+          if (ImGui::InputInt("##0x11C", &tmp, 0, 0)) { m._0x11C = (uint32_t)tmp; dirty = true; NoteLiveMoveEdit(); } }
 
         // 20. airborne_start
         FieldRow(AirborneStart, FieldTT::Move::AirborneStart);
         { ImGui::SetNextItemWidth(-1.0f);
           int tmp = (int)m.airborne_start;
-          if (ImGui::InputInt("##airborne_start", &tmp, 0, 0)) { m.airborne_start = (uint32_t)tmp; dirty = true; } }
+          if (ImGui::InputInt("##airborne_start", &tmp, 0, 0)) { m.airborne_start = (uint32_t)tmp; dirty = true; NoteLiveMoveEdit(); } }
 
         // 21. airborne_end
         FieldRow(AirborneEnd, FieldTT::Move::AirborneEnd);
         { ImGui::SetNextItemWidth(-1.0f);
           int tmp = (int)m.airborne_end;
-          if (ImGui::InputInt("##airborne_end", &tmp, 0, 0)) { m.airborne_end = (uint32_t)tmp; dirty = true; } }
+          if (ImGui::InputInt("##airborne_end", &tmp, 0, 0)) { m.airborne_end = (uint32_t)tmp; dirty = true; NoteLiveMoveEdit(); } }
 
         // 22. ground_fall
         FieldRow(GroundFall, FieldTT::Move::GroundFall);
         { ImGui::SetNextItemWidth(-1.0f);
           int tmp = (int)m.ground_fall;
-          if (ImGui::InputInt("##ground_fall", &tmp, 0, 0)) { m.ground_fall = (uint32_t)tmp; dirty = true; } }
+          if (ImGui::InputInt("##ground_fall", &tmp, 0, 0)) { m.ground_fall = (uint32_t)tmp; dirty = true; NoteLiveMoveEdit(); } }
 
         // 23. _0x154
         FieldRow(F0x154, FieldTT::Move::F0x154);
         { ImGui::SetNextItemWidth(-1.0f);
           int tmp = (int)m._0x154;
-          if (ImGui::InputInt("##0x154", &tmp, 0, 0)) { m._0x154 = (uint32_t)tmp; dirty = true; } }
+          if (ImGui::InputInt("##0x154", &tmp, 0, 0)) { m._0x154 = (uint32_t)tmp; dirty = true; NoteLiveMoveEdit(); } }
 
         // 24. u6
         FieldRow(U6, FieldTT::Move::U6);
         { ImGui::SetNextItemWidth(-1.0f);
           int tmp = (int)m.u6;
-          if (ImGui::InputInt("##u6", &tmp, 0, 0)) { m.u6 = (uint32_t)tmp; dirty = true; } }
+          if (ImGui::InputInt("##u6", &tmp, 0, 0)) { m.u6 = (uint32_t)tmp; dirty = true; NoteLiveMoveEdit(); } }
 
         // 25. u15
         FieldRow(U15, FieldTT::Move::U15);
@@ -2319,7 +2347,7 @@ void MovesetEditorWindow::RenderSection_Overview(ParsedMove& m, bool& dirty)
           if (ImGui::IsItemDeactivatedAfterEdit())
           {
               const char* p = buf; if (p[0]=='0' && (p[1]=='x'||p[1]=='X')) p += 2;
-              m.u15 = (uint32_t)strtoul(p, nullptr, 16); dirty = true;
+              m.u15 = (uint32_t)strtoul(p, nullptr, 16); dirty = true; NoteLiveMoveEdit();
           } }
 
         // 26. collision
@@ -2327,20 +2355,20 @@ void MovesetEditorWindow::RenderSection_Overview(ParsedMove& m, bool& dirty)
         { ImGui::SetNextItemWidth(-1.0f);
           int16_t col16 = static_cast<int16_t>(m.collision);
           int tmp = (int)col16;
-          if (ImGui::InputInt("##collision", &tmp, 0, 0)) { m.collision = static_cast<uint16_t>((int16_t)tmp); dirty = true; } }
+          if (ImGui::InputInt("##collision", &tmp, 0, 0)) { m.collision = static_cast<uint16_t>((int16_t)tmp); dirty = true; NoteLiveMoveEdit(); } }
 
         // 27. distance
         FieldRow(Distance, FieldTT::Move::Distance);
         { ImGui::SetNextItemWidth(-1.0f);
           int16_t dist16 = static_cast<int16_t>(m.distance);
           int tmp = (int)dist16;
-          if (ImGui::InputInt("##distance", &tmp, 0, 0)) { m.distance = static_cast<uint16_t>((int16_t)tmp); dirty = true; } }
+          if (ImGui::InputInt("##distance", &tmp, 0, 0)) { m.distance = static_cast<uint16_t>((int16_t)tmp); dirty = true; NoteLiveMoveEdit(); } }
 
         // 28. u18
         FieldRow(U18, FieldTT::Move::U18);
         { ImGui::SetNextItemWidth(-1.0f);
           int tmp = (int)m.u18;
-          if (ImGui::InputInt("##u18", &tmp, 0, 0)) { m.u18 = (uint32_t)tmp; dirty = true; } }
+          if (ImGui::InputInt("##u18", &tmp, 0, 0)) { m.u18 = (uint32_t)tmp; dirty = true; NoteLiveMoveEdit(); } }
 
         ImGui::EndTable();
     } // end right column inner table
@@ -2458,10 +2486,10 @@ void MovesetEditorWindow::RenderSection_Unknown(ParsedMove& m, bool& dirty)
         ImGui::InputText(id, buf, sizeof(buf), ImGuiInputTextFlags_ReadOnly);
     };
 
-    if (RowHex64Edit("##u1", MoveLabel::U1, m.u1)) dirty = true;
-    if (RowHex64Edit("##u2", MoveLabel::U2, m.u2)) dirty = true;
-    if (RowHex64Edit("##u3", MoveLabel::U3, m.u3)) dirty = true;
-    if (RowHex64Edit("##u4", MoveLabel::U4, m.u4)) dirty = true;
+    if (RowHex64Edit("##u1", MoveLabel::U1, m.u1)) { dirty = true; NoteLiveMoveEdit(); }
+    if (RowHex64Edit("##u2", MoveLabel::U2, m.u2)) { dirty = true; NoteLiveMoveEdit(); }
+    if (RowHex64Edit("##u3", MoveLabel::U3, m.u3)) { dirty = true; NoteLiveMoveEdit(); }
+    if (RowHex64Edit("##u4", MoveLabel::U4, m.u4)) { dirty = true; NoteLiveMoveEdit(); }
     RowHex64RO("##enc_namekey_ro",  MoveLabel::EncNameKey,     m.encrypted_name_key);
     RowHex64RO("##name_enckey_ro",  MoveLabel::NameEncKey,     m.name_encryption_key);
     RowHex64RO("##enc_animkey_ro",  MoveLabel::EncAnimKey,     m.encrypted_anim_key);
@@ -2482,7 +2510,7 @@ void MovesetEditorWindow::RenderSection_Unknown(ParsedMove& m, bool& dirty)
 //  Hitbox tab
 // -------------------------------------------------------------
 
-static void RenderSection_Hitboxes(ParsedMove& m, bool& dirty)
+static void RenderSection_Hitboxes(ParsedMove& m, bool& dirty, MovesetEditorWindow* win)
 {
     // active_frame: move-level startup/recovery (0x158/0x15C).
     // OldTool2 calls these first_active_frame / last_active_frame.
@@ -2496,11 +2524,11 @@ static void RenderSection_Hitboxes(ParsedMove& m, bool& dirty)
         ImGui::TableSetColumnIndex(1);
         ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.5f - 4.0f);
         { int tmp = (int)m.startup;
-          if (ImGui::InputInt("##af_start", &tmp, 0, 0)) { m.startup = (uint32_t)tmp; dirty = true; } }
+          if (ImGui::InputInt("##af_start", &tmp, 0, 0)) { m.startup = (uint32_t)tmp; dirty = true; if (win) win->NoteLiveMoveEdit(); } }
         ImGui::SameLine();
         ImGui::SetNextItemWidth(-1.0f);
         { int tmp = (int)m.recovery;
-          if (ImGui::InputInt("##af_last",  &tmp, 0, 0)) { m.recovery = (uint32_t)tmp; dirty = true; } }
+          if (ImGui::InputInt("##af_last",  &tmp, 0, 0)) { m.recovery = (uint32_t)tmp; dirty = true; if (win) win->NoteLiveMoveEdit(); } }
         ImGui::EndTable();
     }
     ImGui::Spacing();
@@ -2529,16 +2557,16 @@ static void RenderSection_Hitboxes(ParsedMove& m, bool& dirty)
             {
                 char id[32];
                 snprintf(id, sizeof(id), "##hb%d_start", h);
-                if (RowU32Edit(id, HitboxLabel::ActiveStart, m.hitbox_active_start[h], FieldTT::Hitbox::ActiveStart)) dirty = true;
+                if (RowU32Edit(id, HitboxLabel::ActiveStart, m.hitbox_active_start[h], FieldTT::Hitbox::ActiveStart)) { dirty = true; if (win) win->NoteLiveMoveEdit(); }
                 snprintf(id, sizeof(id), "##hb%d_last", h);
-                if (RowU32Edit(id, HitboxLabel::ActiveLast,  m.hitbox_active_last[h],  FieldTT::Hitbox::ActiveLast))  dirty = true;
+                if (RowU32Edit(id, HitboxLabel::ActiveLast,  m.hitbox_active_last[h],  FieldTT::Hitbox::ActiveLast))  { dirty = true; if (win) win->NoteLiveMoveEdit(); }
                 snprintf(id, sizeof(id), "##hb%d_loc", h);
-                if (RowHex32Edit(id, HitboxLabel::Location,  m.hitbox_location[h],     FieldTT::Hitbox::Location))    dirty = true;
+                if (RowHex32Edit(id, HitboxLabel::Location,  m.hitbox_location[h],     FieldTT::Hitbox::Location))    { dirty = true; if (win) win->NoteLiveMoveEdit(); }
                 for (int f = 0; f < 9; ++f)
                 {
                     snprintf(id, sizeof(id), "##hb%d_f%d", h, f);
                     char flbl[16]; snprintf(flbl, sizeof(flbl), HitboxLabel::FloatFmt, f);
-                    if (RowF32Edit(id, flbl, m.hitbox_floats[h][f], FieldTT::Hitbox::Float[f])) dirty = true;
+                    if (RowF32Edit(id, flbl, m.hitbox_floats[h][f], FieldTT::Hitbox::Float[f])) { dirty = true; if (win) win->NoteLiveMoveEdit(); }
                 }
                 ImGui::EndTable();
             }
@@ -2684,6 +2712,39 @@ void MovesetEditorWindow::RenderMenuBar()
         if (ImGui::MenuItem("Restore Player 2", nullptr, false, MovesetInjector::CanRestore(1)))
             RestorePlayer(1);
         ImGui::EndMenu();
+    }
+
+    // Live-editing status (not a toggle — Import enables, structural edits / Restore disable).
+    {
+        const float labelW = ImGui::CalcTextSize(
+            m_liveEditingEnabled ? "Live Editing Enabled" : "Live Editing Disabled").x;
+        const float avail = ImGui::GetContentRegionAvail().x;
+        if (avail > labelW + 12.f)
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + avail - labelW);
+
+        if (m_liveEditingEnabled)
+        {
+            ImGui::TextColored(ImVec4(0.35f, 1.f, 0.45f, 1.f), "Live Editing Enabled");
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+            {
+                const char* p = (m_liveEditPlayerId == 0) ? "P1"
+                              : (m_liveEditPlayerId == 1) ? "P2" : "?";
+                ImGui::SetTooltip(
+                    "Editor is synced with the injected Motbin on %s.\n"
+                    "Insert / Remove / Duplicate any list row disables this.",
+                    p);
+            }
+        }
+        else
+        {
+            ImGui::TextColored(ImVec4(1.f, 0.55f, 0.35f, 1.f), "Live Editing Disabled");
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+            {
+                ImGui::SetTooltip(
+                    "Import Motbin to sync the editor with the game and enable live editing.\n"
+                    "Insert / Remove / Duplicate list rows (or Restore) disable it.");
+            }
+        }
     }
 
     ImGui::EndMenuBar();
@@ -2891,9 +2952,89 @@ void MovesetEditorWindow::ShowImportAlert(const std::string& message, bool ok)
     m_importAlertPending = true; // re-open popup every time (OpenPopup is one-shot)
 }
 
+void MovesetEditorWindow::EnableLiveEditing(int playerId)
+{
+    m_liveEditingEnabled = true;
+    m_liveEditPlayerId   = playerId;
+}
+
+void MovesetEditorWindow::DisableLiveEditing()
+{
+    m_liveEditingEnabled = false;
+    m_liveTouch          = LiveTouch::None;
+    // Keep m_liveEditPlayerId for tooltip context after disable.
+}
+
+void MovesetEditorWindow::QueueLiveTouch(LiveTouch kind, uint32_t idx, uint32_t idx2)
+{
+    if (!m_liveEditingEnabled || kind == LiveTouch::None) return;
+    if (m_liveTouch != LiveTouch::None && m_liveTouch != kind)
+        FlushLiveTouch();
+    m_liveTouch     = kind;
+    m_liveTouchIdx  = idx;
+    m_liveTouchIdx2 = idx2;
+}
+
+void MovesetEditorWindow::NoteLiveMoveEdit()
+{
+    if (m_liveNoteMoveIdx >= 0)
+        QueueLiveTouch(LiveTouch::Move, static_cast<uint32_t>(m_liveNoteMoveIdx));
+}
+
+void MovesetEditorWindow::FlushLiveTouch()
+{
+    if (!m_liveEditingEnabled || m_liveTouch == LiveTouch::None)
+    {
+        m_liveTouch = LiveTouch::None;
+        return;
+    }
+
+    using Fn = bool (*)(const MotbinData&, int, uint32_t);
+    Fn fn = nullptr;
+    switch (m_liveTouch)
+    {
+    case LiveTouch::Move:          fn = &MotbinLivePatch::WriteMove; break;
+    case LiveTouch::Requirement:   fn = &MotbinLivePatch::WriteRequirement; break;
+    case LiveTouch::Cancel:        fn = &MotbinLivePatch::WriteCancel; break;
+    case LiveTouch::GroupCancel:   fn = &MotbinLivePatch::WriteGroupCancel; break;
+    case LiveTouch::CancelExtra:   fn = &MotbinLivePatch::WriteCancelExtra; break;
+    case LiveTouch::HitCondition:  fn = &MotbinLivePatch::WriteHitCondition; break;
+    case LiveTouch::Reaction:      fn = &MotbinLivePatch::WriteReaction; break;
+    case LiveTouch::Pushback:      fn = &MotbinLivePatch::WritePushback; break;
+    case LiveTouch::PushbackExtra: fn = &MotbinLivePatch::WritePushbackExtra; break;
+    case LiveTouch::ExtraProp:     fn = &MotbinLivePatch::WriteExtraProp; break;
+    case LiveTouch::StartProp:     fn = &MotbinLivePatch::WriteStartProp; break;
+    case LiveTouch::EndProp:       fn = &MotbinLivePatch::WriteEndProp; break;
+    case LiveTouch::Voiceclip:     fn = &MotbinLivePatch::WriteVoiceclip; break;
+    case LiveTouch::Input:         fn = &MotbinLivePatch::WriteInput; break;
+    case LiveTouch::InputSequence: fn = &MotbinLivePatch::WriteInputSequence; break;
+    case LiveTouch::Projectile:    fn = &MotbinLivePatch::WriteProjectile; break;
+    case LiveTouch::ThrowExtra:    fn = &MotbinLivePatch::WriteThrowExtra; break;
+    case LiveTouch::Throw:         fn = &MotbinLivePatch::WriteThrow; break;
+    case LiveTouch::Parryable:     fn = &MotbinLivePatch::WriteParryable; break;
+    case LiveTouch::Dialogue:      fn = &MotbinLivePatch::WriteDialogue; break;
+    default: break;
+    }
+
+    const LiveTouch kind = m_liveTouch;
+    const uint32_t i0 = m_liveTouchIdx;
+    const uint32_t i1 = m_liveTouchIdx2;
+    m_liveTouch = LiveTouch::None;
+
+    if (!fn) return;
+    bool ok = fn(m_data, m_liveEditPlayerId, i0);
+    if (ok && i1 != 0xFFFFFFFFu)
+        ok = fn(m_data, m_liveEditPlayerId, i1);
+    if (!ok)
+        DisableLiveEditing();
+    (void)kind;
+}
+
 void MovesetEditorWindow::ImportToPlayer(int playerId)
 {
     auto result = MovesetInjector::Inject(m_data, playerId, 0, true);
+    if (result.ok)
+        EnableLiveEditing(playerId);
     ShowImportAlert(result.message, result.ok);
 }
 
@@ -2902,6 +3043,8 @@ void MovesetEditorWindow::RestorePlayer(int playerId)
     if (!MovesetInjector::CanRestore(playerId))
         return;
     auto result = MovesetInjector::Restore(playerId);
+    if (result.ok)
+        DisableLiveEditing();
     ShowImportAlert(result.message, result.ok);
 }
 
@@ -3218,6 +3361,7 @@ void MovesetEditorWindow::RenderSubWin_Requirements()
 
         bool hasOuter = (m_reqWinSel.outer < (int)groups.size());
         if (outerAct == ListAction::Insert) {
+            DisableLiveEditing();
             uint32_t insertPos = hasOuter
                 ? groups[m_reqWinSel.outer].first + groups[m_reqWinSel.outer].second
                 : (uint32_t)blk.size();
@@ -3228,6 +3372,7 @@ void MovesetEditorWindow::RenderSubWin_Requirements()
             m_reqWinSel.inner = 0; m_dirty = true;
             groups = mkGroups();
         } else if (outerAct == ListAction::Duplicate && hasOuter) {
+            DisableLiveEditing();
             uint32_t gf = groups[m_reqWinSel.outer].first, gc = groups[m_reqWinSel.outer].second;
             for (uint32_t k = 0; k < gc; ++k) blk.push_back(blk[gf + k]);
             m_dirty = true; groups = mkGroups();
@@ -3242,6 +3387,7 @@ void MovesetEditorWindow::RenderSubWin_Requirements()
                     m_data.requirementBlock.erase(m_data.requirementBlock.begin() + pos);
                 }
                 m_reqWinSel.outer = (std::max)(0, co - 1); m_reqWinSel.inner = 0; m_dirty = true;
+                DisableLiveEditing();
             };
             if (refs > 0) {
                 snprintf(m_removeConfirm.message, sizeof(m_removeConfirm.message),
@@ -3311,7 +3457,8 @@ void MovesetEditorWindow::RenderSubWin_Requirements()
             ParsedRequirement nr{}; nr.req = 0;
             if (ApplyRowAction2Level(this, m_data, m_dirty, m_reqWinSel.inner, blk, gf, gc,
                                      pendAct, pendK, pendInsAfter,
-                                     &FixupRef_Requirement, &CountRefs_Requirement, nr, "Requirement"))
+                                     &FixupRef_Requirement, &CountRefs_Requirement, nr, "Requirement",
+                                     LiveTouch::Requirement))
                 groups = mkGroups();
         }
     }
@@ -3346,7 +3493,7 @@ void MovesetEditorWindow::RenderSubWin_Requirements()
                 ImGui::SetNextItemWidth(-1.0f);
                 int tmp = static_cast<int>(r.req);
                 if (ImGui::InputInt("##req_val", &tmp, 0, 0))
-                    { r.req = static_cast<uint32_t>(tmp); m_dirty = true; }
+                    { r.req = static_cast<uint32_t>(tmp); m_dirty = true; QueueLiveTouch(LiveTouch::Requirement, idx); }
 
                 const MovesetDataDict::ReqEntry* de = MovesetDataDict::Get().GetReq(r.req);
                 if (de) {
@@ -3403,7 +3550,7 @@ void MovesetEditorWindow::RenderSubWin_Requirements()
                         ImGui::SetNextItemWidth(-1.0f);
                         int tmp = static_cast<int>(*row.val);
                         if (ImGui::InputInt(row.id, &tmp, 0, 0))
-                            { *row.val = static_cast<uint32_t>(tmp); m_dirty = true; }
+                            { *row.val = static_cast<uint32_t>(tmp); m_dirty = true; QueueLiveTouch(LiveTouch::Requirement, idx); }
 
                         if (paramLabel && paramLabel[0]) {
                             ImGui::TableNextRow();
@@ -3569,6 +3716,7 @@ void MovesetEditorWindow::RenderCancelInnerDetail(
         if (ImGui::InputInt("##mv_idx", &moveTmp, 0, 0)) {
             c.move_id = (uint16_t)(moveTmp < 0 ? 0 : moveTmp > 0xFFFF ? 0xFFFF : moveTmp);
             m_dirty = true;
+            QueueLiveTouch(isGroupCancel ? LiveTouch::GroupCancel : LiveTouch::Cancel, blockIdx);
         }
         ImGui::SameLine();
         if (GoButton("##mv_go", moveValid)) {
@@ -3725,6 +3873,7 @@ static void RenderCancelSection(
 
         bool hasOuter = (sel.outer < (int)groups.size());
         if (outerAct == ListAction::Insert) {
+            win->DisableLiveEditing();
             uint32_t insertPos = hasOuter
                 ? groups[sel.outer].first + groups[sel.outer].second
                 : (uint32_t)block.size();
@@ -3735,6 +3884,7 @@ static void RenderCancelSection(
             sel.outer = hasOuter ? sel.outer + 1 : 0; sel.inner = 0; dirty = true;
             recompGroups();
         } else if (outerAct == ListAction::Duplicate && hasOuter) {
+            win->DisableLiveEditing();
             uint32_t gf = groups[sel.outer].first, gc = groups[sel.outer].second;
             for (uint32_t k = 0; k < gc; ++k) block.push_back(block[gf + k]);
             dirty = true; recompGroups();
@@ -3742,7 +3892,7 @@ static void RenderCancelSection(
             uint32_t gf = groups[sel.outer].first, gc = groups[sel.outer].second;
             uint32_t refs = isGroupCancel ? CountRefs_GroupCancel(data, gf) : CountRefs_Cancel(data, gf);
             int co = sel.outer;
-            auto doRem = [&block, &data, &dirty, &sel, isGroupCancel, gf, gc, co]() {
+            auto doRem = [&block, &data, &dirty, &sel, isGroupCancel, gf, gc, co, win]() {
                 for (int i = (int)gc - 1; i >= 0; --i) {
                     uint32_t pos = gf + (uint32_t)i;
                     if (isGroupCancel) FixupRef_GroupCancel(data, pos, false);
@@ -3750,6 +3900,7 @@ static void RenderCancelSection(
                     block.erase(block.begin() + pos);
                 }
                 sel.outer = (std::max)(0, co - 1); sel.inner = 0; dirty = true;
+                win->DisableLiveEditing();
             };
             if (refs > 0) {
                 snprintf(win->m_removeConfirm.message, sizeof(win->m_removeConfirm.message),
@@ -3818,7 +3969,9 @@ static void RenderCancelSection(
             auto fixupFn = isGroupCancel ? &FixupRef_GroupCancel : &FixupRef_Cancel;
             auto countFn = isGroupCancel ? &CountRefs_GroupCancel : &CountRefs_Cancel;
             if (ApplyRowAction2Level(win, data, dirty, sel.inner, block, gf, gc, pendAct, pendK, pendInsAfter,
-                                     fixupFn, countFn, MakeEmptyCancel(), isGroupCancel ? "Group-Cancel" : "Cancel"))
+                                     fixupFn, countFn, MakeEmptyCancel(), isGroupCancel ? "Group-Cancel" : "Cancel",
+                                     isGroupCancel ? MovesetEditorWindow::LiveTouch::GroupCancel
+                                                   : MovesetEditorWindow::LiveTouch::Cancel))
                 recompGroups();
         }
     }
@@ -3976,7 +4129,7 @@ void MovesetEditorWindow::RenderSubWin_Cancels()
             ApplyRowActionFlat(this, m_data, m_dirty, m_cancelsWin.extradataSel, cexBlk,
                                pendAct, pendK, pendInsAfter,
                                &FixupRef_CancelExtra, &CountRefs_CancelExtra, &SwapRefs_CancelExtra,
-                               (uint32_t)0u, "Cancel-extra");
+                               (uint32_t)0u, "Cancel-extra", LiveTouch::CancelExtra);
         }
     }
     ImGui::EndChild();
@@ -4037,6 +4190,7 @@ void MovesetEditorWindow::RenderSubWin_HitConditions()
 
         bool hasOuter = (m_hitCondWinSel.outer < (int)groups.size());
         if (outerAct == ListAction::Insert) {
+            DisableLiveEditing();
             uint32_t insertPos = hasOuter
                 ? groups[m_hitCondWinSel.outer].first + groups[m_hitCondWinSel.outer].second
                 : (uint32_t)blk.size();
@@ -4047,6 +4201,7 @@ void MovesetEditorWindow::RenderSubWin_HitConditions()
             m_hitCondWinSel.inner = 0; m_dirty = true;
             groups = mkGroups();
         } else if (outerAct == ListAction::Duplicate && hasOuter) {
+            DisableLiveEditing();
             uint32_t gf = groups[m_hitCondWinSel.outer].first, gc = groups[m_hitCondWinSel.outer].second;
             for (uint32_t k = 0; k < gc; ++k) blk.push_back(blk[gf + k]);
             m_dirty = true; groups = mkGroups();
@@ -4061,6 +4216,7 @@ void MovesetEditorWindow::RenderSubWin_HitConditions()
                     m_data.hitConditionBlock.erase(m_data.hitConditionBlock.begin() + pos);
                 }
                 m_hitCondWinSel.outer = (std::max)(0, co - 1); m_hitCondWinSel.inner = 0; m_dirty = true;
+                DisableLiveEditing();
             };
             if (refs > 0) {
                 snprintf(m_removeConfirm.message, sizeof(m_removeConfirm.message),
@@ -4135,7 +4291,8 @@ void MovesetEditorWindow::RenderSubWin_HitConditions()
             nh.req_list_idx = !reqBlk.empty() ? 0u : 0xFFFFFFFFu;
             if (ApplyRowAction2Level(this, m_data, m_dirty, m_hitCondWinSel.inner, blk, gf, gc,
                                      pendAct, pendK, pendInsAfter,
-                                     &FixupRef_HitCond, &CountRefs_HitCond, nh, "Hit-condition"))
+                                     &FixupRef_HitCond, &CountRefs_HitCond, nh, "Hit-condition",
+                                     LiveTouch::HitCondition))
                 groups = mkGroups();
         }
     }
@@ -4244,12 +4401,12 @@ void MovesetEditorWindow::RenderSubWin_HitConditions()
                     ImGui::TableNextRow();
                     ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("%s", HitCondLabel::Damage); ShowFieldTooltip(FieldTT::HitCond::Damage);
                     ImGui::TableSetColumnIndex(1); ImGui::SetNextItemWidth(-1.0f);
-                    { int tmp = (int)h.damage; if (ImGui::InputInt("##hc_dmg", &tmp, 0, 0)) { h.damage = (uint32_t)tmp; m_dirty = true; } }
+                    { int tmp = (int)h.damage; if (ImGui::InputInt("##hc_dmg", &tmp, 0, 0)) { h.damage = (uint32_t)tmp; m_dirty = true; QueueLiveTouch(LiveTouch::HitCondition, idx); } }
 
                     ImGui::TableNextRow();
                     ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("%s", HitCondLabel::F0x0C); ShowFieldTooltip(FieldTT::HitCond::F0x0C);
                     ImGui::TableSetColumnIndex(1); ImGui::SetNextItemWidth(-1.0f);
-                    { int tmp = (int)h._0x0C; if (ImGui::InputInt("##hc_f0c", &tmp, 0, 0)) { h._0x0C = (uint32_t)tmp; m_dirty = true; } }
+                    { int tmp = (int)h._0x0C; if (ImGui::InputInt("##hc_f0c", &tmp, 0, 0)) { h._0x0C = (uint32_t)tmp; m_dirty = true; QueueLiveTouch(LiveTouch::HitCondition, idx); } }
 
                     ImGui::EndTable();
                 }
@@ -4335,7 +4492,7 @@ void MovesetEditorWindow::RenderSubWin_ReactionLists()
             ApplyRowActionFlat(this, m_data, m_dirty, m_reacWin.selectedIdx, block,
                                pendAct, pendK, pendInsAfter,
                                &FixupRef_ReactionList, &CountRefs_ReactionList, &SwapRefs_ReactionList,
-                               nr, "Reaction-list");
+                               nr, "Reaction-list", LiveTouch::Reaction);
             total = (int)block.size();
         }
     }
@@ -4423,18 +4580,18 @@ void MovesetEditorWindow::RenderSubWin_ReactionLists()
         ImGui::TextDisabled("others"); ImGui::Separator();
         {
             if (BeginPropTable("##rlo")) {
-                if (RowU16Edit("##rl_fd",  ReactionLabel::FrontDirection,           rlm.front_direction,      FieldTT::Reaction::FrontDirection))           m_dirty = true;
-                if (RowU16Edit("##rl_bd",  ReactionLabel::BackDirection,            rlm.back_direction,       FieldTT::Reaction::BackDirection))            m_dirty = true;
-                if (RowU16Edit("##rl_lsd", ReactionLabel::LeftSideDirection,        rlm.left_side_direction,  FieldTT::Reaction::LeftSideDirection))        m_dirty = true;
-                if (RowU16Edit("##rl_rsd", ReactionLabel::RightSideDirection,       rlm.right_side_direction, FieldTT::Reaction::RightSideDirection))       m_dirty = true;
-                if (RowU16Edit("##rl_fcd", ReactionLabel::FrontCounterhitDirection, rlm.front_ch_direction,   FieldTT::Reaction::FrontCounterhitDirection)) m_dirty = true;
-                if (RowU16Edit("##rl_dd",  ReactionLabel::DownedDirection,          rlm.downed_direction,     FieldTT::Reaction::DownedDirection))          m_dirty = true;
-                if (RowU16Edit("##rl_fr",  ReactionLabel::FrontRotation,            rlm.front_rotation,       FieldTT::Reaction::FrontRotation))            m_dirty = true;
-                if (RowU16Edit("##rl_br",  ReactionLabel::BackRotation,             rlm.back_rotation,        FieldTT::Reaction::BackRotation))             m_dirty = true;
-                if (RowU16Edit("##rl_lsr", ReactionLabel::LeftSideRotation,         rlm.left_side_rotation,   FieldTT::Reaction::LeftSideRotation))         m_dirty = true;
-                if (RowU16Edit("##rl_rsr", ReactionLabel::RightSideRotation,        rlm.right_side_rotation,  FieldTT::Reaction::RightSideRotation))        m_dirty = true;
-                if (RowU16Edit("##rl_vp",  ReactionLabel::VerticalPushback,         rlm.vertical_pushback,    FieldTT::Reaction::VerticalPushback))          m_dirty = true;
-                if (RowU16Edit("##rl_dr",  ReactionLabel::DownedRotation,           rlm.downed_rotation,      FieldTT::Reaction::DownedRotation))           m_dirty = true;
+                if (RowU16Edit("##rl_fd",  ReactionLabel::FrontDirection,           rlm.front_direction,      FieldTT::Reaction::FrontDirection))           { m_dirty = true; QueueLiveTouch(LiveTouch::Reaction, (uint32_t)m_reacWin.selectedIdx); }
+                if (RowU16Edit("##rl_bd",  ReactionLabel::BackDirection,            rlm.back_direction,       FieldTT::Reaction::BackDirection))            { m_dirty = true; QueueLiveTouch(LiveTouch::Reaction, (uint32_t)m_reacWin.selectedIdx); }
+                if (RowU16Edit("##rl_lsd", ReactionLabel::LeftSideDirection,        rlm.left_side_direction,  FieldTT::Reaction::LeftSideDirection))        { m_dirty = true; QueueLiveTouch(LiveTouch::Reaction, (uint32_t)m_reacWin.selectedIdx); }
+                if (RowU16Edit("##rl_rsd", ReactionLabel::RightSideDirection,       rlm.right_side_direction, FieldTT::Reaction::RightSideDirection))       { m_dirty = true; QueueLiveTouch(LiveTouch::Reaction, (uint32_t)m_reacWin.selectedIdx); }
+                if (RowU16Edit("##rl_fcd", ReactionLabel::FrontCounterhitDirection, rlm.front_ch_direction,   FieldTT::Reaction::FrontCounterhitDirection)) { m_dirty = true; QueueLiveTouch(LiveTouch::Reaction, (uint32_t)m_reacWin.selectedIdx); }
+                if (RowU16Edit("##rl_dd",  ReactionLabel::DownedDirection,          rlm.downed_direction,     FieldTT::Reaction::DownedDirection))          { m_dirty = true; QueueLiveTouch(LiveTouch::Reaction, (uint32_t)m_reacWin.selectedIdx); }
+                if (RowU16Edit("##rl_fr",  ReactionLabel::FrontRotation,            rlm.front_rotation,       FieldTT::Reaction::FrontRotation))            { m_dirty = true; QueueLiveTouch(LiveTouch::Reaction, (uint32_t)m_reacWin.selectedIdx); }
+                if (RowU16Edit("##rl_br",  ReactionLabel::BackRotation,             rlm.back_rotation,        FieldTT::Reaction::BackRotation))             { m_dirty = true; QueueLiveTouch(LiveTouch::Reaction, (uint32_t)m_reacWin.selectedIdx); }
+                if (RowU16Edit("##rl_lsr", ReactionLabel::LeftSideRotation,         rlm.left_side_rotation,   FieldTT::Reaction::LeftSideRotation))         { m_dirty = true; QueueLiveTouch(LiveTouch::Reaction, (uint32_t)m_reacWin.selectedIdx); }
+                if (RowU16Edit("##rl_rsr", ReactionLabel::RightSideRotation,        rlm.right_side_rotation,  FieldTT::Reaction::RightSideRotation))        { m_dirty = true; QueueLiveTouch(LiveTouch::Reaction, (uint32_t)m_reacWin.selectedIdx); }
+                if (RowU16Edit("##rl_vp",  ReactionLabel::VerticalPushback,         rlm.vertical_pushback,    FieldTT::Reaction::VerticalPushback))          { m_dirty = true; QueueLiveTouch(LiveTouch::Reaction, (uint32_t)m_reacWin.selectedIdx); }
+                if (RowU16Edit("##rl_dr",  ReactionLabel::DownedRotation,           rlm.downed_rotation,      FieldTT::Reaction::DownedRotation))           { m_dirty = true; QueueLiveTouch(LiveTouch::Reaction, (uint32_t)m_reacWin.selectedIdx); }
                 ImGui::EndTable();
             }
         }
@@ -4494,7 +4651,7 @@ void MovesetEditorWindow::RenderSubWin_Pushbacks()
                 ApplyRowActionFlat(this, m_data, m_dirty, m_pushbackWin.pushbackSel, pb,
                                    pendAct, pendK, pendInsAfter,
                                    &FixupRef_Pushback, &CountRefs_Pushback, &SwapRefs_Pushback,
-                                   np, "Pushback");
+                                   np, "Pushback", LiveTouch::Pushback);
             }
         }
         ImGui::EndChild();
@@ -4505,9 +4662,9 @@ void MovesetEditorWindow::RenderSubWin_Pushbacks()
             ParsedPushback& p = m_data.pushbackBlock[m_pushbackWin.pushbackSel];
             ImGui::TextDisabled("Pushback #%d", m_pushbackWin.pushbackSel); ImGui::Separator();
             if (BeginPropTable("##pbdt")) {
-                if (RowU16Edit("##pb_val1", PushbackLabel::LinearDuration,     p.val1, FieldTT::Pushback::LinearDuration))     m_dirty = true;
-                if (RowU16Edit("##pb_val2", PushbackLabel::LinearDisplacement, p.val2, FieldTT::Pushback::LinearDisplacement)) m_dirty = true;
-                if (RowU32Edit("##pb_val3", PushbackLabel::NumOfExtraPushbacks,   p.val3, FieldTT::Pushback::NumOfExtraPushbacks))   m_dirty = true;
+                if (RowU16Edit("##pb_val1", PushbackLabel::LinearDuration,     p.val1, FieldTT::Pushback::LinearDuration))     { m_dirty = true; QueueLiveTouch(LiveTouch::Pushback, (uint32_t)m_pushbackWin.pushbackSel); }
+                if (RowU16Edit("##pb_val2", PushbackLabel::LinearDisplacement, p.val2, FieldTT::Pushback::LinearDisplacement)) { m_dirty = true; QueueLiveTouch(LiveTouch::Pushback, (uint32_t)m_pushbackWin.pushbackSel); }
+                if (RowU32Edit("##pb_val3", PushbackLabel::NumOfExtraPushbacks,   p.val3, FieldTT::Pushback::NumOfExtraPushbacks))   { m_dirty = true; QueueLiveTouch(LiveTouch::Pushback, (uint32_t)m_pushbackWin.pushbackSel); }
                 {
                     bool valid = (p.pushback_extra_idx != 0xFFFFFFFF) && (p.pushback_extra_idx < (uint32_t)pe.size());
                     auto r = RowIdxEditLink("##pb_extra_idx", PushbackLabel::PushbackExtradata, p.pushback_extra_idx, valid);
@@ -4565,7 +4722,7 @@ void MovesetEditorWindow::RenderSubWin_Pushbacks()
             ApplyRowActionFlat(this, m_data, m_dirty, m_pushbackWin.extraSel, pe,
                                pendAct, pendK, pendInsAfter,
                                &FixupRef_PushbackExtra, &CountRefs_PushbackExtra, &SwapRefs_PushbackExtra,
-                               ParsedPushbackExtra{}, "Pushback-extra");
+                               ParsedPushbackExtra{}, "Pushback-extra", LiveTouch::PushbackExtra);
         }
     }
     ImGui::EndChild();
@@ -4618,6 +4775,7 @@ void MovesetEditorWindow::RenderSubWin_Voiceclips()
 
         bool hasOuter = (m_voiceclipSel.outer < (int)groups.size());
         if (outerAct == ListAction::Insert) {
+            DisableLiveEditing();
             uint32_t insertPos = hasOuter
                 ? groups[m_voiceclipSel.outer].first + groups[m_voiceclipSel.outer].second
                 : (uint32_t)blk.size();
@@ -4628,6 +4786,7 @@ void MovesetEditorWindow::RenderSubWin_Voiceclips()
             m_voiceclipSel.inner = 0; m_dirty = true;
             groups = mkGroups();
         } else if (outerAct == ListAction::Duplicate && hasOuter) {
+            DisableLiveEditing();
             uint32_t gf = groups[m_voiceclipSel.outer].first, gc = groups[m_voiceclipSel.outer].second;
             for (uint32_t k = 0; k < gc; ++k) blk.push_back(blk[gf + k]);
             m_dirty = true; groups = mkGroups();
@@ -4642,6 +4801,7 @@ void MovesetEditorWindow::RenderSubWin_Voiceclips()
                     m_data.voiceclipBlock.erase(m_data.voiceclipBlock.begin() + pos);
                 }
                 m_voiceclipSel.outer = (std::max)(0, co - 1); m_voiceclipSel.inner = 0; m_dirty = true;
+                DisableLiveEditing();
             };
             if (refs > 0) {
                 snprintf(m_removeConfirm.message, sizeof(m_removeConfirm.message),
@@ -4700,7 +4860,8 @@ void MovesetEditorWindow::RenderSubWin_Voiceclips()
             ParsedVoiceclip nv{}; nv.val1 = nv.val2 = nv.val3 = 0;
             if (ApplyRowAction2Level(this, m_data, m_dirty, m_voiceclipSel.inner, blk, gf, gc,
                                      pendAct, pendK, pendInsAfter,
-                                     &FixupRef_Voiceclip, &CountRefs_Voiceclip, nv, "Voiceclip"))
+                                     &FixupRef_Voiceclip, &CountRefs_Voiceclip, nv, "Voiceclip",
+                                     LiveTouch::Voiceclip))
                 groups = mkGroups();
         }
     }
@@ -4721,11 +4882,11 @@ void MovesetEditorWindow::RenderSubWin_Voiceclips()
             if (BeginPropTable("##vcdt")) {
                 // tk_voiceclip fields are 'int' (signed) -- display as signed int32
                 { int32_t tmp = static_cast<int32_t>(vc.val1);
-                  if (RowI32Edit("##vc_val1", VoiceclipLabel::Folder, tmp, FieldTT::Voiceclip::Folder)) { vc.val1 = static_cast<uint32_t>(tmp); m_dirty = true; } }
+                  if (RowI32Edit("##vc_val1", VoiceclipLabel::Folder, tmp, FieldTT::Voiceclip::Folder)) { vc.val1 = static_cast<uint32_t>(tmp); m_dirty = true; QueueLiveTouch(LiveTouch::Voiceclip, idx); } }
                 { int32_t tmp = static_cast<int32_t>(vc.val2);
-                  if (RowI32Edit("##vc_val2", VoiceclipLabel::Val2, tmp, FieldTT::Voiceclip::Val2)) { vc.val2 = static_cast<uint32_t>(tmp); m_dirty = true; } }
+                  if (RowI32Edit("##vc_val2", VoiceclipLabel::Val2, tmp, FieldTT::Voiceclip::Val2)) { vc.val2 = static_cast<uint32_t>(tmp); m_dirty = true; QueueLiveTouch(LiveTouch::Voiceclip, idx); } }
                 { int32_t tmp = static_cast<int32_t>(vc.val3);
-                  if (RowI32Edit("##vc_val3", VoiceclipLabel::Clip, tmp, FieldTT::Voiceclip::Clip)) { vc.val3 = static_cast<uint32_t>(tmp); m_dirty = true; } }
+                  if (RowI32Edit("##vc_val3", VoiceclipLabel::Clip, tmp, FieldTT::Voiceclip::Clip)) { vc.val3 = static_cast<uint32_t>(tmp); m_dirty = true; QueueLiveTouch(LiveTouch::Voiceclip, idx); } }
                 ImGui::EndTable();
             }
         }
@@ -4816,6 +4977,7 @@ static void RenderPropSection(
 
         bool hasOuter = (sel.outer < (int)groups.size());
         if (outerAct == ListAction::Insert) {
+            win->DisableLiveEditing();
             uint32_t insertPos = hasOuter
                 ? groups[sel.outer].first + groups[sel.outer].second
                 : (uint32_t)block.size();
@@ -4826,6 +4988,7 @@ static void RenderPropSection(
             sel.outer = hasOuter ? sel.outer + 1 : 0; sel.inner = 0; dirty = true;
             groups = mkGroups();
         } else if (outerAct == ListAction::Duplicate && hasOuter) {
+            win->DisableLiveEditing();
             uint32_t gf = groups[sel.outer].first, gc = groups[sel.outer].second;
             for (uint32_t k = 0; k < gc; ++k) block.push_back(block[gf + k]);
             dirty = true; groups = mkGroups();
@@ -4833,13 +4996,14 @@ static void RenderPropSection(
             uint32_t gf = groups[sel.outer].first, gc = groups[sel.outer].second;
             uint32_t refs = countFn(data, gf);
             int co = sel.outer;
-            auto doRem = [&block, &data, &dirty, &sel, fixupFn, gf, gc, co]() {
+            auto doRem = [&block, &data, &dirty, &sel, fixupFn, gf, gc, co, win]() {
                 for (int i = (int)gc - 1; i >= 0; --i) {
                     uint32_t pos = gf + (uint32_t)i;
                     fixupFn(data, pos, false, false);
                     block.erase(block.begin() + pos);
                 }
                 sel.outer = (std::max)(0, co - 1); sel.inner = 0; dirty = true;
+                win->DisableLiveEditing();
             };
             if (refs > 0) {
                 snprintf(win->m_removeConfirm.message, sizeof(win->m_removeConfirm.message),
@@ -4908,7 +5072,12 @@ static void RenderPropSection(
             ParsedExtraProp ne{}; ne.req_list_idx = 0;
             if (isExtraProp) ne.type = 32769;
             if (ApplyRowAction2Level(win, data, dirty, sel.inner, block, gf, gc, pendAct, pendK, pendInsAfter,
-                                     fixupFn, countFn, ne, "Property"))
+                                     fixupFn, countFn, ne, "Property",
+                                     isExtraProp ? MovesetEditorWindow::LiveTouch::ExtraProp
+                                                 : (/* start vs end distinguished by block ptr */
+                                                    (&block == &data.startPropBlock)
+                                                        ? MovesetEditorWindow::LiveTouch::StartProp
+                                                        : MovesetEditorWindow::LiveTouch::EndProp)))
                 groups = mkGroups();
         }
     }
@@ -4923,6 +5092,14 @@ static void RenderPropSection(
         if (idx < (uint32_t)block.size())
         {
             ParsedExtraProp& e = block[idx];
+            auto liveProp = [&]() {
+                dirty = true;
+                if (!win) return;
+                const auto kind = isExtraProp ? MovesetEditorWindow::LiveTouch::ExtraProp
+                    : (&block == &data.startPropBlock) ? MovesetEditorWindow::LiveTouch::StartProp
+                    : MovesetEditorWindow::LiveTouch::EndProp;
+                win->QueueLiveTouch(kind, idx);
+            };
 
             static constexpr ImVec4 kBlockBg = {0.14f, 0.14f, 0.18f, 1.00f};
             static constexpr ImVec4 kGreen   = {0.30f, 0.88f, 0.42f, 1.00f};
@@ -4980,7 +5157,7 @@ static void RenderPropSection(
                     ImGui::TextDisabled("%s", ExtraPropLabel::Frame); ShowFieldTooltip(FieldTT::ExtraProp::Frame);
                     ImGui::SetNextItemWidth(-1.0f);
                     int ftmp = (int)e.type;
-                    if (ImGui::InputInt("##ep_type", &ftmp, 0, 0)) { e.type = (uint32_t)ftmp; dirty = true; }
+                    if (ImGui::InputInt("##ep_type", &ftmp, 0, 0)) { e.type = (uint32_t)ftmp; liveProp(); }
 
 
                 }
@@ -4993,7 +5170,7 @@ static void RenderPropSection(
                 if (ImGui::IsItemDeactivatedAfterEdit()) {
                     const char* p = bufId;
                     if (p[0]=='0' && (p[1]=='x'||p[1]=='X')) p += 2;
-                    e.id = (uint32_t)strtoul(p, nullptr, 16); dirty = true;
+                    e.id = (uint32_t)strtoul(p, nullptr, 16); liveProp();
                 }
 
                 // requirements (navigable)
@@ -5005,7 +5182,7 @@ static void RenderPropSection(
                 int reqTmp = (e.req_list_idx == 0xFFFFFFFF) ? -1 : (int)e.req_list_idx;
                 if (ImGui::InputInt("##prop_req_idx", &reqTmp, 0, 0)) {
                     e.req_list_idx = (reqTmp < 0) ? 0xFFFFFFFF : (uint32_t)reqTmp;
-                    dirty = true;
+                    liveProp();
                 }
                 ImGui::SameLine();
                 if (GoButton("##req_go", reqValid)) {
@@ -5090,7 +5267,7 @@ static void RenderPropSection(
                         ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("%s", lbl); ShowFieldTooltip(tt);
                         ImGui::TableSetColumnIndex(1); ImGui::SetNextItemWidth(-1.0f);
                         int tmp = (int)v;
-                        if (ImGui::InputInt(id, &tmp, 0, 0)) { v = (uint32_t)tmp; dirty = true; }
+                        if (ImGui::InputInt(id, &tmp, 0, 0)) { v = (uint32_t)tmp; liveProp(); }
 
                         if (paramLabel && paramLabel[0]) {
                             ImGui::TableNextRow();
@@ -5109,7 +5286,7 @@ static void RenderPropSection(
                         if (ImGui::IsItemDeactivatedAfterEdit()) {
                             const char* p = buf;
                             if (p[0]=='0' && (p[1]=='x'||p[1]=='X')) p += 2;
-                            v = (uint32_t)strtoul(p, nullptr, 16); dirty = true;
+                            v = (uint32_t)strtoul(p, nullptr, 16); liveProp();
                         }
                     };
 
@@ -5137,7 +5314,7 @@ static void RenderPropSection(
                         ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("%s", p0lbl);
                         ImGui::TableSetColumnIndex(1); ImGui::SetNextItemWidth(-(kBtnW + sty.ItemSpacing.x));
                         int vtmp = (int)e.value;
-                        if (ImGui::InputInt("##ep_v1_proj", &vtmp, 0, 0)) { e.value = (uint32_t)vtmp; dirty = true; }
+                        if (ImGui::InputInt("##ep_v1_proj", &vtmp, 0, 0)) { e.value = (uint32_t)vtmp; liveProp(); }
                         ImGui::SameLine();
                         if (GoButton("##proj_go", projValid) && navCtx.projWinOpen) {
                             *navCtx.projWinSel = (int)e.value; *navCtx.projWinScroll = true; *navCtx.projWinOpen = true;
@@ -5153,7 +5330,7 @@ static void RenderPropSection(
                         ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("%s", p0lbl);
                         ImGui::TableSetColumnIndex(1); ImGui::SetNextItemWidth(-(kBtnW + sty.ItemSpacing.x));
                         int vtmp = (int)e.value;
-                        if (ImGui::InputInt("##ep_v1_te", &vtmp, 0, 0)) { e.value = (uint32_t)vtmp; dirty = true; }
+                        if (ImGui::InputInt("##ep_v1_te", &vtmp, 0, 0)) { e.value = (uint32_t)vtmp; liveProp(); }
                         ImGui::SameLine();
                         if (GoButton("##te_go", teValid) && navCtx.throwExtraSel && navCtx.throwsWinOpen) {
                             int gi = FindGroupOuter(*navCtx.teGroups, e.value);
@@ -5175,7 +5352,7 @@ static void RenderPropSection(
                         ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("%s", p0lbl);
                         ImGui::TableSetColumnIndex(1); ImGui::SetNextItemWidth(-(kBtnW + sty.ItemSpacing.x));
                         int vtmp = (int)e.value;
-                        if (ImGui::InputInt("##ep_v1_838e", &vtmp, 0, 0)) { e.value = (uint32_t)vtmp; dirty = true; }
+                        if (ImGui::InputInt("##ep_v1_838e", &vtmp, 0, 0)) { e.value = (uint32_t)vtmp; liveProp(); }
                         ImGui::SameLine();
                         if (GoButton("##cine_go", mapped) && navCtx.cineWinOpen) {
                             *navCtx.cineWinOpen = true;
@@ -5198,7 +5375,7 @@ static void RenderPropSection(
                         ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("%s", p0lbl);
                         ImGui::TableSetColumnIndex(1); ImGui::SetNextItemWidth(-(kBtnW + sty.ItemSpacing.x));
                         int vtmp = (int)e.value;
-                        if (ImGui::InputInt("##ep_v1_8314", &vtmp, 0, 0)) { e.value = (uint32_t)vtmp; dirty = true; }
+                        if (ImGui::InputInt("##ep_v1_8314", &vtmp, 0, 0)) { e.value = (uint32_t)vtmp; liveProp(); }
                         ImGui::SameLine();
                         if (GoButton("##cine_go2", camType) && navCtx.cineWinOpen) {
                             *navCtx.cineWinOpen = true;
@@ -5216,7 +5393,7 @@ static void RenderPropSection(
                         ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Hand Anim");
                         ImGui::TableSetColumnIndex(1); ImGui::SetNextItemWidth(-(kBtnW + sty.ItemSpacing.x));
                         int vtmp = (int)e.value;
-                        if (ImGui::InputInt("##ep_v1_hand", &vtmp, 0, 0)) { e.value = (uint32_t)vtmp; dirty = true; }
+                        if (ImGui::InputInt("##ep_v1_hand", &vtmp, 0, 0)) { e.value = (uint32_t)vtmp; liveProp(); }
                         ImGui::SameLine();
                         if (GoButton("##hand_go", hasMgr)) {
                             if (win) win->OpenAnimationManager();
@@ -5261,7 +5438,7 @@ static void RenderPropSection(
                                 {
                                     e.value = ((uint32_t)i << 8) | blendFrames;
                                     poseIdx = (uint32_t)i;
-                                    dirty = true;
+                                    liveProp();
                                 }
                                 if (sel) ImGui::SetItemDefaultFocus();
                             }
@@ -5278,7 +5455,7 @@ static void RenderPropSection(
                             btmp = btmp < 0 ? 0 : btmp > 255 ? 255 : btmp;
                             e.value = (poseIdx << 8) | (uint32_t)btmp;
                             blendFrames = (uint32_t)btmp;
-                            dirty = true;
+                            liveProp();
                         }
 
                         // Row 3: decoded summary
@@ -5301,7 +5478,7 @@ static void RenderPropSection(
                         {
                             btmp860e = btmp860e < 0 ? 0 : btmp860e > 255 ? 255 : btmp860e;
                             e.value = (uint32_t)btmp860e;
-                            dirty = true;
+                            liveProp();
                         }
                         ImGui::TableNextRow();
                         ImGui::TableSetColumnIndex(1);
@@ -5493,7 +5670,7 @@ void MovesetEditorWindow::RenderSubWin_Throws()
                 ParsedThrow nt{}; nt.throwextra_idx = 0xFFFFFFFF;
                 ApplyRowActionFlat(this, m_data, m_dirty, m_throwsWin.throwSel, th,
                                    pendAct, pendK, pendInsAfter,
-                                   nullptr, nullptr, nullptr, nt, "Throw");
+                                   nullptr, nullptr, nullptr, nt, "Throw", LiveTouch::Throw);
             }
         }
         ImGui::EndChild();
@@ -5571,6 +5748,7 @@ void MovesetEditorWindow::RenderSubWin_Throws()
 
             bool hasOuter = (m_throwsWin.extraSel.outer < (int)teGroups.size());
             if (outerAct == ListAction::Insert) {
+                DisableLiveEditing();
                 uint32_t insertPos = hasOuter
                     ? teGroups[m_throwsWin.extraSel.outer].first + teGroups[m_throwsWin.extraSel.outer].second
                     : (uint32_t)te.size();
@@ -5580,6 +5758,7 @@ void MovesetEditorWindow::RenderSubWin_Throws()
                 m_throwsWin.extraSel.inner = 0; m_dirty = true;
                 teGroups = mkTeGroups();
             } else if (outerAct == ListAction::Duplicate && hasOuter) {
+                DisableLiveEditing();
                 uint32_t gf = teGroups[m_throwsWin.extraSel.outer].first, gc = teGroups[m_throwsWin.extraSel.outer].second;
                 for (uint32_t k = 0; k < gc; ++k) te.push_back(te[gf + k]);
                 m_dirty = true; teGroups = mkTeGroups();
@@ -5594,6 +5773,7 @@ void MovesetEditorWindow::RenderSubWin_Throws()
                         m_data.throwExtraBlock.erase(m_data.throwExtraBlock.begin() + pos);
                     }
                     m_throwsWin.extraSel.outer = (std::max)(0, co - 1); m_throwsWin.extraSel.inner = 0; m_dirty = true;
+                    DisableLiveEditing();
                 };
                 if (refs > 0) {
                     snprintf(m_removeConfirm.message, sizeof(m_removeConfirm.message),
@@ -5654,7 +5834,8 @@ void MovesetEditorWindow::RenderSubWin_Throws()
                 ParsedThrowExtra nte{}; nte.pick_probability = 1;
                 if (ApplyRowAction2Level(this, m_data, m_dirty, m_throwsWin.extraSel.inner, te, gf, gc,
                                          pendAct, pendK, pendInsAfter,
-                                         &FixupRef_ThrowExtra, &CountRefs_ThrowExtra, nte, "ThrowExtra"))
+                                         &FixupRef_ThrowExtra, &CountRefs_ThrowExtra, nte, "ThrowExtra",
+                                         LiveTouch::ThrowExtra))
                     teGroups = mkTeGroups();
             }
         }
@@ -5740,7 +5921,7 @@ void MovesetEditorWindow::RenderSubWin_Projectiles()
         if (pendAct != ListAction::None && pendK >= 0) {
             ParsedProjectile np{}; np.hit_condition_idx = 0xFFFFFFFF; np.cancel_idx = 0xFFFFFFFF;
             ApplyRowActionFlat(this, m_data, m_dirty, m_projectileWin.selectedIdx, block, pendAct, pendK, pendInsAfter,
-                               nullptr, nullptr, nullptr, np, "Projectile");
+                               nullptr, nullptr, nullptr, np, "Projectile", LiveTouch::Projectile);
         }
     }
     ImGui::EndChild();
@@ -5879,11 +6060,13 @@ void MovesetEditorWindow::RenderSubWin_InputSequences()
             if (pendAct != ListAction::None && pendK >= 0) {
                 int idx = pendK;
                 if (pendAct == ListAction::Insert) {
+                    DisableLiveEditing();
                     uint32_t ipos = pendInsAfter ? (uint32_t)idx + 1 : (uint32_t)idx;
                     ParsedInputSequence ns{}; ns.input_start_idx = 0xFFFFFFFF;
                     seqs.insert(seqs.begin() + ipos, ns);
                     m_inputSeqWin.sel.outer = (int)ipos; m_inputSeqWin.sel.inner = 0; m_dirty = true;
                 } else if (pendAct == ListAction::Duplicate) {
+                    DisableLiveEditing();
                     // Deep-copy: the sequence header only stores start_idx/amount into the shared
                     // inputBlock. Copying the header alone would make the duplicate share the
                     // ORIGINAL's inputs; append fresh copies and point the new sequence at them.
@@ -5901,6 +6084,7 @@ void MovesetEditorWindow::RenderSubWin_InputSequences()
                     seqs.insert(seqs.begin() + idx + 1, ns);
                     m_inputSeqWin.sel.outer = idx + 1; m_inputSeqWin.sel.inner = 0; m_dirty = true;
                 } else if (pendAct == ListAction::Remove) {
+                    DisableLiveEditing();
                     seqs.erase(seqs.begin() + idx);
                     if (m_inputSeqWin.sel.outer >= (int)seqs.size())
                         m_inputSeqWin.sel.outer = (std::max)(0, (int)seqs.size() - 1);
@@ -5910,6 +6094,7 @@ void MovesetEditorWindow::RenderSubWin_InputSequences()
                     if (ni >= 0 && ni < (int)seqs.size()) {   // pure swap: each seq keeps its own inputs
                         std::swap(seqs[idx], seqs[ni]);
                         m_inputSeqWin.sel.outer = ni; m_dirty = true;
+                        QueueLiveTouch(LiveTouch::InputSequence, (uint32_t)idx, (uint32_t)ni);
                     }
                 }
             }
@@ -5922,9 +6107,9 @@ void MovesetEditorWindow::RenderSubWin_InputSequences()
             ImGui::TextDisabled("input_sequence #%d", m_inputSeqWin.sel.outer); ImGui::Separator();
             if (BeginPropTable("##iseqdt"))
             {
-                if (RowU16Edit("##is_wf",  InputSeqLabel::InputWindowFrames, s.input_window_frames, FieldTT::InputSeq::InputWindowFrames)) m_dirty = true;
-                if (RowU16Edit("##is_amt", InputSeqLabel::InputAmount,       s.input_amount,        FieldTT::InputSeq::InputAmount))       m_dirty = true;
-                if (RowU32Edit("##is_0x4", InputSeqLabel::F0x4,              s._0x4,                FieldTT::InputSeq::F0x4))              m_dirty = true;
+                if (RowU16Edit("##is_wf",  InputSeqLabel::InputWindowFrames, s.input_window_frames, FieldTT::InputSeq::InputWindowFrames)) { m_dirty = true; QueueLiveTouch(LiveTouch::InputSequence, (uint32_t)m_inputSeqWin.sel.outer); }
+                if (RowU16Edit("##is_amt", InputSeqLabel::InputAmount,       s.input_amount,        FieldTT::InputSeq::InputAmount))       { m_dirty = true; QueueLiveTouch(LiveTouch::InputSequence, (uint32_t)m_inputSeqWin.sel.outer); }
+                if (RowU32Edit("##is_0x4", InputSeqLabel::F0x4,              s._0x4,                FieldTT::InputSeq::F0x4))              { m_dirty = true; QueueLiveTouch(LiveTouch::InputSequence, (uint32_t)m_inputSeqWin.sel.outer); }
                 ImGui::EndTable();
             }
         }
@@ -5993,6 +6178,7 @@ void MovesetEditorWindow::RenderSubWin_InputSequences()
                         }
                         m_data.inputBlock[k].command = val;
                         m_dirty = true;
+                        QueueLiveTouch(LiveTouch::Input, k);
                     }
                 }
                 ImGui::EndChild();
@@ -6007,6 +6193,7 @@ void MovesetEditorWindow::RenderSubWin_InputSequences()
         {
             bool hasRange = (s.input_start_idx != 0xFFFFFFFF);
             if (pendInpAct == ListAction::Insert) {
+                DisableLiveEditing();
                 const bool wasEmpty = (s.input_start_idx == 0xFFFFFFFF);
                 uint32_t ipos = wasEmpty ? (uint32_t)inps.size()
                     : s.input_start_idx + (uint32_t)(pendInpInsAfter ? pendInpK + 1 : pendInpK);
@@ -6018,6 +6205,7 @@ void MovesetEditorWindow::RenderSubWin_InputSequences()
                 s.input_amount++; m_dirty = true;
                 m_inputSeqWin.sel.inner = pendInpInsAfter ? pendInpK + 1 : pendInpK;
             } else if (pendInpAct == ListAction::Duplicate && hasRange) {
+                DisableLiveEditing();
                 uint32_t absSrc = s.input_start_idx + (uint32_t)pendInpK;
                 uint32_t ipos   = s.input_start_idx + (uint32_t)pendInpK + 1;
                 ParsedInput copy = inps[absSrc];   // copy before insert; insert may reallocate inps
@@ -6026,6 +6214,7 @@ void MovesetEditorWindow::RenderSubWin_InputSequences()
                 s.input_amount++; m_dirty = true;
                 m_inputSeqWin.sel.inner = pendInpK + 1;
             } else if (pendInpAct == ListAction::Remove && hasRange) {
+                DisableLiveEditing();
                 uint32_t absPos = s.input_start_idx + (uint32_t)pendInpK;
                 inps.erase(inps.begin() + absPos);
                 // Manual fixup: decrement start indices > absPos; don't nullify == absPos.
@@ -6044,6 +6233,7 @@ void MovesetEditorWindow::RenderSubWin_InputSequences()
                     uint32_t b = s.input_start_idx + (uint32_t)nl;
                     std::swap(inps[a], inps[b]);   // within the same range: start_idx unchanged
                     m_inputSeqWin.sel.inner = nl; m_dirty = true;
+                    QueueLiveTouch(LiveTouch::Input, a, b);
                 }
             }
         }
@@ -6112,6 +6302,7 @@ void MovesetEditorWindow::RenderSubWin_ParryableMoves()
 
         bool hasOuter = (m_parryWinSel.outer < (int)groups.size());
         if (outerAct == ListAction::Insert) {
+            DisableLiveEditing();
             uint32_t insertPos = hasOuter
                 ? groups[m_parryWinSel.outer].first + groups[m_parryWinSel.outer].second
                 : (uint32_t)block.size();
@@ -6121,10 +6312,12 @@ void MovesetEditorWindow::RenderSubWin_ParryableMoves()
             m_parryWinSel.inner = 0; m_dirty = true;
             groups = mkPmGroups();
         } else if (outerAct == ListAction::Duplicate && hasOuter) {
+            DisableLiveEditing();
             uint32_t gf = groups[m_parryWinSel.outer].first, gc = groups[m_parryWinSel.outer].second;
             for (uint32_t k = 0; k < gc; ++k) block.push_back(block[gf + k]);
             m_dirty = true; groups = mkPmGroups();
         } else if (outerAct == ListAction::Remove && hasOuter) {
+            DisableLiveEditing();
             uint32_t gf = groups[m_parryWinSel.outer].first, gc = groups[m_parryWinSel.outer].second;
             int co = m_parryWinSel.outer;
             // parryable moves not referenced by other blocks
@@ -6192,7 +6385,8 @@ void MovesetEditorWindow::RenderSubWin_ParryableMoves()
             ParsedParryableMove nm{}; nm.value = 1;
             if (ApplyRowAction2Level(this, m_data, m_dirty, m_parryWinSel.inner, block, gf, gc,
                                      pendAct, pendK, pendInsAfter,
-                                     &NoRefFixup, &NoRefCount, nm, "ParryableMove"))
+                                     &NoRefFixup, &NoRefCount, nm, "ParryableMove",
+                                     LiveTouch::Parryable))
                 groups = mkPmGroups();
         }
     }
@@ -6275,7 +6469,7 @@ void MovesetEditorWindow::RenderSubWin_Dialogues()
         if (pendAct != ListAction::None && pendK >= 0) {
             ParsedDialogue nd{}; nd.req_list_idx = 0xFFFFFFFF;
             ApplyRowActionFlat(this, m_data, m_dirty, m_dialogueSel, block, pendAct, pendK, pendInsAfter,
-                               nullptr, nullptr, nullptr, nd, "Dialogue");
+                               nullptr, nullptr, nullptr, nd, "Dialogue", LiveTouch::Dialogue);
             total = (int)block.size();
         }
     }
