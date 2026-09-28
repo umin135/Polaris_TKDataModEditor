@@ -4,6 +4,7 @@
 #include "moveset/data/AnimNameDB.h"
 #include "moveset/data/AnmbinRebuild.h"
 #include "moveset/editor/AnimationManagerWindow.h"
+#include <cstdint>
 #include <string>
 #include <unordered_map>
 #include <functional>
@@ -126,6 +127,25 @@ public:
         ParsedCancel& c, int localIdx, uint32_t blockIdx,
         const std::vector<std::pair<uint32_t,uint32_t>>& gcGroups);
 
+    // Live-editing gate (accessed by free static row-action helpers).
+    // Enabled after a successful Import Motbin; disabled on structural insert/remove/dup or Restore.
+    void EnableLiveEditing(int playerId);
+    void DisableLiveEditing();
+    bool IsLiveEditingEnabled() const { return m_liveEditingEnabled; }
+    int  LiveEditPlayerId() const { return m_liveEditPlayerId; }
+
+    // Queue a live memory rewrite for the current frame (flushed at end of Render).
+    enum class LiveTouch : uint8_t {
+        None, Move, Requirement, Cancel, GroupCancel, CancelExtra,
+        HitCondition, Reaction, Pushback, PushbackExtra,
+        ExtraProp, StartProp, EndProp, Voiceclip,
+        Input, InputSequence, Projectile, ThrowExtra, Throw,
+        Parryable, Dialogue
+    };
+    void QueueLiveTouch(LiveTouch kind, uint32_t idx, uint32_t idx2 = 0xFFFFFFFFu);
+    void FlushLiveTouch();
+    void NoteLiveMoveEdit(); // queues WriteMove for m_liveNoteMoveIdx
+
     // Remove-confirmation modal  (accessed by free static render helpers)
     struct RemoveConfirmState {
         bool pending = false;   // one-frame trigger: begin showing
@@ -153,8 +173,12 @@ private:
     void LoadEditorDatas();
     void SaveEditorDatas();
     void SaveToFile();
+    void ImportToPlayer(int playerId);  // 0=P1, 1=P2 — live inject into game
+    void RestorePlayer(int playerId);
+    void ShowImportAlert(const std::string& message, bool ok);
     void RequestClose();
     void RenderCloseConfirmModal();
+    void RenderImportAlertModal();
     void RenderSavePopups();
     void RenderSubWin_Requirements();
     void RenderSubWin_Cancels();
@@ -193,6 +217,17 @@ private:
     bool        m_moveListScrollPending = false; // request scroll-to-selected on next render
     bool        m_dirty            = false; // unsaved changes exist
     bool        m_pendingClose     = false; // close requested while dirty
+    bool        m_importAlertOpen    = false;
+    bool        m_importAlertPending = false; // one-shot OpenPopup trigger
+    bool        m_importAlertOk      = true;
+    std::string m_importAlertMsg;
+
+    bool        m_liveEditingEnabled = false; // true after successful import until structural edit / restore
+    int         m_liveEditPlayerId   = -1;    // 0=P1, 1=P2; -1 when never imported this session
+    LiveTouch   m_liveTouch          = LiveTouch::None;
+    uint32_t    m_liveTouchIdx       = 0;
+    uint32_t    m_liveTouchIdx2      = 0xFFFFFFFFu;
+    int         m_liveNoteMoveIdx    = -1;    // set while rendering move properties
 
     // Per-sub-window section widths (drag-splitter state), keyed by a stable string id.
     // Persistent per editor-window instance; the first access seeds the value from LayoutStore

@@ -245,6 +245,8 @@ struct ParsedMove {
     uint32_t anim_related[8];         // 0x30  (0x30-0x4F, 8 entries)
     uint32_t anmbin_body_idx;         // 0x50  index into anmbin bodyKeysCount array (set to move_idx by extractor)
     uint32_t anmbin_body_sub_idx;     // 0x54  sub-index (0 in file; skeleton_id populated at runtime)
+    uint32_t anim_handle_lo = 0;      // runtime handle low dword (live move+0x50); from .tkedit/anim_runtime.json
+    uint32_t anim_handle_hi = 0;      // runtime handle high dword (live move+0x54); from .tkedit/anim_runtime.json
 
     // -- 0x58-0x97  Encrypted vuln / hitlevel blocks --------
     uint64_t encrypted_vuln;          // 0x58  -> vuln value (encrypted)
@@ -362,6 +364,13 @@ MotbinData LoadMotbin(const std::string& folderPath);
 // Writes edited data back to moveset.motbin in data.folderPath.
 // Fully rebuilds the binary from parsed blocks (supports added items).
 bool SaveMotbin(MotbinData& data);
+
+// Fully rebuilds index-format motbin bytes from parsed blocks (does not write disk).
+std::vector<uint8_t> RebuildMotbinBytes(MotbinData& data);
+
+// Load/save .tkedit/anim_runtime.json (per-move handle hi + cross-check fields).
+bool LoadAnimRuntimeJson(MotbinData& data);
+bool SaveAnimRuntimeJson(const MotbinData& data);
 
 // Index fixup helpers: shift block indexes in all moves/cancels after an insert.
 // Call after inserting into cancelBlock or groupCancelBlock.

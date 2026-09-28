@@ -1078,8 +1078,83 @@ MotbinData LoadMotbin(const std::string& folderPath)
         }
     }
 
+    LoadAnimRuntimeJson(result);
+
     result.loaded = true;
     return result;
+}
+
+// -------------------------------------------------------------
+//  anim_runtime.json  — per-move handle high dword + cross-checks
+//  Format: {"moves":[{"h":u32,"lo":u32,"len":i32}, ...]}
+// -------------------------------------------------------------
+
+bool LoadAnimRuntimeJson(MotbinData& data)
+{
+    if (data.folderPath.empty() || data.moves.empty()) return false;
+    std::string path = data.folderPath;
+    if (!path.empty() && path.back() != '\\' && path.back() != '/') path += '\\';
+    path += ".tkedit\\anim_runtime.json";
+
+    FILE* f = nullptr;
+    if (fopen_s(&f, path.c_str(), "r") != 0 || !f) return false;
+    std::string content;
+    char buf[512];
+    while (fgets(buf, sizeof(buf), f)) content += buf;
+    fclose(f);
+
+    // Minimal parse: per-move objects {"h":hi,"lo":lo,"len":len}
+    size_t mi = 0;
+    const char* p = content.c_str();
+    while (mi < data.moves.size() && (p = strstr(p, "\"h\"")) != nullptr)
+    {
+        p += 3;
+        while (*p && (*p == ' ' || *p == ':' || *p == '\t')) ++p;
+        char* end = nullptr;
+        unsigned long h = strtoul(p, &end, 0);
+        if (!end || end == p) break;
+        data.moves[mi].anim_handle_hi = static_cast<uint32_t>(h);
+        p = end;
+
+        // Optional "lo" within the same object (before next "h" / end)
+        const char* objEnd = strstr(p, "}");
+        const char* nextH  = strstr(p, "\"h\"");
+        const char* loKey  = strstr(p, "\"lo\"");
+        if (loKey && objEnd && loKey < objEnd && (!nextH || loKey < nextH))
+        {
+            loKey += 4;
+            while (*loKey && (*loKey == ' ' || *loKey == ':' || *loKey == '\t')) ++loKey;
+            unsigned long lo = strtoul(loKey, &end, 0);
+            if (end && end != loKey)
+                data.moves[mi].anim_handle_lo = static_cast<uint32_t>(lo);
+        }
+        ++mi;
+    }
+    return mi > 0;
+}
+
+bool SaveAnimRuntimeJson(const MotbinData& data)
+{
+    if (data.folderPath.empty()) return false;
+    std::string dir = data.folderPath;
+    if (!dir.empty() && dir.back() != '\\' && dir.back() != '/') dir += '\\';
+    dir += ".tkedit";
+    CreateDirectoryA(dir.c_str(), nullptr);
+
+    std::string path = dir + "\\anim_runtime.json";
+    FILE* f = nullptr;
+    if (fopen_s(&f, path.c_str(), "w") != 0 || !f) return false;
+    fprintf(f, "{\"moves\":[");
+    for (size_t i = 0; i < data.moves.size(); ++i)
+    {
+        if (i) fprintf(f, ",");
+        const auto& m = data.moves[i];
+        fprintf(f, "{\"h\":%u,\"lo\":%u,\"len\":%d}",
+                m.anim_handle_hi, m.anim_handle_lo, m.anim_len);
+    }
+    fprintf(f, "]}");
+    fclose(f);
+    return true;
 }
 
 // -------------------------------------------------------------
@@ -1088,7 +1163,7 @@ MotbinData LoadMotbin(const std::string& folderPath)
 //  This approach supports added/removed items in any block.
 // -------------------------------------------------------------
 
-static std::vector<uint8_t> RebuildMotbinBytes(MotbinData& data)
+std::vector<uint8_t> RebuildMotbinBytes(MotbinData& data)
 {
     const auto& raw = data.rawBytes;
     if (raw.size() < kMotbinBase) return {};
@@ -1564,7 +1639,10 @@ bool SaveMotbin(MotbinData& data)
               && written == (DWORD)out.size();
     CloseHandle(h);
 
-    if (ok) data.rawBytes = std::move(out); // update baseline so future saves are correct
+    if (ok) {
+        data.rawBytes = std::move(out); // update baseline so future saves are correct
+        SaveAnimRuntimeJson(data);
+    }
     return ok;
 }
 

@@ -1,21 +1,35 @@
 #pragma once
+#include "extract/GameProcess.h"
+#include <cstdint>
 
 // -------------------------------------------------------------
 //  GameLiveEdit
 //  Live interaction with the running Tekken 8 game process.
-//  Addresses: game_addresses.txt version 27 (T8 / Polaris)
 // -------------------------------------------------------------
 
 namespace GameLiveEdit {
 
-// Read the current move ID being played by the given player.
-//   playerId: 0 = 1P, 1 = 2P
-//   outMoveId: receives the move index on success
-// Returns false if the game process is not found or memory access fails.
-bool GetPlayerMoveId(int playerId, int& outMoveId);
+struct PlayerLive {
+    uintptr_t playerAddr    = 0;
+    uintptr_t motbinOffset  = 0;   // AOB-resolved parent_moveset offset (+0x39E8)
+    uintptr_t motbinAddr    = 0;   // current parent moveset pointer
+    uint32_t  charaId       = 0;
+};
 
-// Force player 1P to immediately play the given move.
-// Returns false if the game process is not found or memory access fails.
+// Resolve P1 (0) / P2 (1). Opens and closes the process internally.
+bool ResolvePlayer(int playerId, PlayerLive& out);
+
+// Resolve using an already-open process handle (for injection).
+bool ResolvePlayerWithProcess(const GameProcessInfo& gp, int playerId, PlayerLive& out);
+
+bool GetPlayerMoveId(int playerId, int& outMoveId);
 bool PlayMove(int moveIdx);
+bool PlayMoveOnPlayer(int playerId, int moveIdx);
+
+// Force current move re-trigger on an open process (after moveset swap).
+// Resolves alias IDs (>= 0x8000) via current_aliases / original_aliases.
+bool RetriggerCurrentMove(const GameProcessInfo& gp, int playerId);
+
+void InvalidateCache();
 
 } // namespace GameLiveEdit

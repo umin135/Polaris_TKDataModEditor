@@ -65,3 +65,10 @@ bool ReadPointerChain(const GameProcessInfo& info,
                       const size_t* offsets,
                       int count,
                       uintptr_t& out);
+
+// Allocate size bytes in the target process (MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE).
+// Returns 0 on failure.
+uintptr_t AllocGameMemory(const GameProcessInfo& info, size_t size);
+
+// Free a previous AllocGameMemory region. Returns false on failure.
+bool FreeGameMemory(const GameProcessInfo& info, uintptr_t addr);
