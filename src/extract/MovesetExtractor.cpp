@@ -60,20 +60,28 @@ static uintptr_t GetCharCinematicData(const GameProcessInfo& proc, uint32_t char
     return charData;
 }
 
-// Returns "polaris"/"polarisNN" for a (side,index), or "" if the data can't be read.
-static std::string SeasonFolderFromData(const GameProcessInfo& proc, uintptr_t charData, int side, int index)
+// Reads the four per-side season vectors of a character's cinematic data (see CineSeasonTable).
+// valid=false if charData is null or a vector header can't be read.
+static CineSeasonTable ReadCineSeasonTable(const GameProcessInfo& proc, uintptr_t charData)
 {
-    if (!charData || side < 0 || side > 3 || index < 0) return {};
-    uintptr_t begin = 0, end = 0;
-    ReadGamePointer(proc, charData + kCineSideOff[side], begin);
-    ReadGamePointer(proc, charData + kCineSideOff[side] + 8, end);
-    if (!begin || !end || end < begin) return {};
-    if ((long)index >= (long)((end - begin) / 4)) return {};
-    int32_t v = 0; ReadGameValue(proc, begin + 4LL * index, v);
-    char buf[16];
-    if (v > 0) snprintf(buf, sizeof(buf), "polaris%02d", v);
-    else       snprintf(buf, sizeof(buf), "polaris");
-    return buf;
+    CineSeasonTable t;
+    if (!charData) return t;
+    for (int side = 0; side < 4; ++side) {
+        uintptr_t begin = 0, end = 0;
+        if (!ReadGamePointer(proc, charData + kCineSideOff[side], begin) ||
+            !ReadGamePointer(proc, charData + kCineSideOff[side] + 8, end))
+            return CineSeasonTable{};
+        if (!begin || end < begin) continue;             // empty vector
+        size_t n = (size_t)(end - begin) / 4;
+        if (n > 256) return CineSeasonTable{};           // implausible -> treat as unreadable
+        for (size_t i = 0; i < n; ++i) {
+            int32_t v = -1;
+            ReadGameValue(proc, begin + 4 * i, v);
+            t.side[side].push_back(v);
+        }
+    }
+    t.valid = true;
+    return t;
 }
 
 // -------------------------------------------------------------
@@ -1261,19 +1269,16 @@ bool MovesetExtractor::ExtractToFile(int slotIndex,
 
     // Cinematic camera sequences: parse the finalized moveset and emit index->path JSON
     // (.tkedit/cinematic_sequences.json) from property 0x838E. See CinematicPaths.cpp.
+    std::string cineInfo;
     if (charaCode && charaCode[0])
     {
         MotbinData cine = LoadMotbin(charFolder);
         if (cine.loaded) {
-            // Resolve the season folder (polaris/polaris01/..) from live game memory.
+            // Live-game season table (empty-slot gate + fallback season); the sequence DB is primary.
             uintptr_t charData = m_proc.valid ? GetCharCinematicData(m_proc, slot.charaId) : 0;
-            SeasonFolderResolver resolver;
-            if (charData)
-                resolver = [this, charData](int side, int index) {
-                    return SeasonFolderFromData(m_proc, charData, side, index);
-                };
-            WriteCinematicSequencesJson(cine, charaCode, charFolder, resolver,
-                                        Config::Get().data.cinematicExportRoot);
+            CineSeasonTable seasons = ReadCineSeasonTable(m_proc, charData);
+            cineInfo = WriteCinematicSequencesJson(cine, charaCode, charFolder, seasons,
+                                                   Config::Get().data.cinematicExportRoot);
         }
     }
 
@@ -1284,6 +1289,6 @@ bool MovesetExtractor::ExtractToFile(int slotIndex,
         diagInfo = DiagnoseCinematicFolderData(m_proc, slot.charaId, charFolder);
 
     m_statusMsg = "Extracted -> TK8_" + slot.charaName + "  (" +
-                  std::to_string(bytes.size()) + " bytes)" + tkInfo + bakeInfo + animInfo + diagInfo;
+                  std::to_string(bytes.size()) + " bytes)" + tkInfo + bakeInfo + animInfo + diagInfo + cineInfo;
     return true;
 }

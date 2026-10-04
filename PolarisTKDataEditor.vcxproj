@@ -164,6 +164,9 @@ xcopy /Y /Q "$(ProjectDir)data\MovesetDatas\data.json"    "$(OutDir)res\MovesetD
 if not exist "$(OutDir)res\fbsdatas\" mkdir "$(OutDir)res\fbsdatas\"
 xcopy /Y /Q "$(ProjectDir)data\fbsdatas\version.json"     "$(OutDir)res\fbsdatas\"
 xcopy /Y /Q "$(ProjectDir)data\fbsdatas\data.json"        "$(OutDir)res\fbsdatas\"
+if not exist "$(OutDir)res\cinematics\" mkdir "$(OutDir)res\cinematics\"
+xcopy /Y /Q "$(ProjectDir)data\cinematics\version.json"   "$(OutDir)res\cinematics\"
+xcopy /Y /Q "$(ProjectDir)data\cinematics\data.json"      "$(OutDir)res\cinematics\"
 xcopy /Y /Q "$(ProjectDir)data\app-version\version.json"  "$(OutDir)res\"
 if "$(Configuration)|$(Platform)"=="Release|x64" xcopy /Y /Q "$(OutDir)PolarisTKDataEditor.exe" "$(ProjectDir)_Release\"
 if "$(Configuration)|$(Platform)"=="Release|x64" xcopy /Y /E /Q "$(OutDir)res\" "$(ProjectDir)_Release\res\"</Command>
@@ -176,6 +179,7 @@ if "$(Configuration)|$(Platform)"=="Release|x64" xcopy /Y /E /Q "$(OutDir)res\" 
     <ClCompile Include="src\GameStatic.cpp" />
     <ClCompile Include="src\FbsDataDict.cpp" />
     <ClCompile Include="src\FbsDataDictUpdater.cpp" />
+    <ClCompile Include="src\RemoteDataUpdater.cpp" />
     <ClCompile Include="src\KamuiDictUpdater.cpp" />
     <ClCompile Include="src\AppUpdater.cpp" />
     <ClCompile Include="src\MovesetDataDictUpdater.cpp" />
@@ -190,6 +194,7 @@ if "$(Configuration)|$(Platform)"=="Release|x64" xcopy /Y /E /Q "$(OutDir)res\" 
     <ClCompile Include="src\moveset\editor\MovesetView.cpp" />
     <ClCompile Include="src\moveset\data\MotbinData.cpp" />
     <ClCompile Include="src\moveset\data\CinematicPaths.cpp" />
+    <ClCompile Include="src\moveset\data\CinematicSeqDB.cpp" />
     <ClCompile Include="src\moveset\data\CinematicManifest.cpp" />
     <ClCompile Include="src\moveset\editor\MovesetEditorWindow.cpp" />
     <ClCompile Include="src\moveset\data\AnmbinData.cpp" />

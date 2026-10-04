@@ -6,6 +6,7 @@
 #include "GameStatic.h"
 #include "moveset/labels/LabelDB.h"
 #include "moveset/data/MovesetDataDict.h"
+#include "moveset/data/CinematicPaths.h"
 #include "moveset/data/EditorFieldLabel.h"
 #include "moveset/labels/FieldTooltips.h"
 #include "moveset/live/GameLiveEdit.h"
@@ -6730,6 +6731,13 @@ void MovesetEditorWindow::RenderSubWin_Cinematics()
                         CineManifestEntry& e = m_cine.entries[rep];
                         if (e.added) {
                             if (ImGui::SmallButton("x")) { pendingRemoveGroup = e.group; pendingRemoveNum = e.num; }
+                            if (e.hasExists && !e.exists) {
+                                ImGui::SameLine(0.0f, 2.0f);
+                                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "!");
+                                if (ImGui::IsItemHovered())
+                                    ImGui::SetTooltip("This character has no original sequence for this slot.\n"
+                                                      "Enter a Source path, or nothing is redirected.");
+                            }
                         } else if (e.hasExists) {
                             ImGui::TextColored(e.exists ? ImVec4(0.35f, 1.0f, 0.5f, 1.0f) : ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
                                                e.exists ? "o" : "!");
@@ -6788,27 +6796,41 @@ void MovesetEditorWindow::RenderSubWin_Cinematics()
         const std::string& g = pendingAddGroup; int nn = pendingAddNum;
         bool dup = false;
         for (const auto& e : m_cine.entries) if (e.group == g && e.num == nn) { dup = true; break; }
+        // Source path of a slot added in the editor (same resolution as extraction): sequence DB /
+        // live season table. A slot with no original sequence gets an empty src (exists=false) so
+        // nothing is redirected until the user enters a Source override. Neither available ->
+        // legacy guess from the manifest's existing entries.
+        auto ResolveAddedCineSrc = [&](CineManifestEntry& e, const char* base, int side, const std::string& tail) {
+            CineSeqResolve r = ResolveCineSeq(m_cine.seasons, base, side, e.num, tail);
+            if (r.state == CineSeqState::Ok) {
+                e.src = std::string("/Game/cinematics/") + base + "/" + r.folder + "/" + tail;
+                e.hasExists = r.verified; e.exists = r.verified;
+            } else if (r.state == CineSeqState::Unresolved) {
+                e.src = std::string("/Game/cinematics/") + base + "/" +
+                        DeriveFolder(m_cine, std::string("/") + base + "/") + "/" + tail;
+            } else {
+                e.src.clear();
+                e.hasExists = true; e.exists = false;
+            }
+        };
         if (!dup) {
             char nnb[8]; snprintf(nnb, sizeof(nnb), "%02d", nn);
             if (g == "throw") {
-                std::string folder = DeriveFolder(m_cine, "/game/");
                 for (const char* cam : { "cam1p", "cam2p" }) {
                     CineManifestEntry e;
                     e.group = "throw"; e.cam = cam; e.num = nn; e.added = true;
                     e.id = std::string("throw_") + nnb + "_" + cam;
-                    e.src = "/Game/cinematics/game/" + folder + "/" + m_cine.code + "/throw/" + nnb +
-                            "/" + m_cine.code + "_throw_" + nnb + "_" + cam + "_master";
+                    ResolveAddedCineSrc(e, "game", CINE_SIDE_THROW, CineThrowTail(m_cine.code, nn, cam));
                     m_cine.entries.push_back(e);
                     m_cineEdit.push_back(e.src);
                 }
             } else { // intro / outro (demo builder)
-                std::string folder = DeriveFolder(m_cine, "/demo/");
                 const char* tok = (g == "intro") ? "sta" : "win";
                 CineManifestEntry e;
                 e.group = g; e.num = nn; e.added = true;
                 e.id = g + "_" + std::to_string(nn);
-                e.src = "/Game/cinematics/demo/" + folder + "/" + m_cine.code + "/" + tok + "/" + nnb +
-                        "/" + m_cine.code + "_" + tok + "_" + nnb + "_master";
+                ResolveAddedCineSrc(e, "demo", g == "intro" ? CINE_SIDE_INTRO : CINE_SIDE_OUTRO,
+                                    CineDemoTail(m_cine.code, tok, nn));
                 m_cine.entries.push_back(e);
                 m_cineEdit.push_back(e.src);
             }

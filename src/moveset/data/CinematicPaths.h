@@ -7,25 +7,46 @@
 //  Paths are built exactly like the game's decompiled builders (see
 //  _references/CinematicSequence_Paths_RE.md). Output: <folder>/polaris/cinematic.json
 //  — consumed later by the editor UI and by an external ModLoader to decide which uasset to redirect.
+//
+//  Season folder / existence resolution (ResolveCineSeq), in order:
+//    1. live-game season table: slot out of range or value < 0 -> no sequence (always applied)
+//    2. CinematicSeqDB (res/cinematics/data.json): authoritative folder; not listed -> no asset
+//    3. fallback (DB unavailable): season from the live table
+//    4. neither available -> unresolved (nothing is guessed)
 // -------------------------------------------------------------
+#include "moveset/data/CinematicManifest.h"
 #include <string>
-#include <functional>
 
 struct MotbinData;
 
-// Resolves the season-folder bucket ("polaris" / "polaris01" / …) for a cinematic sequence, given
-// its (side, index) in the game's per-character cinematic data. Provided by the extractor (reads
-// live game memory). Return "" if unresolvable → caller falls back to "polaris".
-//   side: 0 = rage, 1 = outro(win), 2 = intro(sta), 3 = throw   index: per-category sub-index
-using SeasonFolderResolver = std::function<std::string(int side, int index)>;
+// side ids (match the game's per-character cinematic data): rage=0, outro=1, intro=2, throw=3.
+enum { CINE_SIDE_RAGE = 0, CINE_SIDE_OUTRO = 1, CINE_SIDE_INTRO = 2, CINE_SIDE_THROW = 3 };
+
+enum class CineSeqState { Ok, EmptyInGame, NoAsset, Unresolved };
+
+struct CineSeqResolve {
+    CineSeqState state    = CineSeqState::Unresolved;
+    std::string  folder;            // season folder when state == Ok
+    bool         verified = false;  // folder + existence confirmed by CinematicSeqDB
+};
+
+// path tails below the season folder (filenames match the game / asset dump exactly)
+std::string CineRageTail (const std::string& code, const std::string& sub, const char* cam);
+std::string CineThrowTail(const std::string& code, int nn, const char* cam);
+std::string CineDemoTail (const std::string& code, const char* tok, int no); // tok: "sta" / "win"
+
+// Resolves one sequence. base: "game" / "demo"; (side, index) address the live season table.
+CineSeqResolve ResolveCineSeq(const CineSeasonTable& table, const char* base,
+                              int side, int index, const std::string& tail);
 
 // Scans the moveset's cinematic properties and writes the cinematic path JSON.
 // `code` is the character code (e.g. "grl"); `folderPath` is the moveset folder.
-// `resolver` (optional) supplies each sequence's real season folder from live game memory.
-// `exportRoot` (optional) is a ripped cinematics dump root (…\Content\cinematics); when non-empty
-// each emitted path's existence is cross-checked against it (*_exists fields).
-void WriteCinematicSequencesJson(const MotbinData& data,
-                                 const std::string& code,
-                                 const std::string& folderPath,
-                                 const SeasonFolderResolver& resolver,
-                                 const std::string& exportRoot);
+// `seasons` = live-game season table (valid=false if the game data couldn't be read).
+// `exportRoot` (optional) = ripped cinematics dump root; used only for the fallback path
+// (no sequence DB) to cross-check existence (*_exists fields).
+// Returns a short status suffix for the extractor's message (warns when unresolved).
+std::string WriteCinematicSequencesJson(const MotbinData& data,
+                                        const std::string& code,
+                                        const std::string& folderPath,
+                                        const CineSeasonTable& seasons,
+                                        const std::string& exportRoot);

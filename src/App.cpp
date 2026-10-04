@@ -7,6 +7,8 @@
 #include "MovesetDataDictUpdater.h"
 #include "FbsDataDict.h"
 #include "FbsDataDictUpdater.h"
+#include "RemoteDataUpdater.h"
+#include "moveset/data/CinematicSeqDB.h"
 #include "fbsdata/data/ExternalItemIdIndex.h"
 #include "moveset/labels/LabelDB.h"
 #include "moveset/data/MovesetDataDict.h"
@@ -438,7 +440,18 @@ void App::RunInitThread()
                 FILE* f = nullptr; fopen_s(&f, p.c_str(), "rb");
                 if (f) { fclose(f); FbsDataDict::Get().Load(p); }
             }
+
+            // Cinematic sequence list (existing camera cutscene assets) -- see CinematicSeqDB.h
+            RemoteDataCheckAndUpdate(resDir, "cinematics");
+            CinematicSeqDB::Get().Load(resDir + "\\cinematics\\data.json");
         }
+
+        // No res/ copy (dev run): fall back to the repository's data/cinematics.
+        if (!CinematicSeqDB::Get().IsLoaded())
+            for (const auto& c : candidates) {
+                CinematicSeqDB::Get().Load(c + "\\..\\cinematics\\data.json");
+                if (CinematicSeqDB::Get().IsLoaded()) break;
+            }
     }
 
     m_initStatus.store("Checking for updates...");
@@ -1495,7 +1508,7 @@ void App::RenderSettingsWindow()
             ImGui::Spacing();
             if (m_settingsCineExport[0] == '\0')
             {
-                ImGui::TextDisabled("cinematics dump: (not set -> folder assumed \"polaris\")");
+                ImGui::TextDisabled("cinematics dump: (not set -- optional, only used when the sequence DB is unavailable)");
             }
             else
             {

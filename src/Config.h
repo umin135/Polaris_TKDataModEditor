@@ -6,8 +6,8 @@ struct AppConfig {
     std::string tkmodManagerDir;    // directory scanned by the Manage tkmods window
 
     // Root of a ripped cinematics export tree (…\Exports\Polaris\Content\cinematics).
-    // When set, moveset extraction resolves each level-sequence's real season folder
-    // (polaris / polaris01 / …) and existence against this dump. Optional; empty = assume "polaris".
+    // Optional fallback: when the cinematic sequence DB (res/cinematics) is unavailable, moveset
+    // extraction cross-checks each level-sequence path's existence against this dump.
     std::string cinematicExportRoot;
 
     // Per-row list edit shortcuts, encoded as chord strings (e.g. "Ctrl+D", "Insert").

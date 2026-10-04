@@ -23,10 +23,19 @@ struct CineManifestEntry {
     bool        added     = false; // throw entry the user added (not referenced by the moveset)
 };
 
+// Live-game season numbers per cinematic side (side 0 = rage, 1 = outro, 2 = intro, 3 = throw;
+// index = rage 0 / drama no / throw NN). value > 0 -> "polaris%02d", 0 -> "polaris", < 0 -> no
+// sequence in that slot. Captured at extraction and saved in the manifest ("season_table").
+struct CineSeasonTable {
+    bool             valid = false;
+    std::vector<int> side[4];
+};
+
 struct CineManifest {
     bool        loaded = false;
     std::string code;
-    std::string folderSource;                  // "game-runtime" | "assumed-polaris"
+    std::string folderSource;                  // "sequence-db[+game-runtime]" | "game-runtime" | "unresolved"
+    CineSeasonTable seasons;                   // live-game season table (valid=false if unavailable)
     std::vector<CineManifestEntry> entries;    // grouped: rage, intro, outro, throw
     std::string excludedRaw;                   // verbatim inner text of the "excluded" object ("" if none)
 };

@@ -1,11 +1,13 @@
 // CinematicPaths.cpp -- builds the cinematic manifest for a moveset and writes it via
 // SaveCineManifest (shared serializer). Path formats reconstructed 1:1 from the decompiled game
-// builders; season folder resolved from live game memory (SeasonFolderResolver). See the header +
+// builders; season folder / existence from CinematicSeqDB, gated by the live-game season table
+// (ResolveCineSeq; resolution order in the header). See the header +
 // _references/CinematicSequence_Paths_RE.md. Redirect/override model: _references/Cinematic_Redirect_Plan.md.
 #include "moveset/data/CinematicPaths.h"
 #include "moveset/data/MotbinData.h"
 #include "moveset/data/CinematicManifest.h"
 #include "moveset/data/MovesetDataDict.h"
+#include "moveset/data/CinematicSeqDB.h"
 #include <set>
 #include <utility>
 #include <string>
@@ -16,72 +18,74 @@ static constexpr uint32_t kProp838E = 0x838E; // "Trigger cinematic camera" (rag
 static constexpr uint32_t kProp8313 = 0x8313; // "Set Drama Type"  (1 = intro, 2 = outro)
 static constexpr uint32_t kProp8314 = 0x8314; // "Set Drama No."
 
-// side ids (match sub_141818DD0 offsets): rage=0, outro=1, intro=2, throw=3.
-enum { SIDE_RAGE = 0, SIDE_OUTRO = 1, SIDE_INTRO = 2, SIDE_THROW = 3 };
+std::string CineRageTail(const std::string& c, const std::string& sub, const char* cam)
+{ return c + "/rage/" + sub + "/" + c + "_rage_" + sub + "_" + cam + "_master"; }
 
-// One resolved sequence path + season-folder validity/existence.
-struct Seq {
-    std::string path;
-    bool exists = false, checked = false;
-    bool valid  = true; // false = resolver active but (side,index) out of the live game's arrays
-};
-
-// path tails below the season bucket (filenames match the game / export dump exactly)
-static std::string RageTail (const std::string& c, const char* tok, const char* cam)
-{ return c + "/rage/" + tok + "/" + c + "_rage_" + tok + "_" + cam + "_master"; }
-static std::string ThrowTail(const std::string& c, const std::string& nn, const char* cam)
-{ return c + "/throw/" + nn + "/" + c + "_throw_" + nn + "_" + cam + "_master"; }
-static std::string DemoTail (const std::string& c, const char* type, const std::string& nn)
-{ return c + "/" + type + "/" + nn + "/" + c + "_" + type + "_" + nn + "_master"; }
-
-// Resolves the season folder (via resolver) + builds the package path; cross-checks existence vs dump.
-static Seq MakeSeq(const SeasonFolderResolver& resolver, const std::string& exportRoot,
-                   const char* base, int side, int index, const std::string& tail)
+std::string CineThrowTail(const std::string& c, int nn, const char* cam)
 {
-    Seq s;
-    std::string folder;
-    if (resolver) {
-        folder = resolver(side, index);
-        if (folder.empty()) { s.valid = false; folder = "polaris"; } // out of range in live data
-    } else {
-        folder = "polaris";
-    }
-    s.path = std::string("/Game/cinematics/") + base + "/" + folder + "/" + tail;
-    if (!exportRoot.empty()) {
-        s.checked = true;
-        std::string disk = exportRoot + "\\" + base + "\\" + folder + "\\" + tail + ".json";
-        for (char& c : disk) if (c == '/') c = '\\';
-        DWORD attr = GetFileAttributesA(disk.c_str());
-        s.exists = (attr != INVALID_FILE_ATTRIBUTES && !(attr & FILE_ATTRIBUTE_DIRECTORY));
-    }
-    return s;
+    char b[8]; snprintf(b, sizeof(b), "%02d", nn);
+    return c + "/throw/" + b + "/" + c + "_throw_" + b + "_" + cam + "_master";
 }
 
-// Map a 0x838E params[0] value to (category, sub). 5/6/7 = rage pre/finish/finishko, 8+ = throw NN.
-static bool MapProp838E(uint32_t param, std::string& cat, std::string& sub, int& throwNN)
+std::string CineDemoTail(const std::string& c, const char* tok, int no)
 {
-    switch (param) {
-        case 5: cat = "rage"; sub = "pre";      return true;
-        case 6: cat = "rage"; sub = "finish";   return true;
-        case 7: cat = "rage"; sub = "finishko"; return true;
-        default: break;
-    }
-    if (param >= 8) {
-        throwNN = static_cast<int>(param) - 8;
-        char b[8]; snprintf(b, sizeof(b), "%02d", throwNN);
-        cat = "throw"; sub = b;
-        return true;
-    }
-    return false;
+    char b[8]; snprintf(b, sizeof(b), "%02d", no);
+    return c + "/" + tok + "/" + b + "/" + c + "_" + tok + "_" + b + "_master";
 }
 
-void WriteCinematicSequencesJson(const MotbinData& data,
-                                 const std::string& code,
-                                 const std::string& folderPath,
-                                 const SeasonFolderResolver& resolver,
-                                 const std::string& exportRoot)
+CineSeqResolve ResolveCineSeq(const CineSeasonTable& table, const char* base,
+                              int side, int index, const std::string& tail)
 {
-    if (code.empty()) return;
+    CineSeqResolve r;
+    // 1. live table identifies empty slots (out of range / value < 0) regardless of the DB
+    int live = 0;
+    if (table.valid) {
+        const auto& arr = table.side[side];
+        if (index < 0 || index >= (int)arr.size() || arr[index] < 0) {
+            r.state = CineSeqState::EmptyInGame;
+            return r;
+        }
+        live = arr[index];
+    }
+    // 2. sequence DB: authoritative season folder + existence
+    const CinematicSeqDB& db = CinematicSeqDB::Get();
+    if (db.IsLoaded()) {
+        r.folder = db.FindSeason(base, tail);
+        r.state  = r.folder.empty() ? CineSeqState::NoAsset : CineSeqState::Ok;
+        r.verified = !r.folder.empty();
+        return r;
+    }
+    // 3. fallback: season from the live table
+    if (table.valid) {
+        char b[16];
+        if (live > 0) snprintf(b, sizeof(b), "polaris%02d", live);
+        else          snprintf(b, sizeof(b), "polaris");
+        r.folder = b;
+        r.state  = CineSeqState::Ok;
+        return r;
+    }
+    // 4. nothing to resolve with -- don't guess
+    r.state = CineSeqState::Unresolved;
+    return r;
+}
+
+static const char* StateReason(CineSeqState s)
+{
+    switch (s) {
+        case CineSeqState::EmptyInGame: return "empty in game data";
+        case CineSeqState::NoAsset:     return "no such sequence asset";
+        case CineSeqState::Unresolved:  return "unresolved (no sequence DB / game data)";
+        default:                        return "";
+    }
+}
+
+std::string WriteCinematicSequencesJson(const MotbinData& data,
+                                        const std::string& code,
+                                        const std::string& folderPath,
+                                        const CineSeasonTable& seasons,
+                                        const std::string& exportRoot)
+{
+    if (code.empty()) return {};
 
     // Re-extraction always overwrites: a fresh manifest is generated from live game data, discarding
     // any previous overrides / added slots (cinematic.json is otherwise saved only via the moveset save).
@@ -123,44 +127,64 @@ void WriteCinematicSequencesJson(const MotbinData& data,
     }
 
     // ---- build the manifest ----
+    const bool dbOk = CinematicSeqDB::Get().IsLoaded();
     CineManifest man;
-    man.code = code;
-    man.folderSource = resolver ? "game-runtime" : "assumed-polaris";
+    man.code    = code;
+    man.seasons = seasons;
+    man.folderSource = dbOk ? (seasons.valid ? "sequence-db+game-runtime" : "sequence-db")
+                            : (seasons.valid ? "game-runtime" : "unresolved");
 
-    std::vector<uint32_t>    excl838E;
-    std::vector<std::string> exclDrama;
-    std::set<int>            throwPresent, introPresent, outroPresent; // avoid dup with added lists
+    std::vector<uint32_t>    excl838E;    // 0x838E values with no sequence at all
+    std::vector<std::string> exclDrama;   // non intro/outro drama types + dropped intro/outro
+    std::vector<std::string> exclSeq;     // "id: reason" for every dropped sequence
+    int unresolved = 0;
 
-    auto pushRage = [&](const std::string& sub) {
-        for (const char* cam : { "cam1p", "cam2p" }) {
-            Seq s = MakeSeq(resolver, exportRoot, "game", SIDE_RAGE, 0, RageTail(code, sub.c_str(), cam));
-            CineManifestEntry e;
-            e.group = "rage"; e.sub = sub; e.cam = cam;
-            e.id = "rage_" + sub + "_" + cam; e.src = s.path;
-            e.hasExists = s.checked; e.exists = s.exists;
-            man.entries.push_back(std::move(e));
+    // Resolves one sequence and appends it as an entry; returns false (and records why) if dropped.
+    auto addSeq = [&](CineManifestEntry e, const char* base, int side, int index, const std::string& tail) {
+        CineSeqResolve r = ResolveCineSeq(seasons, base, side, index, tail);
+        if (r.state != CineSeqState::Ok) {
+            if (r.state == CineSeqState::Unresolved) ++unresolved;
+            exclSeq.push_back(e.id + ": " + StateReason(r.state));
+            return false;
         }
-    };
-    auto pushThrow = [&](int nn, bool added) {
-        char nnb[8]; snprintf(nnb, sizeof(nnb), "%02d", nn);
-        for (const char* cam : { "cam1p", "cam2p" }) {
-            Seq s = MakeSeq(resolver, exportRoot, "game", SIDE_THROW, nn, ThrowTail(code, nnb, cam));
-            CineManifestEntry e;
-            e.group = "throw"; e.cam = cam; e.num = nn; e.added = added;
-            e.id = std::string("throw_") + nnb + "_" + cam; e.src = s.path;
-            e.hasExists = s.checked; e.exists = s.exists;
-            man.entries.push_back(std::move(e));
+        e.src = std::string("/Game/cinematics/") + base + "/" + r.folder + "/" + tail;
+        if (r.verified) {
+            e.hasExists = true; e.exists = true;
+        } else if (!exportRoot.empty()) {   // fallback path: optional dump cross-check
+            std::string disk = exportRoot + "\\" + base + "\\" + r.folder + "\\" + tail + ".json";
+            for (char& c : disk) if (c == '/') c = '\\';
+            DWORD attr = GetFileAttributesA(disk.c_str());
+            e.hasExists = true;
+            e.exists = (attr != INVALID_FILE_ATTRIBUTES && !(attr & FILE_ATTRIBUTE_DIRECTORY));
         }
-        throwPresent.insert(nn);
+        man.entries.push_back(std::move(e));
+        return true;
     };
 
+    // 0x838E: 5/6/7 = rage pre/finish/finishko (side 0, index 0), 8+ = throw NN (side 3, index NN)
     for (uint32_t pv : camParams) {           // std::set is sorted: rage (5-7) then throw (8+)
-        std::string cat, sub; int nn = -1;
-        if (!MapProp838E(pv, cat, sub, nn)) continue;
-        if (cat == "rage") { pushRage(sub); continue; }
-        Seq probe = MakeSeq(resolver, exportRoot, "game", SIDE_THROW, nn, ThrowTail(code, sub, "cam1p"));
-        if (!probe.valid) { excl838E.push_back(pv); continue; } // out of range -> stage gimmick etc.
-        pushThrow(nn, false);
+        int any = 0;
+        if (pv >= 5 && pv <= 7) {
+            const char* sub = pv == 5 ? "pre" : pv == 6 ? "finish" : "finishko";
+            for (const char* cam : { "cam1p", "cam2p" }) {
+                CineManifestEntry e;
+                e.group = "rage"; e.sub = sub; e.cam = cam;
+                e.id = std::string("rage_") + sub + "_" + cam;
+                any += addSeq(e, "game", CINE_SIDE_RAGE, 0, CineRageTail(code, sub, cam));
+            }
+        } else if (pv >= 8) {
+            int nn = (int)pv - 8;
+            char nnb[8]; snprintf(nnb, sizeof(nnb), "%02d", nn);
+            for (const char* cam : { "cam1p", "cam2p" }) {
+                CineManifestEntry e;
+                e.group = "throw"; e.cam = cam; e.num = nn;
+                e.id = std::string("throw_") + nnb + "_" + cam;
+                any += addSeq(e, "game", CINE_SIDE_THROW, nn, CineThrowTail(code, nn, cam));
+            }
+        } else {
+            continue; // 1-4: not a per-character camera slot
+        }
+        if (!any) excl838E.push_back(pv);   // stage gimmick / empty slot / missing asset
     }
 
     for (const auto& pr : dramaPairs) {
@@ -175,25 +199,34 @@ void WriteCinematicSequencesJson(const MotbinData& data,
         }
         const char* seg = (type == 1) ? "intro" : "outro";
         const char* tok = (type == 1) ? "sta"   : "win";
-        int side        = (type == 1) ? SIDE_INTRO : SIDE_OUTRO;
-        char nnb[8]; snprintf(nnb, sizeof(nnb), "%02u", no);
-        Seq s = MakeSeq(resolver, exportRoot, "demo", side, (int)no, DemoTail(code, tok, nnb));
-        if (!s.valid) { char l[24]; snprintf(l, sizeof(l), "%s_%u", seg, no); exclDrama.push_back(l); continue; }
+        int side        = (type == 1) ? CINE_SIDE_INTRO : CINE_SIDE_OUTRO;
         CineManifestEntry e;
         e.group = seg; e.num = (int)no;
-        e.id = std::string(seg) + "_" + std::to_string(no); e.src = s.path;
-        e.hasExists = s.checked; e.exists = s.exists;
-        man.entries.push_back(std::move(e));
-        (type == 1 ? introPresent : outroPresent).insert((int)no);
+        e.id = std::string(seg) + "_" + std::to_string(no);
+        if (!addSeq(e, "demo", side, (int)no, CineDemoTail(code, tok, (int)no)))
+            exclDrama.push_back(std::string(seg) + "_" + std::to_string(no));
     }
 
     // excluded block (verbatim text) -- info only, never a redirect target
-    std::string ex = "\"note\": \"Not per-character camera targets (stage-gimmick / FATE / story / out-of-range).\",\n    \"prop_838E\": [";
+    auto quoteList = [](const std::vector<std::string>& v) {
+        std::string r;
+        for (size_t i = 0; i < v.size(); ++i) r += (i ? ", " : "") + std::string("\"") + v[i] + "\"";
+        return r;
+    };
+    std::string ex = "\"note\": \"Not per-character camera targets (stage-gimmick / FATE / story / empty slot / missing asset).\",\n    \"prop_838E\": [";
     for (size_t i = 0; i < excl838E.size(); ++i) ex += (i ? ", " : "") + std::to_string(excl838E[i]);
-    ex += "],\n    \"drama\": [";
-    for (size_t i = 0; i < exclDrama.size(); ++i) ex += (i ? ", " : "") + std::string("\"") + exclDrama[i] + "\"";
-    ex += "]";
+    ex += "],\n    \"drama\": [" + quoteList(exclDrama) + "]";
+    ex += ",\n    \"sequences\": [" + quoteList(exclSeq) + "]";
     man.excludedRaw = ex;
 
     SaveCineManifest(folderPath, man);
+
+    char msg[200];
+    if (unresolved > 0)
+        snprintf(msg, sizeof(msg), "\n[!] Cinematics UNRESOLVED (no sequence DB, no game data): %d sequence(s) not written. "
+                 "Restore res/cinematics/data.json or re-extract in Practice mode.", unresolved);
+    else
+        snprintf(msg, sizeof(msg), " | cinematics: %d sequence(s) [%s]",
+                 (int)man.entries.size(), man.folderSource.c_str());
+    return msg;
 }

@@ -158,6 +158,26 @@ CineManifest LoadCineManifest(const std::string& folderPath)
         }); }
 
 
+    // season_table object -> per-side int arrays
+    { size_t o, c; if (FindContainer(js, "season_table", '{', '}', o, c)) {
+        static const char* kSides[4] = { "rage", "outro", "intro", "throw" };
+        for (int s = 0; s < 4; ++s) {
+            std::string pat = std::string("\"") + kSides[s] + "\"";
+            size_t k = js.find(pat, o);
+            if (k == std::string::npos || k >= c) continue;
+            size_t ao = js.find('[', k), ac = (ao == std::string::npos) ? ao : js.find(']', ao);
+            if (ac == std::string::npos || ac > c) continue;
+            for (size_t p = ao + 1; p < ac; ) {
+                while (p < ac && js[p] != '-' && (js[p] < '0' || js[p] > '9')) ++p;
+                if (p >= ac) break;
+                man.seasons.side[s].push_back(atoi(js.c_str() + p));
+                ++p;
+                while (p < ac && js[p] >= '0' && js[p] <= '9') ++p;
+            }
+        }
+        man.seasons.valid = true;
+    } }
+
     // excluded object -> keep verbatim inner text
     { size_t o, c; if (FindContainer(js, "excluded", '{', '}', o, c)) {
         std::string inner = js.substr(o + 1, c - o - 1);
@@ -221,6 +241,19 @@ bool SaveCineManifest(const std::string& folderPath, const CineManifest& man)
     WriteSection(f, man, "intro", "intro");
     WriteSection(f, man, "outro", "outro");
     WriteSection(f, man, "throw", "throw");
+
+    // live-game season table (info for the editor's add-slot resolution; Loader may ignore it)
+    if (man.seasons.valid) {
+        static const char* kSides[4] = { "rage", "outro", "intro", "throw" };
+        fprintf(f, "  \"season_table\": {");
+        for (int s = 0; s < 4; ++s) {
+            fprintf(f, s ? ", \"%s\": [" : " \"%s\": [", kSides[s]);
+            for (size_t i = 0; i < man.seasons.side[s].size(); ++i)
+                fprintf(f, i ? ", %d" : "%d", man.seasons.side[s][i]);
+            fprintf(f, "]");
+        }
+        fprintf(f, " },\n");
+    }
 
     fprintf(f, "  \"excluded\": {");
     if (!man.excludedRaw.empty()) fprintf(f, "\n    %s\n  }\n", man.excludedRaw.c_str());
