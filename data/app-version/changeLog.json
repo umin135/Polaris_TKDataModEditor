@@ -12,5 +12,6 @@
   "80": {"Log": "# Moveset Update\n- Cinematic Window Added. \nNow We can make full custom Camera Animation!\n- [Extract Both] Button Added.\n- A pop-up has been added to indicate the conflicting item when a conflict arises due to duplication while adding an animation."},
   "81": {"Log": "# Moveset Update\n- Improvements have been made to allow the addition of animations across all categories.\n- A minor bug in the Animation Manager has been fixed."},
   "90": {"Log": "# Moveset Update\n- New option \"Import Motbin\" added on the editor with the following options:\n  - Import to P1\n  - Import to P2\n  - Restore P1\n  - Restore P2\n- Live-editing added: after Import, field edits are written into the injected Motbin while Live Editing is Enabled.\n  - As long as no rows are added/deleted/duplicated, you can edit live.\n  - Insert / Remove / Duplicate / Restore disables Live Editing (re-Import to enable again).\n  - Some move fields are off-limits for live patch (e.g. anim_key / anim handles; animations still go through TkModLoader anmbin reload).\n- Live Editing status is shown in the editor menu.\n- Import / Restore now show a result alert each time.\n- Re-Import safely replaces the previous inject (prior allocation is freed after a short delay; original Motbin pointer stays restorable)."},
-  "91": {"Log": "# Moveset Update\n- Cinematic Minor Fix"}
+  "91": {"Log": "# Moveset Update\n- Cinematic Minor Fix"},
+  "92": {"Log": "# Moveset Update\n- Cinematic Minor Fix 2"}
 }

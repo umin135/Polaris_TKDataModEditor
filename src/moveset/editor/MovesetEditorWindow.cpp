@@ -6527,18 +6527,6 @@ void MovesetEditorWindow::RenderSubWin_Dialogues()
 //  overrides block, preserving the game-resolved catalog.
 // -------------------------------------------------------------
 
-void MovesetEditorWindow::LoadCinematicsManifest()
-{
-    m_cine = LoadCineManifest(m_data.folderPath);
-    m_cineEdit.assign(m_cine.entries.size(), std::string());
-    for (size_t i = 0; i < m_cine.entries.size(); ++i) {
-        const CineManifestEntry& e = m_cine.entries[i];
-        m_cineEdit[i] = e.overridePath.empty() ? e.src : e.overridePath;
-    }
-    m_cineSel = -1;
-    m_cineLoaded = true;
-}
-
 // Derive the season bucket ("polaris" / "polaris01"..) from an existing entry's src (by "/game/" or
 // "/demo/" marker), else "polaris".
 static std::string DeriveFolder(const CineManifest& m, const std::string& marker)
@@ -6552,6 +6540,41 @@ static std::string DeriveFolder(const CineManifest& m, const std::string& marker
     }
     return "polaris";
 }
+
+// Default `src` for an entry the moveset/extraction didn't provide (editor-added slot, rage
+// placeholder): the path the game itself would request for this slot. Never empty -- the Loader
+// skips entries without a src even when an override is set. Season: sequence DB / live table when
+// the slot exists, else the manifest's existing entries.
+static std::string DefaultCineSrc(const CineManifest& m, const CineManifestEntry& e)
+{
+    const char* base = "game"; int side = CINE_SIDE_THROW, idx = e.num; std::string tail;
+    if (e.group == "rage")       { side = CINE_SIDE_RAGE; idx = 0; tail = CineRageTail(m.code, e.sub, e.cam.c_str()); }
+    else if (e.group == "throw") { tail = CineThrowTail(m.code, e.num, e.cam.c_str()); }
+    else {
+        base = "demo";
+        side = (e.group == "intro") ? CINE_SIDE_INTRO : CINE_SIDE_OUTRO;
+        tail = CineDemoTail(m.code, e.group == "intro" ? "sta" : "win", e.num);
+    }
+    CineSeqResolve r = ResolveCineSeq(m.seasons, base, side, idx, tail);
+    std::string folder = (r.state == CineSeqState::Ok) ? r.folder
+                                                       : DeriveFolder(m, std::string("/") + base + "/");
+    return std::string("/Game/cinematics/") + base + "/" + folder + "/" + tail;
+}
+
+void MovesetEditorWindow::LoadCinematicsManifest()
+{
+    m_cine = LoadCineManifest(m_data.folderPath);
+    m_cineEdit.assign(m_cine.entries.size(), std::string());
+    for (size_t i = 0; i < m_cine.entries.size(); ++i) {
+        CineManifestEntry& e = m_cine.entries[i];
+        if (e.src.empty()) { e.src = DefaultCineSrc(m_cine, e); m_dirty = true; } // repair: Loader needs a src
+        e.hasExists = false;   // existence is only checked at extraction; not shown in the editor
+        m_cineEdit[i] = e.overridePath.empty() ? e.src : e.overridePath;
+    }
+    m_cineSel = -1;
+    m_cineLoaded = true;
+}
+
 
 // The index the moveset property actually references for this sequence:
 //   rage: 0x838E param (pre=5, finish=6, finishko=7)   throw: 0x838E param (NN+8)
@@ -6647,6 +6670,7 @@ void MovesetEditorWindow::RenderSubWin_Cinematics()
                             CineManifestEntry e;
                             e.group = g; e.sub = sub; e.num = num; e.cam = (cam[0] ? cam : "");
                             e.overridePath = buf;   // no source camera -> stored as an override target
+                            e.src = DefaultCineSrc(m_cine, e); // slot's own request path (Loader needs a src)
                             if (g == "rage")        e.id = "rage_" + sub + "_" + cam;
                             else if (g == "throw") { char nb[8]; snprintf(nb, sizeof(nb), "%02d", num); e.id = std::string("throw_") + nb + "_" + cam; }
                             else                    e.id = g + "_" + std::to_string(num);
@@ -6725,23 +6749,11 @@ void MovesetEditorWindow::RenderSubWin_Cinematics()
                     int actCol = 3;
                     if (dual) { ImGui::TableSetColumnIndex(3); srcCellFor(r.p2, r.sub, r.num, "cam2p"); actCol = 4; }
 
-                    // action col: remove (added) or existence hint
+                    // action col: remove button for editor-added slots
                     ImGui::TableSetColumnIndex(actCol);
                     if (rep >= 0) {
                         CineManifestEntry& e = m_cine.entries[rep];
-                        if (e.added) {
-                            if (ImGui::SmallButton("x")) { pendingRemoveGroup = e.group; pendingRemoveNum = e.num; }
-                            if (e.hasExists && !e.exists) {
-                                ImGui::SameLine(0.0f, 2.0f);
-                                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "!");
-                                if (ImGui::IsItemHovered())
-                                    ImGui::SetTooltip("This character has no original sequence for this slot.\n"
-                                                      "Enter a Source path, or nothing is redirected.");
-                            }
-                        } else if (e.hasExists) {
-                            ImGui::TextColored(e.exists ? ImVec4(0.35f, 1.0f, 0.5f, 1.0f) : ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
-                                               e.exists ? "o" : "!");
-                        }
+                        if (e.added && ImGui::SmallButton("x")) { pendingRemoveGroup = e.group; pendingRemoveNum = e.num; }
                     }
                     ImGui::PopID();
                 }
@@ -6796,23 +6808,6 @@ void MovesetEditorWindow::RenderSubWin_Cinematics()
         const std::string& g = pendingAddGroup; int nn = pendingAddNum;
         bool dup = false;
         for (const auto& e : m_cine.entries) if (e.group == g && e.num == nn) { dup = true; break; }
-        // Source path of a slot added in the editor (same resolution as extraction): sequence DB /
-        // live season table. A slot with no original sequence gets an empty src (exists=false) so
-        // nothing is redirected until the user enters a Source override. Neither available ->
-        // legacy guess from the manifest's existing entries.
-        auto ResolveAddedCineSrc = [&](CineManifestEntry& e, const char* base, int side, const std::string& tail) {
-            CineSeqResolve r = ResolveCineSeq(m_cine.seasons, base, side, e.num, tail);
-            if (r.state == CineSeqState::Ok) {
-                e.src = std::string("/Game/cinematics/") + base + "/" + r.folder + "/" + tail;
-                e.hasExists = r.verified; e.exists = r.verified;
-            } else if (r.state == CineSeqState::Unresolved) {
-                e.src = std::string("/Game/cinematics/") + base + "/" +
-                        DeriveFolder(m_cine, std::string("/") + base + "/") + "/" + tail;
-            } else {
-                e.src.clear();
-                e.hasExists = true; e.exists = false;
-            }
-        };
         if (!dup) {
             char nnb[8]; snprintf(nnb, sizeof(nnb), "%02d", nn);
             if (g == "throw") {
@@ -6820,17 +6815,15 @@ void MovesetEditorWindow::RenderSubWin_Cinematics()
                     CineManifestEntry e;
                     e.group = "throw"; e.cam = cam; e.num = nn; e.added = true;
                     e.id = std::string("throw_") + nnb + "_" + cam;
-                    ResolveAddedCineSrc(e, "game", CINE_SIDE_THROW, CineThrowTail(m_cine.code, nn, cam));
+                    e.src = DefaultCineSrc(m_cine, e);
                     m_cine.entries.push_back(e);
                     m_cineEdit.push_back(e.src);
                 }
             } else { // intro / outro (demo builder)
-                const char* tok = (g == "intro") ? "sta" : "win";
                 CineManifestEntry e;
                 e.group = g; e.num = nn; e.added = true;
                 e.id = g + "_" + std::to_string(nn);
-                ResolveAddedCineSrc(e, "demo", g == "intro" ? CINE_SIDE_INTRO : CINE_SIDE_OUTRO,
-                                    CineDemoTail(m_cine.code, tok, nn));
+                e.src = DefaultCineSrc(m_cine, e);
                 m_cine.entries.push_back(e);
                 m_cineEdit.push_back(e.src);
             }
