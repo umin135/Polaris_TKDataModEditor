@@ -30,8 +30,8 @@ namespace MoveLabel {
     static constexpr const char* CE           = "_0xCE";
     static constexpr const char* TCharId      = "t_char_id";
     static constexpr const char* OrdinalId    = "ordinal_id";
-    static constexpr const char* F0x118       = "_0x118";
-    static constexpr const char* F0x11C       = "_0x11C";
+    static constexpr const char* DamageOverride = "damage_override";
+    static constexpr const char* AnimLenAdj     = "anim_len_adj";
     static constexpr const char* AirborneStart= "airborne_start";
     static constexpr const char* AirborneEnd  = "airborne_end";
     static constexpr const char* GroundFall   = "ground_fall";
@@ -71,7 +71,15 @@ namespace HitboxLabel {
     static constexpr const char* ActiveStart = "active_start";
     static constexpr const char* ActiveLast  = "active_last";
     static constexpr const char* Location    = "location";
-    static constexpr const char* FloatFmt    = "float[%d]";  // format string — used with snprintf
+    static constexpr const char* Thickness   = "thickness";       // f0 radius (mm); 0 = char default
+    static constexpr const char* VertHeight  = "vert_height";     // f1 vertical line height if > 0
+    static constexpr const char* LoFwd       = "lo_fwd";          // f2 low-byte limb forward/back
+    static constexpr const char* LoUp        = "lo_up";           // f3 low-byte limb up/down
+    static constexpr const char* LoSide      = "lo_side";         // f4 low-byte limb inward/outward
+    static constexpr const char* HiFwd       = "hi_fwd";          // f5 high-byte limb forward/back
+    static constexpr const char* HiUp        = "hi_up";           // f6 high-byte limb up/down
+    static constexpr const char* HiSide      = "hi_side";         // f7 high-byte limb inward/outward
+    static constexpr const char* HitLineFlag = "hit_line_flag";   // int; low byte = start off
 } // namespace HitboxLabel
 
 // -----------------------------------------------------------------------

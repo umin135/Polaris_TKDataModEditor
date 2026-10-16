@@ -52,11 +52,11 @@ namespace FieldTT
 {
     // ── Move / General ───────────────────────────────────────────────────────
     namespace Move {
-        static constexpr FieldTooltip Name          = { "This is Move Name!" };
+        static constexpr FieldTooltip Name          = { "" };
         static constexpr FieldTooltip NameKey       = { "" };
         static constexpr FieldTooltip AnimKey       = { "" };
         static constexpr FieldTooltip SkeletonId    = { "" };
-        static constexpr FieldTooltip Vuln          = { "" };
+        static constexpr FieldTooltip Vuln          = { "Hurtbox" };
         static constexpr FieldTooltip Hitlevel      = { "" };
         static constexpr FieldTooltip CancelIdx     = { "" };
         static constexpr FieldTooltip Transition    = { "" };
@@ -66,11 +66,11 @@ namespace FieldTT
         static constexpr FieldTooltip ExtraPropIdx  = { "" };
         static constexpr FieldTooltip StartPropIdx  = { "" };
         static constexpr FieldTooltip EndPropIdx    = { "" };
-        static constexpr FieldTooltip CE            = { "" };
+        static constexpr FieldTooltip CE            = { "Move-End Rotation" };
         static constexpr FieldTooltip TCharId       = { "" };
         static constexpr FieldTooltip OrdinalId     = { "" };
-        static constexpr FieldTooltip F0x118        = { "" };
-        static constexpr FieldTooltip F0x11C        = { "" };
+        static constexpr FieldTooltip DamageOverride = { "Overrides the damage in hit-conditions,-1 means No Override" };
+        static constexpr FieldTooltip AnimLenAdj     = { "Signed adjustment to animation max length. Default: 1" };
         static constexpr FieldTooltip AirborneStart = { "" };
         static constexpr FieldTooltip AirborneEnd   = { "" };
         static constexpr FieldTooltip GroundFall    = { "" };
@@ -84,11 +84,41 @@ namespace FieldTT
 
     // ── Hitbox ───────────────────────────────────────────────────────────────
     namespace Hitbox {
-        static constexpr FieldTooltip ActiveStart        = { "" };
-        static constexpr FieldTooltip ActiveLast         = { "" };
-        static constexpr FieldTooltip Location           = { "" };
-        // Float[0..8]
-        static constexpr FieldTooltip Float[9] = { {""},{""},{""},{""},{""},{""},{""},{""},{""} };
+        static constexpr FieldTooltip ActiveStart = { "" };
+        static constexpr FieldTooltip ActiveLast  = { "" };
+        static constexpr FieldTooltip Location    = {
+            "0x000000aa: line from limb aa (prev frame) to aa (current).\n"
+            "0x0000aabb: line connecting limb aa and limb bb on the active frame.\n"
+            "(aa = high byte, bb = low byte of the lower 16 bits.)"
+        };
+        static constexpr FieldTooltip Thickness = {
+            "Hit radius / thickness in mm. 0 = use character default."
+        };
+        static constexpr FieldTooltip VertHeight = {
+            "If > 0, vertical line of that height (mm), centred on the first point."
+        };
+        static constexpr FieldTooltip LoFwd = {
+            "Low-byte limb offset (mm), forward/back relative to bone direction bb->bb+1."
+        };
+        static constexpr FieldTooltip LoUp = {
+            "Low-byte limb offset (mm), up/down relative to bone direction bb->bb+1."
+        };
+        static constexpr FieldTooltip LoSide = {
+            "Low-byte limb offset (mm), inward/outward relative to bone direction bb->bb+1."
+        };
+        static constexpr FieldTooltip HiFwd = {
+            "High-byte limb offset (mm), forward/back relative to bone direction aa->aa+1."
+        };
+        static constexpr FieldTooltip HiUp = {
+            "High-byte limb offset (mm), up/down relative to bone direction aa->aa+1."
+        };
+        static constexpr FieldTooltip HiSide = {
+            "High-byte limb offset (mm), inward/outward relative to bone direction aa->aa+1."
+        };
+        static constexpr FieldTooltip HitLineFlag = {
+            "Integer flag (not a float). Low byte: hit line starts switched off;\n"
+            "a property can switch it on or off later."
+        };
     } // namespace Hitbox
 
     // ── Requirement ──────────────────────────────────────────────────────────

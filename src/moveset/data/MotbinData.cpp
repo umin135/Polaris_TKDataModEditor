@@ -234,8 +234,9 @@ static constexpr size_t kMove_EncCharId     = 0xD0;
 static constexpr size_t kMove_EncOrdinalId  = 0xF0;
 
 static constexpr size_t kMove_HitCondAddr   = 0x110;
-static constexpr size_t kMove_0x118         = 0x118;
-static constexpr size_t kMove_0x11C         = 0x11C;
+static constexpr size_t kMove_DamageOverride    = 0x118;
+static constexpr size_t kMove_DamageOverridePad = 0x11A;
+static constexpr size_t kMove_AnimLenAdj        = 0x11C;
 static constexpr size_t kMove_AnimLen       = 0x120;
 static constexpr size_t kMove_AirborneStart = 0x124;
 static constexpr size_t kMove_AirborneEnd   = 0x128;
@@ -937,8 +938,9 @@ MotbinData LoadMotbin(const std::string& folderPath)
 
         // -- Plain fields -------------------------------------
         m.hit_condition_addr         = ReadAt<uint64_t>(mb, kMove_Size, kMove_HitCondAddr);
-        m._0x118                     = ReadAt<uint32_t>(mb, kMove_Size, kMove_0x118);
-        m._0x11C                     = ReadAt<uint32_t>(mb, kMove_Size, kMove_0x11C);
+        m.damage_override            = ReadAt<int16_t> (mb, kMove_Size, kMove_DamageOverride);
+        m.damage_override_pad        = ReadAt<uint16_t>(mb, kMove_Size, kMove_DamageOverridePad);
+        m.anim_len_adj               = ReadAt<int32_t> (mb, kMove_Size, kMove_AnimLenAdj);
         m.anim_len                   = ReadAt<int32_t> (mb, kMove_Size, kMove_AnimLen);
         m.airborne_start             = ReadAt<uint32_t>(mb, kMove_Size, kMove_AirborneStart);
         m.airborne_end               = ReadAt<uint32_t>(mb, kMove_Size, kMove_AirborneEnd);
@@ -952,15 +954,16 @@ MotbinData LoadMotbin(const std::string& folderPath)
         m.startup                    = ReadAt<uint32_t>(mb, kMove_Size, kMove_Startup);
         m.recovery                   = ReadAt<uint32_t>(mb, kMove_Size, kMove_Recovery);
 
-        // -- Hitbox slots (8 ? 0x30 bytes) -------------------
+        // -- Hitbox slots (8 × 0x30 bytes) -------------------
         for (int h = 0; h < 8; ++h)
         {
             size_t hbase = kMove_Hitbox0 + h * kMove_HitboxStride;
             m.hitbox_active_start[h] = ReadAt<uint32_t>(mb, kMove_Size, hbase + 0x00);
             m.hitbox_active_last[h]  = ReadAt<uint32_t>(mb, kMove_Size, hbase + 0x04);
             m.hitbox_location[h]     = ReadAt<uint32_t>(mb, kMove_Size, hbase + 0x08);
-            for (int f = 0; f < 9; ++f)
+            for (int f = 0; f < 8; ++f)
                 m.hitbox_floats[h][f] = ReadAt<float>(mb, kMove_Size, hbase + 0x0C + f * 4);
+            m.hitbox_flag[h] = ReadAt<int32_t>(mb, kMove_Size, hbase + 0x2C);
         }
 
         // -- Second hitbox table (0x2E4..0x443, 88 × uint32) --------
@@ -1439,9 +1442,10 @@ std::vector<uint8_t> RebuildMotbinBytes(MotbinData& data)
             memcpy(e + kMove_U6,            &m.u6,             4);
             memcpy(e + kMove_Transition,    &m.transition,     2);
             memcpy(e + kMove_0xCE,          &m._0xCE,          2);
-            memcpy(e + kMove_0x118,         &m._0x118,         4);
-            memcpy(e + kMove_0x11C,         &m._0x11C,         4);
-            memcpy(e + kMove_AnimLen,       &m.anim_len,       4);
+            memcpy(e + kMove_DamageOverride,    &m.damage_override,     2);
+            memcpy(e + kMove_DamageOverridePad, &m.damage_override_pad, 2);
+            memcpy(e + kMove_AnimLenAdj,        &m.anim_len_adj,        4);
+            memcpy(e + kMove_AnimLen,           &m.anim_len,            4);
             memcpy(e + kMove_AirborneStart, &m.airborne_start, 4);
             memcpy(e + kMove_AirborneEnd,   &m.airborne_end,   4);
             memcpy(e + kMove_GroundFall,    &m.ground_fall,    4);
@@ -1462,8 +1466,9 @@ std::vector<uint8_t> RebuildMotbinBytes(MotbinData& data)
                 memcpy(e + hb + 0x00, &m.hitbox_active_start[h], 4);
                 memcpy(e + hb + 0x04, &m.hitbox_active_last[h],  4);
                 memcpy(e + hb + 0x08, &m.hitbox_location[h],     4);
-                for (int f = 0; f < 9; ++f)
+                for (int f = 0; f < 8; ++f)
                     memcpy(e + hb + 0x0C + f*4, &m.hitbox_floats[h][f], 4);
+                memcpy(e + hb + 0x2C, &m.hitbox_flag[h], 4);
             }
 
             // Second hitbox table (0x2E4..0x443, 88 × uint32 = 352 bytes).

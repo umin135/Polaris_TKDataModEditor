@@ -114,7 +114,7 @@ static const MoveField kMoveFields[] = {
     { 0x108, "ordinal_id_block[6]" },{ 0x10C, "ordinal_id_block[7]" },
     // Pointers and timing
     { 0x110, "hit_cond_addr.lo" },   { 0x114, "hit_cond_addr.hi" },
-    { 0x118, "_0x118" },             { 0x11C, "_0x11C" },
+    { 0x118, "damage_override|pad" },{ 0x11C, "anim_len_adj" },
     { 0x120, "anim_len" },
     { 0x124, "airborne_start" },     { 0x128, "airborne_end" },
     { 0x12C, "ground_fall" },

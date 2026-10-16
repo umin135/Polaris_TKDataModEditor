@@ -2298,17 +2298,19 @@ void MovesetEditorWindow::RenderSection_Overview(ParsedMove& m, bool& dirty)
               m.moveId = (uint32_t)strtoul(p, nullptr, 16); dirty = true; NoteLiveMoveEdit();
           } }
 
-        // 18. _0x118
-        FieldRow(F0x118, FieldTT::Move::F0x118);
+        // 18. damage_override
+        FieldRow(DamageOverride, FieldTT::Move::DamageOverride);
         { ImGui::SetNextItemWidth(-1.0f);
-          int tmp = (int)m._0x118;
-          if (ImGui::InputInt("##0x118", &tmp, 0, 0)) { m._0x118 = (uint32_t)tmp; dirty = true; NoteLiveMoveEdit(); } }
+          int tmp = (int)m.damage_override;
+          if (ImGui::InputInt("##damage_override", &tmp, 0, 0)) {
+              m.damage_override = (int16_t)tmp; dirty = true; NoteLiveMoveEdit(); } }
 
-        // 19. _0x11C
-        FieldRow(F0x11C, FieldTT::Move::F0x11C);
+        // 19. anim_len_adj
+        FieldRow(AnimLenAdj, FieldTT::Move::AnimLenAdj);
         { ImGui::SetNextItemWidth(-1.0f);
-          int tmp = (int)m._0x11C;
-          if (ImGui::InputInt("##0x11C", &tmp, 0, 0)) { m._0x11C = (uint32_t)tmp; dirty = true; NoteLiveMoveEdit(); } }
+          int tmp = (int)m.anim_len_adj;
+          if (ImGui::InputInt("##anim_len_adj", &tmp, 0, 0)) {
+              m.anim_len_adj = tmp; dirty = true; NoteLiveMoveEdit(); } }
 
         // 20. airborne_start
         FieldRow(AirborneStart, FieldTT::Move::AirborneStart);
@@ -2534,21 +2536,33 @@ static void RenderSection_Hitboxes(ParsedMove& m, bool& dirty, MovesetEditorWind
     }
     ImGui::Spacing();
 
+    static const char* const kFloatLabels[8] = {
+        HitboxLabel::Thickness, HitboxLabel::VertHeight,
+        HitboxLabel::LoFwd, HitboxLabel::LoUp, HitboxLabel::LoSide,
+        HitboxLabel::HiFwd, HitboxLabel::HiUp, HitboxLabel::HiSide,
+    };
+    static const FieldTooltip* const kFloatTips[8] = {
+        &FieldTT::Hitbox::Thickness, &FieldTT::Hitbox::VertHeight,
+        &FieldTT::Hitbox::LoFwd, &FieldTT::Hitbox::LoUp, &FieldTT::Hitbox::LoSide,
+        &FieldTT::Hitbox::HiFwd, &FieldTT::Hitbox::HiUp, &FieldTT::Hitbox::HiSide,
+    };
+
     for (int h = 0; h < 8; ++h)
     {
         const uint32_t start = m.hitbox_active_start[h];
         const uint32_t last  = m.hitbox_active_last[h];
         const uint32_t loc   = m.hitbox_location[h];
         const float*   fl    = m.hitbox_floats[h];
+        const int32_t  flag  = m.hitbox_flag[h];
 
         // Collapsed header label: one line summary
-        char header[256];
+        char header[288];
         snprintf(header, sizeof(header),
             "Hitbox %d   ACTIVE: %u -> %u   LOC: 0x%08X   "
-            "RELATED FLOATS: %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f###hb%d",
+            "FLOATS: %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f   FLAG: 0x%X###hb%d",
             h + 1, start, last, loc,
-            fl[0], fl[1], fl[2], fl[3], fl[4], fl[5], fl[6], fl[7], fl[8],
-            h);
+            fl[0], fl[1], fl[2], fl[3], fl[4], fl[5], fl[6], fl[7],
+            (unsigned)flag, h);
 
         if (ImGui::CollapsingHeader(header))
         {
@@ -2563,12 +2577,16 @@ static void RenderSection_Hitboxes(ParsedMove& m, bool& dirty, MovesetEditorWind
                 if (RowU32Edit(id, HitboxLabel::ActiveLast,  m.hitbox_active_last[h],  FieldTT::Hitbox::ActiveLast))  { dirty = true; if (win) win->NoteLiveMoveEdit(); }
                 snprintf(id, sizeof(id), "##hb%d_loc", h);
                 if (RowHex32Edit(id, HitboxLabel::Location,  m.hitbox_location[h],     FieldTT::Hitbox::Location))    { dirty = true; if (win) win->NoteLiveMoveEdit(); }
-                for (int f = 0; f < 9; ++f)
+                for (int f = 0; f < 8; ++f)
                 {
                     snprintf(id, sizeof(id), "##hb%d_f%d", h, f);
-                    char flbl[16]; snprintf(flbl, sizeof(flbl), HitboxLabel::FloatFmt, f);
-                    if (RowF32Edit(id, flbl, m.hitbox_floats[h][f], FieldTT::Hitbox::Float[f])) { dirty = true; if (win) win->NoteLiveMoveEdit(); }
+                    if (RowF32Edit(id, kFloatLabels[f], m.hitbox_floats[h][f], *kFloatTips[f])) { dirty = true; if (win) win->NoteLiveMoveEdit(); }
                 }
+                snprintf(id, sizeof(id), "##hb%d_flag", h);
+                { uint32_t flagBits = static_cast<uint32_t>(m.hitbox_flag[h]);
+                  if (RowHex32Edit(id, HitboxLabel::HitLineFlag, flagBits, FieldTT::Hitbox::HitLineFlag)) {
+                      m.hitbox_flag[h] = static_cast<int32_t>(flagBits);
+                      dirty = true; if (win) win->NoteLiveMoveEdit(); } }
                 ImGui::EndTable();
             }
 

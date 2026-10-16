@@ -354,8 +354,9 @@ bool WriteMove(const MotbinData& data, int playerId, uint32_t idx)
     memcpy(buf + 0x40, preserved, 0x18);
     W16(buf, 0xCC, m.transition);
     W16(buf, 0xCE, static_cast<uint16_t>(m._0xCE));
-    W32(buf, 0x118, m._0x118);
-    W32(buf, 0x11C, m._0x11C);
+    W16(buf, 0x118, static_cast<uint16_t>(m.damage_override));
+    W16(buf, 0x11A, m.damage_override_pad);
+    W32(buf, 0x11C, static_cast<uint32_t>(m.anim_len_adj));
     W32(buf, 0x120, static_cast<uint32_t>(m.anim_len));
     W32(buf, 0x124, m.airborne_start);
     W32(buf, 0x128, m.airborne_end);
@@ -371,8 +372,9 @@ bool WriteMove(const MotbinData& data, int playerId, uint32_t idx)
         W32(buf, hb + 0x00, m.hitbox_active_start[h]);
         W32(buf, hb + 0x04, m.hitbox_active_last[h]);
         W32(buf, hb + 0x08, m.hitbox_location[h]);
-        for (int f = 0; f < 9; ++f)
+        for (int f = 0; f < 8; ++f)
             memcpy(buf + hb + 0x0C + f * 4, &m.hitbox_floats[h][f], 4);
+        W32(buf, hb + 0x2C, static_cast<uint32_t>(m.hitbox_flag[h]));
     }
     W16(buf, 0x2E0, m.collision);
     W16(buf, 0x2E2, m.distance);

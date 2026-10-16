@@ -120,7 +120,8 @@ Each move supports up to **8 independent hitboxes**. Per hitbox:
 | `hitbox_active_start[i]` | Frame when hitbox `i` activates                             |
 | `hitbox_active_last[i]`  | Frame when hitbox `i` deactivates                           |
 | `hitbox_location[i]`     | Body part / location of the hitbox                          |
-| `hitbox_floats[i][0..8]` | 9 float parameters controlling position, size, and behavior |
+| `hitbox_floats[i][0..7]` | 8 float parameters (mm): thickness, vert height, lo/hi limb offsets |
+| `hitbox_flag[i]`         | Integer flag (not a float); low byte = hit line starts off          |
 
 
 ### Block References
@@ -213,10 +214,11 @@ Set up at least one hitbox:
 hitbox_active_start[0] = 14    (matches startup)
 hitbox_active_last[0]  = 16    (3-frame active window)
 hitbox_location[0]     = <body part ID>
-hitbox_floats[0][...]  = <position and size parameters>
+hitbox_floats[0][...]  = <position and size parameters (8 floats, mm)>
+hitbox_flag[0]         = <hit-line flag>
 ```
 
-A practical approach: copy the hitbox float values from a similar existing move, then adjust.
+A practical approach: copy the hitbox float/flag values from a similar existing move, then adjust.
 
 ### Step 4: Set Hit Properties
 

@@ -277,8 +277,9 @@ struct ParsedMove {
 
     // -- 0x110-0x157  Pointers & timing --------------------
     uint64_t hit_condition_addr;              // 0x110
-    uint32_t _0x118;                          // 0x118
-    uint32_t _0x11C;                          // 0x11C
+    int16_t  damage_override;                 // 0x118
+    uint16_t damage_override_pad;             // 0x11A  padding (round-trip only)
+    int32_t  anim_len_adj;                    // 0x11C  anim_max_len_adjuster
     int32_t  anim_len;                        // 0x120  total animation frames
     uint32_t airborne_start;                  // 0x124
     uint32_t airborne_end;                    // 0x128
@@ -292,11 +293,12 @@ struct ParsedMove {
     uint32_t startup;                         // 0x158  startup frames
     uint32_t recovery;                        // 0x15C  recovery frames
 
-    // -- 0x160-0x2DF  Hitbox slots (8 ? 0x30 bytes) --------
+    // -- 0x160-0x2DF  Hitbox slots (8 × 0x30 bytes) --------
     uint32_t hitbox_active_start[8];
     uint32_t hitbox_active_last[8];
     uint32_t hitbox_location[8];
-    float    hitbox_floats[8][9];
+    float    hitbox_floats[8][8];             // +0x0C..+0x2B (mm)
+    int32_t  hitbox_flag[8];                  // +0x2C (low byte: hit-line start-off)
 
     // -- 0x2E0-0x447  Collision / distance / unknowns ------
     uint16_t collision;   // 0x2E0
