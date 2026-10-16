@@ -735,10 +735,35 @@
       "Condition": "Short Flag (Prop 0x8128) == Value",
       "ToolTip": "AAAA is Flag number\nBBBB is the value of the flag"
     },
+    "440": {
+      "param": "p1 = Index (1 - 4), p2 = 0 - 1",
+      "Condition": "Heat State X >= Y",
+      "ToolTip": "Same as 442.\nPlayer->heatState[p1 - 1] >= p2\nUses Prop 0x8139"
+    },
+    "441": {
+      "param": "p1 = Index (1 - 4), p2 = 0 - 1",
+      "Condition": "Heat State X <= Y",
+      "ToolTip": "Same as 442.\nPlayer->heatState[p1 - 1] <= p2\nUses Prop 0x8139"
+    },
     "442": {
-      "param": "0 - 1 ???",
-      "Condition": "Heat Available",
-      "ToolTip": ""
+      "param": "p1 = Index (1 - 4), p2 = 0 - 1",
+      "Condition": "Heat State X == Y",
+      "ToolTip": "Each Player has 4 Heat State slots.\nPlayer->heatState[p1 - 1] == p2\nUses Prop 0x8139\n\nSlot meanings (p1):\n1 = In Heat or not\n2 = Dash/Engager related?\n3 = Heat Smash Used or not\n4 = Heat Throw Used or not"
+    },
+    "446": {
+      "param": "p1 = Index (1 - 4), p2 = 0 - 1",
+      "Condition": "Heat State X >= Y (Opponent)",
+      "ToolTip": "Same as 442, checks opponent.\nOpponent->heatState[p1 - 1] >= p2\nUses Prop 0x813f"
+    },
+    "447": {
+      "param": "p1 = Index (1 - 4), p2 = 0 - 1",
+      "Condition": "Heat State X <= Y (Opponent)",
+      "ToolTip": "Same as 442, checks opponent.\nOpponent->heatState[p1 - 1] <= p2\nUses Prop 0x813f"
+    },
+    "448": {
+      "param": "p1 = Index (1 - 4), p2 = 0 - 1",
+      "Condition": "Heat State X == Y (Opponent)",
+      "ToolTip": "Same as 442, checks opponent.\nOpponent->heatState[p1 - 1] == p2\nUses Prop 0x813f\n\nSlot meanings (p1):\n1 = In Heat or not\n2 = Dash/Engager related?\n3 = Heat Smash Used or not\n4 = Heat Throw Used or not"
     },
     "453": {
       "param": "Command",
@@ -746,7 +771,7 @@
       "ToolTip": "Used in frame-1 cancels to check the input"
     },
     "454": {
-      "param": "Any",
+      "param": "0 - 1",
       "Condition": "Character Install Active",
       "ToolTip": "0 = No, 1 = Yes"
     },
@@ -760,15 +785,55 @@
       "Condition": "Is Normal Throw",
       "ToolTip": "Used in Throws to allow regular break window"
     },
+    "462": {
+      "param": "Any",
+      "Condition": "Heat Dash Charge >= X",
+      "ToolTip": "Uses Prop 0x814d to set value"
+    },
+    "464": {
+      "param": "Any",
+      "Condition": "Heat Dash Charge == X",
+      "ToolTip": ""
+    },
     "465": {
       "param": "0",
       "Condition": "Is Punish Throw",
       "ToolTip": "Used to make throws unbreakable after Rage Art or Power Crush"
     },
     "466": {
+      "param": "0 - 1",
+      "Condition": "Is Trade",
+      "ToolTip": "0 = No, 1 = Yes.\nAlways used in Heat Engaging moves to make sure Heat doesn't activate on Trades"
+    },
+    "467": {
       "param": "?",
-      "Condition": "Heat Related",
-      "ToolTip": "Used in tandem with req 442"
+      "Condition": "Heat Meter >= X",
+      "ToolTip": ""
+    },
+    "468": {
+      "param": "?",
+      "Condition": "Heat Meter <= X",
+      "ToolTip": ""
+    },
+    "469": {
+      "param": "?",
+      "Condition": "Heat Meter == X",
+      "ToolTip": ""
+    },
+    "470": {
+      "param": "?",
+      "Condition": "(Opponent) Heat Meter >= X",
+      "ToolTip": ""
+    },
+    "471": {
+      "param": "?",
+      "Condition": "(Opponent) Heat Meter <= X",
+      "ToolTip": ""
+    },
+    "472": {
+      "param": "?",
+      "Condition": "(Opponent) Heat Meter == X",
+      "ToolTip": ""
     },
     "473": {
       "param": "0 - 1",
@@ -777,8 +842,8 @@
     },
     "490": {
       "param": "0 - 2",
-      "Condition": "Eddy's Install Active",
-      "ToolTip": "Parameter is the level of install"
+      "Condition": "Character Install Level",
+      "ToolTip": ""
     },
     "498": {
       "param": "0 - 1",
@@ -1116,12 +1181,12 @@
       "ToolTip": ""
     },
     "802": {
-      "param": "Any",
+      "param": "Battle ID",
       "Condition": "(DLC) Story Battle Number",
-      "ToolTip": ""
+      "ToolTip": "0xCCBB packed ID (high byte = chapter).\ne.g. 0x0102 = CH1 BT1, 0x0205 = CH2 BT3, 0x0804 = CH8 BT3"
     },
     "803": {
-      "param": "Any",
+      "param": "Battle ID",
       "Condition": "(DLC) Story Not Battle Number",
       "ToolTip": ""
     },
@@ -1810,9 +1875,34 @@
       "ToolTip": "Value format same as above"
     },
     "33081": {
-      "param": "1 - 4",
-      "Function": "Heat Meter",
-      "ToolTip": "Related to showing/hiding Heat Meter.\nValue 1 was causing the meter to disappear."
+      "param": "p1 = Index (1 - 4), p2 = Value",
+      "Function": "Store Heat State",
+      "ToolTip": "Stores into Player->heatState[p1 - 1].\nRelated to showing/hiding Heat Meter.\nValue 1 was causing the meter to disappear.\n\nSlot meanings (p1):\n1 = In Heat or not\n2 = Dash/Engager related?\n3 = Heat Smash Used or not\n4 = Heat Throw Used or not\n\nChecked by:\n440: >= param\n441: <= param\n442: == param"
+    },
+    "33082": {
+      "param": "p1 = Index (1 - 4), p2 = Value",
+      "Function": "Add to Heat State",
+      "ToolTip": "Adds to Player->heatState[p1 - 1].\nGenerally used for marking a Heat state as \"Consumed\"\ne.g, Heat Dash consumed.\n\nChecked by:\n440: >= param\n441: <= param\n442: == param"
+    },
+    "33083": {
+      "param": "p1 = Index (1 - 4), p2 = Value",
+      "Function": "Sub from Heat State",
+      "ToolTip": "Subtracts from Player->heatState[p1 - 1].\n\nChecked by:\n440: >= param\n441: <= param\n442: == param"
+    },
+    "33087": {
+      "param": "p1 = Index (1 - 4), p2 = Value",
+      "Function": "Store Heat State\n(Opponent)",
+      "ToolTip": "Stores into Opponent->heatState[p1 - 1].\nRelated to showing/hiding Heat Meter.\nValue 1 was causing the meter to disappear.\n\nChecked by:\n446: >= param\n447: <= param\n448: == param"
+    },
+    "33088": {
+      "param": "p1 = Index (1 - 4), p2 = Value",
+      "Function": "Add to Heat State\n(Opponent)",
+      "ToolTip": "Adds to Opponent->heatState[p1 - 1].\nSeen inside opponent reaction moves, to give his/her opponent heat on heat engager.\n\nChecked by:\n446: >= param\n447: <= param\n448: == param"
+    },
+    "33089": {
+      "param": "p1 = Index (1 - 4), p2 = Value",
+      "Function": "Sub from Heat State\n(Opponent)",
+      "ToolTip": "Subtracts from Opponent->heatState[p1 - 1].\n\nChecked by:\n446: >= param\n447: <= param\n448: == param"
     },
     "33094": {
       "param": "4-byte Signed int",
@@ -1831,13 +1921,18 @@
     },
     "33101": {
       "param": "0, 300, 600, 900",
-      "Function": "Heat Dash Related Properties",
-      "ToolTip": "Turns on heat related properties (?)\nAllows heat dash on-hit reactions on the opponent (Needs more experimenting)"
+      "Function": "Set Heat Dash Charge",
+      "ToolTip": "Sets Heat Dash charge\nAllows heat dash on-hit reactions on the opponent (Needs more experimenting)\nIf you set it to 300, you can do Heat Dash once, if you set it to 600, you can Heat Dash twice.\n\nChecked by:\n462: >= param\n464: == param"
+    },
+    "33102": {
+      "param": "Any",
+      "Function": "Spend Heat Dash Charge",
+      "ToolTip": "Seen in Heat Dashes with value -300 and Heat Smashes with value 600"
     },
     "33105": {
       "param": "0 - 1",
-      "Function": "Activate Devil State Permanently",
-      "ToolTip": "Activates Kazuya's devil form permanently\nUsed in Story & Arcade modes to give you Devil Kazuya"
+      "Function": "Kazuya Permanently Devil",
+      "ToolTip": "0 = No, 1 = Yes.\nUsed in Story & Arcade modes to give you Devil Kazuya"
     },
     "33260": {
       "param": "0 - 1",
@@ -2243,6 +2338,11 @@
       "param": "0 - 1",
       "Function": "Spend Leroy's Cane",
       "ToolTip": "Used to allow Leroy using his once-per-match cane move\n0 = Not spend, 1 = Spend Leroy's cane install"
+    },
+    "33666": {
+      "param": "?",
+      "Function": "Set Engager Success Flag",
+      "ToolTip": ""
     },
     "33667": {
       "param": "Param 1: -900 to +900\nParam 2: 1",
