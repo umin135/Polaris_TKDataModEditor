@@ -371,10 +371,12 @@ const char* MovesetDataDict::GetParamLabel(uint32_t reqOrPropId, uint32_t pIndex
     // Yes/No Options
     case 159:
     case 454:
+    case 466:
     case 473:
     case 498:
     case 1028:
     case 1029:
+    case 0x8151:
     {
         if (pIndex > 0) return "";
         return param ? "Yes" : "No";
@@ -498,10 +500,36 @@ const char* MovesetDataDict::GetParamLabel(uint32_t reqOrPropId, uint32_t pIndex
         oss << "Chapter " << chapter << ", Battle " << battle;
         return ParamLabelCStr(oss.str());
     }
-    case 0x8151:
+    // (DLC) Story Battle Number — high byte = chapter; known IDs map to battle index
+    case 802:
+    case 803:
     {
         if (pIndex > 0) return "";
-        return param ? "Activate" : "Deactivate";
+        const char* known = nullptr;
+        switch (param) {
+            case 0x0102: known = "ACT 1 BT 1"; break;
+            case 0x0104: known = "ACT 1 BT 2"; break;
+            case 0x0202: known = "ACT 2 BT 1"; break;
+            case 0x0203: known = "ACT 2 BT 2"; break;
+            case 0x0205: known = "ACT 2 BT 3"; break;
+            case 0x0302: known = "ACT 3 BT 1"; break;
+            case 0x0304: known = "ACT 3 BT 2"; break;
+            case 0x0402: known = "ACT 4 BT 1"; break;
+            case 0x0404: known = "ACT 4 BT 2"; break;
+            case 0x0502: known = "ACT 5 BT 1"; break;
+            case 0x0504: known = "ACT 5 BT 2"; break;
+            case 0x0602: known = "ACT 6 BT 1"; break;
+            case 0x0702: known = "ACT 7 BT 1"; break;
+            case 0x0802: known = "ACT 8 BT 1"; break;
+            case 0x0803: known = "ACT 8 BT 2"; break;
+            case 0x0804: known = "ACT 8 BT 3"; break;
+            default: break;
+        }
+        if (known) return known;
+        std::ostringstream oss;
+        oss << "ACT " << ((param >> 8) & 0xFF) << " (0x"
+            << std::hex << std::uppercase << param << ")";
+        return ParamLabelCStr(oss.str());
     }
     case 0x82BE:
     {
@@ -513,14 +541,26 @@ const char* MovesetDataDict::GetParamLabel(uint32_t reqOrPropId, uint32_t pIndex
         if (pIndex > 0) return "";
         return param ? "Spend" : "Not Spent";
     }
+    // Heat State slot index (p1). p2 is the compared/stored value (0-1).
+    case 440:
+    case 441:
+    case 442:
+    case 446:
+    case 447:
+    case 448:
     case 0x8139:
+    case 0x813A:
+    case 0x813B:
+    case 0x813F:
+    case 0x8140:
+    case 0x8141:
     {
-        if (pIndex > 0) return "";
+        if (pIndex != 0) return "";
         switch (param) {
-            case 1: return "Level 1";
-            case 2: return "Level 2";
-            case 3: return "Level 3";
-            case 4: return "Level 4";
+            case 1: return "In Heat or not";
+            case 2: return "Dash/Engager related?";
+            case 3: return "Heat Smash Used or not";
+            case 4: return "Heat Throw Used or not";
             default: return "";
         }
     }
