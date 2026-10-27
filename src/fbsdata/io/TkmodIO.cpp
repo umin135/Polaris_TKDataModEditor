@@ -462,6 +462,96 @@ static const char* FindField(const char* start, const char* end, const char* key
     return nullptr;
 }
 
+// Skip any JSON value (object, array, string, number, literal); returns the pointer just
+// past it. Never moves past the terminating NUL; returns `p` (after whitespace) when no
+// value starts there.
+static const char* SkipValue(const char* p)
+{
+    p = SkipWS(p);
+    if (*p == '{' || *p == '[')
+    {
+        int depth = 0;
+        while (*p)
+        {
+            if (*p == '{' || *p == '[') ++depth;
+            else if (*p == '}' || *p == ']') { if (--depth == 0) return p + 1; }
+            else if (*p == '"')
+            {
+                ++p;
+                while (*p && *p != '"') { if (*p == '\\' && p[1]) ++p; ++p; }
+                if (!*p) return p;
+            }
+            ++p;
+        }
+        return p;
+    }
+    if (*p == '"')
+    {
+        ++p;
+        while (*p && *p != '"') { if (*p == '\\' && p[1]) ++p; ++p; }
+        return *p ? p + 1 : p;
+    }
+    while (*p && *p != ',' && *p != ']' && *p != '}' &&
+           *p != ' ' && *p != '\t' && *p != '\n' && *p != '\r')
+        ++p;
+    return p;
+}
+
+// Value of `quotedKey` (e.g. "\"id_2\"") among the direct members of the object at `obj`,
+// or nullptr. Nested values are skipped whole, so a same-named field inside an entry
+// (entries use id_0.. just like the top-level arrays) never matches.
+static const char* FindMemberValue(const char* obj, const char* quotedKey)
+{
+    obj = SkipWS(obj);
+    if (*obj != '{') return nullptr;
+    const size_t kl = strlen(quotedKey);
+    const char* p = obj + 1;
+    while (true)
+    {
+        p = SkipWS(p);
+        if (*p != '"') return nullptr;              // end of object, or malformed
+        const char* keyStart = p;
+        const char* keyEnd   = SkipValue(p);        // just past the closing quote
+        if (keyEnd == p) return nullptr;
+        p = SkipWS(keyEnd);
+        if (*p != ':') return nullptr;
+        const char* val = SkipWS(p + 1);
+        if ((size_t)(keyEnd - keyStart) == kl && strncmp(keyStart, quotedKey, kl) == 0)
+            return val;
+        const char* next = SkipValue(val);
+        if (next == val) return nullptr;
+        p = SkipWS(next);
+        if (*p != ',') return nullptr;
+        ++p;
+    }
+}
+
+// Value of a top-level field of a fbsdata_mod JSON: a direct member of the "data" object,
+// or of the root object for layouts without "data". `quotedKey` includes the quotes.
+static const char* FindDataValue(const char* json, const char* quotedKey)
+{
+    if (strncmp(json, "\xEF\xBB\xBF", 3) == 0) json += 3;   // UTF-8 BOM
+    const char* root = SkipWS(json);
+    const char* data = FindMemberValue(root, "\"data\"");
+    const char* v = (data && *data == '{') ? FindMemberValue(data, quotedKey) : nullptr;
+    return v ? v : FindMemberValue(root, quotedKey);
+}
+
+// Same as FindDataValue but takes the key without quotes, like FindField.
+static const char* FindDataField(const char* json, const char* key)
+{
+    char needle[256];
+    snprintf(needle, sizeof(needle), "\"%s\"", key);
+    return FindDataValue(json, needle);
+}
+
+// Start ('[') of a top-level array, or nullptr.
+static const char* FindDataArray(const char* json, const char* quotedKey)
+{
+    const char* v = FindDataValue(json, quotedKey);
+    return (v && *v == '[') ? v : nullptr;
+}
+
 static bool ParseString(const char* p, const char* end, char* out, size_t maxLen)
 {
     if (!p || p >= end || *p != '"') return false;
@@ -780,9 +870,8 @@ template<typename TEntry, typename TParseFunc>
 static void ParseExclusiveArray(const char* json, const char* arrayKey,
                                 std::vector<TEntry>& out, TParseFunc parseFn)
 {
-    const char* field = strstr(json, arrayKey);
-    if (!field) return;
-    const char* arr = strchr(field, '[');
+    // Only the top-level member counts: entries carry fields named like the arrays.
+    const char* arr = FindDataArray(json, arrayKey);
     if (!arr) return;
     ++arr;
 
@@ -798,6 +887,13 @@ static void ParseExclusiveArray(const char* json, const char* arrayKey,
             if (parseFn(arr, objEnd, entry))
                 out.push_back(entry);
             arr = objEnd;
+        }
+        else
+        {
+            // Not an entry object: skip it (the loop used to stop advancing here and hang).
+            const char* next = SkipValue(arr);
+            if (next == arr) break;
+            arr = next;
         }
         while (*arr == ',' || *arr == ' ' || *arr == '\n' || *arr == '\r' || *arr == '\t')
             ++arr;
@@ -987,7 +1083,7 @@ static std::string BuildJukeboxListJson(const ContentsBinData& bin)
 static bool ParseJukeboxListJson(const std::string& json, ContentsBinData& bin)
 {
     const char* p = json.c_str();
-    { auto* fp = FindField(p, p + json.size(), "id_1"); ParseUInt32(fp, p + json.size(), bin.jukeboxListUnkValue1); }
+    { auto* fp = FindDataField(p, "id_1"); ParseUInt32(fp, p + json.size(), bin.jukeboxListUnkValue1); }
     ParseExclusiveArray(p, "\"id_0\"", bin.jukeboxEntries,
         [](const char* s, const char* e, JukeboxEntry& entry) -> bool {
             { auto* fp = FindField(s, e, "id_0"); ParseUInt32(fp, e, entry.bgm_hash); }
@@ -1376,7 +1472,7 @@ static bool ParseBallPropertyListJson(const std::string& json, ContentsBinData& 
 {
     const char* p = json.c_str();
     const size_t jsz = json.size();
-    { auto* fp = FindField(p, p + jsz, "id_1"); ParseUInt32(fp, p + jsz, bin.ballPropertyListUnkValue1); }
+    { auto* fp = FindDataField(p, "id_1"); ParseUInt32(fp, p + jsz, bin.ballPropertyListUnkValue1); }
     ParseExclusiveArray(p, "\"id_0\"", bin.ballPropertyEntries,
         [](const char* s, const char* e, BallPropertyEntry& entry) -> bool {
             { auto* fp = FindField(s, e, "id_0"); ParseUInt32(fp, e, entry.ball_hash); }
@@ -1442,7 +1538,7 @@ static bool ParseBodyCylinderDataListJson(const std::string& json, ContentsBinDa
 {
     const char* p = json.c_str();
     const size_t jsz = json.size();
-    { auto* fp = FindField(p, p + jsz, "id_0"); ParseFloat(fp, p + jsz, bin.bodyCylinderGlobalScale); }
+    { auto* fp = FindDataField(p, "id_0"); ParseFloat(fp, p + jsz, bin.bodyCylinderGlobalScale); }
     ParseExclusiveArray(p, "\"id_1\"", bin.bodyCylinderDataEntries,
         [](const char* s, const char* e, BodyCylinderDataEntry& entry) -> bool {
             { auto* fp = FindField(s, e, "id_0");  ParseUInt32(fp, e, entry.character_hash); }
@@ -1657,7 +1753,7 @@ static bool ParseCustomizeItemProhibitDramaListJson(const std::string& json, Con
         });
     // Parse scalar uint32 array id_2
     {
-        const char* field = strstr(p, "\"id_2\"");
+        const char* field = FindDataArray(p, "\"id_2\"");
         if (field)
         {
             const char* arr = strchr(field, '[');
@@ -1736,17 +1832,17 @@ static bool ParseBattleMotionListJson(const std::string& json, ContentsBinData& 
     const char* p = json.c_str();
     const size_t jsz = json.size();
     ParseBattleMotionArray(p, "\"id_0\"",  bin.battleMotionEntries);
-    { auto* fp = FindField(p, p+jsz, "id_1");  ParseFloat(fp, p+jsz, bin.battleMotionValue1); }
-    { auto* fp = FindField(p, p+jsz, "id_2");  ParseFloat(fp, p+jsz, bin.battleMotionValue2); }
-    { auto* fp = FindField(p, p+jsz, "id_3");  ParseFloat(fp, p+jsz, bin.battleMotionValue3); }
-    { auto* fp = FindField(p, p+jsz, "id_4");  ParseFloat(fp, p+jsz, bin.battleMotionValue4); }
-    { auto* fp = FindField(p, p+jsz, "id_5");  ParseFloat(fp, p+jsz, bin.battleMotionValue5); }
-    { auto* fp = FindField(p, p+jsz, "id_6");  ParseFloat(fp, p+jsz, bin.battleMotionValue6); }
-    { auto* fp = FindField(p, p+jsz, "id_7");  ParseFloat(fp, p+jsz, bin.battleMotionValue7); }
-    { auto* fp = FindField(p, p+jsz, "id_8");  ParseFloat(fp, p+jsz, bin.battleMotionValue8); }
-    { auto* fp = FindField(p, p+jsz, "id_9");  ParseFloat(fp, p+jsz, bin.battleMotionValue9); }
-    { auto* fp = FindField(p, p+jsz, "id_10"); ParseFloat(fp, p+jsz, bin.battleMotionValue10); }
-    { auto* fp = FindField(p, p+jsz, "id_11"); ParseUInt32(fp, p+jsz, bin.battleMotionValue11); }
+    { auto* fp = FindDataField(p, "id_1");  ParseFloat(fp, p+jsz, bin.battleMotionValue1); }
+    { auto* fp = FindDataField(p, "id_2");  ParseFloat(fp, p+jsz, bin.battleMotionValue2); }
+    { auto* fp = FindDataField(p, "id_3");  ParseFloat(fp, p+jsz, bin.battleMotionValue3); }
+    { auto* fp = FindDataField(p, "id_4");  ParseFloat(fp, p+jsz, bin.battleMotionValue4); }
+    { auto* fp = FindDataField(p, "id_5");  ParseFloat(fp, p+jsz, bin.battleMotionValue5); }
+    { auto* fp = FindDataField(p, "id_6");  ParseFloat(fp, p+jsz, bin.battleMotionValue6); }
+    { auto* fp = FindDataField(p, "id_7");  ParseFloat(fp, p+jsz, bin.battleMotionValue7); }
+    { auto* fp = FindDataField(p, "id_8");  ParseFloat(fp, p+jsz, bin.battleMotionValue8); }
+    { auto* fp = FindDataField(p, "id_9");  ParseFloat(fp, p+jsz, bin.battleMotionValue9); }
+    { auto* fp = FindDataField(p, "id_10"); ParseFloat(fp, p+jsz, bin.battleMotionValue10); }
+    { auto* fp = FindDataField(p, "id_11"); ParseUInt32(fp, p+jsz, bin.battleMotionValue11); }
     ParseBattleMotionArray(p, "\"id_12\"", bin.battleMotionEntriesAlt);
     return true;
 }
@@ -1816,7 +1912,7 @@ static bool ParseArcadeCpuListJson(const std::string& json, ContentsBinData& bin
     const size_t jsz = json.size();
     // Parse settings singleton
     {
-        const char* sf = FindField(p, p + jsz, "id_0");
+        const char* sf = FindDataField(p, "id_0");
         if (sf && *sf == '{')
         {
             const char* se = SkipObject(sf);
@@ -1922,7 +2018,7 @@ static bool ParseBallRecommendListJson(const std::string& json, ContentsBinData&
     ParseBallRecommendGroup(p, "\"id_2\"", bin.ballRecommendGroup2);
     // scalar uint32 array id_3
     {
-        const char* field = strstr(p, "\"id_3\"");
+        const char* field = FindDataArray(p, "\"id_3\"");
         if (field)
         {
             const char* arr = strchr(field, '[');
@@ -1994,8 +2090,8 @@ static bool ParseBallSettingListJson(const std::string& json, ContentsBinData& b
     const char* p = json.c_str();
     const size_t jsz = json.size();
     auto& d = bin.ballSettingData;
-#define PFLT(id, field) { auto* fp = FindField(p, p+jsz, id); ParseFloat(fp, p+jsz, d.field); }
-#define PU32(id, field) { auto* fp = FindField(p, p+jsz, id); ParseUInt32(fp, p+jsz, d.field); }
+#define PFLT(id, field) { auto* fp = FindDataField(p, id); ParseFloat(fp, p+jsz, d.field); }
+#define PU32(id, field) { auto* fp = FindDataField(p, id); ParseUInt32(fp, p+jsz, d.field); }
     PFLT("id_0",value_0) PFLT("id_1",value_1) PFLT("id_2",value_2) PFLT("id_3",value_3)
     PFLT("id_4",value_4) PFLT("id_5",value_5) PFLT("id_6",value_6) PFLT("id_7",value_7)
     PFLT("id_8",value_8)
@@ -2158,8 +2254,8 @@ static bool ParseBattleCommonListJson(const std::string& json, ContentsBinData& 
             { auto* fp = FindField(s, e, "id_2"); ParseUInt32(fp, e, entry.value_2); }
             return true;
         });
-    { auto* fp = FindField(p, p+jsz, "id_3");  ParseUInt32(fp, p+jsz, bin.battleCommonValue3); }
-    { auto* fp = FindField(p, p+jsz, "id_4");  ParseUInt32(fp, p+jsz, bin.battleCommonValue4); }
+    { auto* fp = FindDataField(p, "id_3");  ParseUInt32(fp, p+jsz, bin.battleCommonValue3); }
+    { auto* fp = FindDataField(p, "id_4");  ParseUInt32(fp, p+jsz, bin.battleCommonValue4); }
     ParseExclusiveArray(p, "\"id_5\"", bin.battleCommonMiscEntries,
         [](const char* s, const char* e, BattleCommonMiscEntry& entry) -> bool {
             { auto* fp = FindField(s, e, "id_0"); ParseFloat(fp, e, entry.value_0); }
@@ -2167,14 +2263,14 @@ static bool ParseBattleCommonListJson(const std::string& json, ContentsBinData& 
             { auto* fp = FindField(s, e, "id_2"); ParseFloat(fp, e, entry.value_2); }
             return true;
         });
-    { auto* fp = FindField(p, p+jsz, "id_6");  ParseFloat(fp,  p+jsz, bin.battleCommonValue6); }
-    { auto* fp = FindField(p, p+jsz, "id_7");  ParseFloat(fp,  p+jsz, bin.battleCommonValue7); }
-    { auto* fp = FindField(p, p+jsz, "id_8");  ParseFloat(fp,  p+jsz, bin.battleCommonValue8); }
-    { auto* fp = FindField(p, p+jsz, "id_9");  ParseUInt32(fp, p+jsz, bin.battleCommonValue9); }
-    { auto* fp = FindField(p, p+jsz, "id_10"); ParseFloat(fp,  p+jsz, bin.battleCommonValue10); }
-    { auto* fp = FindField(p, p+jsz, "id_11"); ParseUInt32(fp, p+jsz, bin.battleCommonValue11); }
-    { auto* fp = FindField(p, p+jsz, "id_12"); ParseUInt32(fp, p+jsz, bin.battleCommonValue12); }
-    { auto* fp = FindField(p, p+jsz, "id_13"); ParseUInt32(fp, p+jsz, bin.battleCommonValue13); }
+    { auto* fp = FindDataField(p, "id_6");  ParseFloat(fp,  p+jsz, bin.battleCommonValue6); }
+    { auto* fp = FindDataField(p, "id_7");  ParseFloat(fp,  p+jsz, bin.battleCommonValue7); }
+    { auto* fp = FindDataField(p, "id_8");  ParseFloat(fp,  p+jsz, bin.battleCommonValue8); }
+    { auto* fp = FindDataField(p, "id_9");  ParseUInt32(fp, p+jsz, bin.battleCommonValue9); }
+    { auto* fp = FindDataField(p, "id_10"); ParseFloat(fp,  p+jsz, bin.battleCommonValue10); }
+    { auto* fp = FindDataField(p, "id_11"); ParseUInt32(fp, p+jsz, bin.battleCommonValue11); }
+    { auto* fp = FindDataField(p, "id_12"); ParseUInt32(fp, p+jsz, bin.battleCommonValue12); }
+    { auto* fp = FindDataField(p, "id_13"); ParseUInt32(fp, p+jsz, bin.battleCommonValue13); }
     return true;
 }
 
@@ -2259,7 +2355,7 @@ static bool ParseBattleCpuListJson(const std::string& json, ContentsBinData& bin
         });
     // scalar int32 array id_2
     {
-        const char* field = strstr(p, "\"id_2\"");
+        const char* field = FindDataArray(p, "\"id_2\"");
         if (field)
         {
             const char* arr = strchr(field, '[');
@@ -2278,7 +2374,7 @@ static bool ParseBattleCpuListJson(const std::string& json, ContentsBinData& bin
     }
     // singleton rank_ex_entry id_3
     {
-        const char* sf = FindField(p, p + jsz, "id_3");
+        const char* sf = FindDataField(p, "id_3");
         if (sf && *sf == '{')
         {
             const char* se = SkipObject(sf);
@@ -2320,7 +2416,7 @@ static std::string BuildRankListJson(const ContentsBinData& bin)
 static bool ParseRankListJson(const std::string& json, ContentsBinData& bin)
 {
     const char* p = json.c_str();
-    const char* outerArr = strstr(p, "\"id_0\"");
+    const char* outerArr = FindDataArray(p, "\"id_0\"");
     if (!outerArr) return false;
     const char* arr = strchr(outerArr, '[');
     if (!arr) return false;
