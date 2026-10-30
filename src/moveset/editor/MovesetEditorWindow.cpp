@@ -1099,18 +1099,18 @@ static std::string MakeUniqueName(const std::vector<ParsedMove>& moves, const st
     return baseName; // fallback (shouldn't reach here)
 }
 
-// Compute name_key and ordinal_id for a new move and write them into m.
-// ordinal_id = KamuiHash(UPPER(charaCode) + "_" + name)
+// Compute name_key and ordinal_id for a new/renamed move.
 // name_key   = KamuiHash(name)
+// ordinal_id = KamuiHash(UPPER(charaCode) + "_" + name)  -> moveId @ 0xF0
+// Does NOT touch t_char_id (ordinal_id2).
 static void ApplyKamuiHashes(ParsedMove& m, const std::string& moveName, const std::string& charaCode)
 {
     m.name_key = (uint32_t)KamuiHash::Compute(moveName);
 
-    // Build "CHARCODE_MoveName" string (charaCode uppercased)
     std::string prefix = charaCode;
     for (char& c : prefix) c = (char)toupper((unsigned char)c);
     std::string ordStr = prefix + "_" + moveName;
-    m.ordinal_id2 = (uint32_t)KamuiHash::Compute(ordStr);
+    m.moveId = (uint32_t)KamuiHash::Compute(ordStr);
 }
 
 // -------------------------------------------------------------
@@ -1141,20 +1141,24 @@ void MovesetEditorWindow::RenderMoveList()
 
             ParsedMove empty{};
             empty.transition = 0x8001;
-            // Apply safety measures if m_data.originalAliases[1] doesn't exist
+            empty.damage_override = -1;
+            empty.anim_len_adj    = 1;
+
+            // Prefer a known-safe anim_key from alias[1] when present.
             if (m_data.originalAliases.size() > 1 &&
                 m_data.originalAliases[1] >= 0 &&
                 static_cast<size_t>(m_data.originalAliases[1]) < m_data.moves.size())
             {
-                ParsedMove move = m_data.moves[m_data.originalAliases[1]];
-                empty.anim_key = move.anim_key;
+                empty.anim_key = m_data.moves[m_data.originalAliases[1]].anim_key;
             }
             else
             {
                 empty.anim_key = 0;
-                empty.ordinal_id2 = 0;
             }
-    
+
+            // t_char_id comes from motbin header+0x160 (same value all moves share).
+            empty.ordinal_id2 = m_data.tCharId;
+
             // Assign cancel_idx to the index of the cancel we just created
             empty.cancel_idx        = (uint32_t)m_data.cancelBlock.size() - 1;
             empty.cancel2_idx       = 0xFFFFFFFF;

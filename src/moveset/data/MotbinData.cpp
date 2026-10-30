@@ -291,6 +291,9 @@ MotbinData LoadMotbin(const std::string& folderPath)
 
     result.folderPath = folderPath;
     result.rawBytes   = bytes;  // save before expansion for later patching
+    // Header+0x160 is the character's t_char_id (same value stored encrypted on each move @ 0xD0).
+    if (bytes.size() >= 0x164)
+        memcpy(&result.tCharId, bytes.data() + 0x160, 4);
 
     // Read OriginalCharacter from moveset.ini (written by extractor).
     {
@@ -1421,6 +1424,8 @@ std::vector<uint8_t> RebuildMotbinBytes(MotbinData& data)
                 memcpy(e + kMove_EncOrdinalId + 16 + k*4, &m.ordinal_related[k], 4);
 
             // Per-slot patches: overwrite this move's specific slot with current values.
+            // name_key must be patched too — new/duplicated moves start with zeroed enc blocks.
+            { uint32_t enc = m.name_key    ^ kXorKeys[slot]; memcpy(e + kMove_EncNameKey   + slot*4, &enc, 4); }
             { uint32_t enc = m.vuln        ^ kXorKeys[slot]; memcpy(e + kMove_EncVuln      + slot*4, &enc, 4); }
             { uint32_t enc = m.hitlevel    ^ kXorKeys[slot]; memcpy(e + kMove_EncHitlevel  + slot*4, &enc, 4); }
             { uint32_t enc = m.ordinal_id2 ^ kXorKeys[slot]; memcpy(e + kMove_EncCharId    + slot*4, &enc, 4); }
