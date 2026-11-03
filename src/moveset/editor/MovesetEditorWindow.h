@@ -63,6 +63,7 @@ public:
 
     struct InputSeqWinState {
         bool        open         = false;
+        bool        pendingFocus = false;  // one-frame: bring window to front
         TwoLevelSel sel;
     };
 

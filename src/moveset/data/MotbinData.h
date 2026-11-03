@@ -139,7 +139,13 @@ struct ParsedExtraProp {
 //  tk_input — union of command(uint64) / direction(uint32)+button(uint32)
 // -------------------------------------------------------------
 struct ParsedInput {
-    uint64_t command;  // +0x00  direction(lo32) | button(hi32)
+    union {
+        uint64_t command;              // +0x00  direction(lo32) | button(hi32)
+        struct {
+            uint32_t direction;        // lo32
+            uint32_t button;           // hi32 — pressed / held<<9 / released<<18
+        };
+    };
 };
 
 // -------------------------------------------------------------
@@ -149,7 +155,7 @@ struct ParsedInput {
 struct ParsedInputSequence {
     uint16_t input_window_frames;          // +0x00
     uint16_t input_amount;                 // +0x02
-    uint32_t _0x4;                         // +0x04
+    uint32_t _0x4;                         // +0x04 - Padding & unused
     uint64_t inputs_addr;                  // +0x08  -> first ParsedInput entry
 
     uint32_t input_start_idx = 0xFFFFFFFF; // index into global inputBlock

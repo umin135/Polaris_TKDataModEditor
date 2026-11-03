@@ -342,114 +342,131 @@ void LabelDB::LoadFromResources()
     if (anim.first  && anim.second)  ParseNameJsonBuffer(anim.first,  anim.second,  m_animNames, /*clearFirst=*/true);
 }
 
-// TODO: Make it more robust in the future to cover all cases.
-// Currently, this is copy-pasted from the Moveset Extractor.
+// Button bit-flags live in the high 32 bits of the command:
+//   pressed  = base flags at bit 0  (mask 0x7F)
+//   held     = same flags << 9
+//   released = same flags << 18
+// Base: 0x1=1(LP) 0x2=2(RP) 0x4=3(LK) 0x8=4(RK) 0x10=H 0x20=SS 0x40=RA
 const char* LabelDB::ParseCommand(uint64_t command) {
     if (command == 0) return "NONE";
 
     static thread_local std::string out; // thread-safe persistent buffer for returned c_str
     out.clear();
 
-    // Constants
-    uint32_t inputSeqStart = GameStatic::Get().data.inputSeqStart;
+    const auto& gs = GameStatic::Get().data;
+    const uint32_t inputSeqStart    = gs.inputSeqStart;
+    const uint32_t groupCancelStart = gs.groupCancelStart;
+    const uint32_t groupCancelEnd   = gs.groupCancelEnd;
 
-    // Helper: convert directionBits to string
-    auto getDirectionalInput = [&](uint32_t directionBits) -> std::string {
-        static const char* valueList[32] = {
+    auto getDirectionalInput = [](uint32_t directionBits) -> std::string {
+        static const char* valueList[11] = {
             "INVALID", "d/b", "d", "d/f", "b", "n", "f", "u/b", "u", "u/f", "unknown"
         };
-        // Extend valueList with INVALIDs to 32 total.
-        std::vector<std::string> values;
-        for (int i = 0; i < 11; ++i) values.push_back(valueList[i]);
-        for (int i = 11; i < 32; ++i) values.push_back("INVALID");
 
         std::string value;
         for (int i = 0; i < 32; ++i) {
             if (directionBits & (1u << i)) {
-                value += "| " + values[i] + " ";
+                const char* name = (i < 11) ? valueList[i] : "INVALID";
+                value += "| ";
+                value += name;
+                value += " ";
             }
         }
 
-        if (value.find("INVALID") != std::string::npos) {
+        if (value.find("INVALID") != std::string::npos)
             return "INVALID";
-        }
 
-        // Checking if command has more than 1 inputs
         if (value.length() > 6) {
-            // value[2:-1] in Python -- need to trim the prefix "| " and the last ' ' (if present)
             size_t start = 2;
             size_t end = value.length();
             if (end > 1 && value[end - 1] == ' ') --end;
             return "(" + value.substr(start, end - start) + ")";
         }
-        // Return string without the prefix '| '
-        if (value.length() > 1) {
+        if (value.length() > 1)
             return value.substr(1);
-        }
         return value;
     };
 
-    // Helper: get command string from command bits
-    auto getCommandStr = [&](uint64_t commandBytes) -> std::string {
-        std::string inputs, direction;
-
-        uint32_t inputBits     = static_cast<uint32_t>(commandBytes >> 32);
-        uint32_t directionBits = static_cast<uint32_t>(commandBytes & 0xffffffff);
-
-        // Map simple button bits to labels
-        for (int i = 1; i <= 4; ++i) {
-            if (inputBits & (1u << (i - 1))) {
-                inputs += "+" + std::to_string(i);
+    auto fillBtnStr = [](uint32_t mask, bool partial) -> std::string {
+        static const char* kNames[] = { "1", "2", "3", "4", "H", "SS", "RA" };
+        std::string s;
+        bool first = true;
+        for (int i = 0; i < 7; ++i) {
+            if (mask & (1u << i)) {
+                if (!first) s += partial ? " | " : "+";
+                s += kNames[i];
+                first = false;
             }
         }
-        if (inputBits & (1 << 4))  inputs += "+HE"; // Heat
-        if (inputBits & (1 << 5))  inputs += "+SS"; // Special Style
-        if (inputBits & (1 << 6))  inputs += "+RA"; // Rage Art
-
-        if (directionBits < 0x8000) {
-            direction = getDirectionalInput(directionBits);
-        } else if (directionBits < inputSeqStart) {
-            switch (directionBits) {
-                case 0x8000: direction = "[AUTO]"; break;
-                case 0x8001: direction = " Double tap F"; break;
-                case 0x8002: direction = " Double tap B"; break;
-                case 0x8003: direction = " Double tap F"; break;
-                case 0x8004: direction = " Double tap B"; break;
-                case 0x8005: direction = " Double tap U"; break;
-                case 0x8006: direction = " Double tap D"; break;
-                case 0x800E: direction = " group cancel end"; break;
-                default:    direction = "UNKNOWN"; break;
-            }
-       
-        } else if (directionBits <= 0x8FFF) {
-            direction = " input_sequence[" + std::to_string(directionBits - inputSeqStart) + "]";
-        }
-
-        // If "Partial Input" mode, replace '+' with '|'
-        if (inputBits & (1u << 29)) {
-            // Replace all '+' after first char with " | "
-            std::string temp;
-            if (!inputs.empty()) {
-                temp += inputs[0];
-                for (size_t i = 1; i < inputs.size(); ++i) {
-                    if (inputs[i] == '+')
-                        temp += " | ";
-                    else
-                        temp += inputs[i];
-                }
-                inputs = temp;
-            }
-        }
-
-        // Remove leading '+' for display
-        if (direction.empty() && !inputs.empty()) {
-            return inputs.size() > 1 ? inputs.substr(1) : "";
-        }
-
-        return direction + inputs;
+        return s;
     };
 
-    // Compose output
+    auto getCommandStr = [&](uint64_t commandBytes) -> std::string {
+        const uint32_t inputBits     = static_cast<uint32_t>(commandBytes >> 32);
+        const uint32_t directionBits = static_cast<uint32_t>(commandBytes & 0xffffffff);
+        const bool partial = (inputBits & (1u << 29)) != 0;
+
+        const uint32_t pressed  =  inputBits        & 0x7Fu;
+        const uint32_t held     = (inputBits >> 9)  & 0x7Fu;
+        const uint32_t released = (inputBits >> 18) & 0x7Fu;
+
+        std::string direction;
+        // 0x80XX specials and input_sequence[N] require a clear button half.
+        if (inputBits == 0) {
+            if (directionBits >= inputSeqStart) {
+                direction = "input_sequence[" + std::to_string(directionBits - inputSeqStart) + "]";
+            } else if (directionBits >= 0x8000) {
+                switch (directionBits) {
+                    case 0x8000: direction = "[AUTO]"; break;
+                    case 0x8001: direction = "Double tap F"; break;
+                    case 0x8002: direction = "Double tap B"; break;
+                    case 0x8003: direction = "Double tap F"; break;
+                    case 0x8004: direction = "Double tap B"; break;
+                    case 0x8005: direction = "Double tap U"; break;
+                    case 0x8006: direction = "Double tap D"; break;
+                    default:
+                        if (directionBits == groupCancelStart)
+                            direction = "group cancel start";
+                        else if (directionBits == groupCancelEnd)
+                            direction = "group cancel end";
+                        else
+                            direction = "UNKNOWN";
+                        break;
+                }
+            } else {
+                direction = getDirectionalInput(directionBits);
+            }
+        } else if (directionBits < 0x8000) {
+            direction = getDirectionalInput(directionBits);
+        }
+
+        const std::string pressStr = fillBtnStr(pressed, partial);
+        const std::string heldStr  = fillBtnStr(held, false);
+        const std::string relStr   = fillBtnStr(released, false);
+
+        // Trim spaces from specials like " Double tap F" / trailing space on "d/f "
+        while (!direction.empty() && direction.front() == ' ')
+            direction.erase(direction.begin());
+        while (!direction.empty() && direction.back() == ' ')
+            direction.pop_back();
+
+        std::string result = direction;
+        if (!pressStr.empty()) {
+            if (!result.empty()) result += "+";
+            result += pressStr;
+        }
+        if (!heldStr.empty()) {
+            if (!result.empty()) result += " ";
+            result += "h:" + heldStr;
+        }
+        if (!relStr.empty()) {
+            if (!result.empty()) result += " ";
+            result += "r:" + relStr;
+        }
+
+        return result.empty() ? "NONE" : result;
+    };
+
     out = getCommandStr(command);
     return out.c_str();
 }

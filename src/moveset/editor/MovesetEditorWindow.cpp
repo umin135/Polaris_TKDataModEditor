@@ -3665,8 +3665,26 @@ void MovesetEditorWindow::RenderCancelInnerDetail(
             m_dirty = true;
         }
 
-        // Display parsed command string using LabelDB
+        // Display parsed command string using LabelDB; Go → Input Sequences when applicable
         ImGui::Text("Command: %s", LabelDB::ParseCommand(c.command));
+        {
+            // Input-sequence command: button half clear, direction >= InputSeqStart
+            const uint32_t direction = (uint32_t)(c.command & 0xffffffffu);
+            const uint32_t button    = (uint32_t)(c.command >> 32);
+            const uint32_t seqBase   = GameStatic::Get().data.inputSeqStart;
+            if (button == 0 && direction >= seqBase) {
+                const uint32_t seqIdx = direction - seqBase;
+                const bool seqValid = seqIdx < (uint32_t)m_data.inputSequenceBlock.size();
+                ImGui::SameLine();
+                if (GoButton("##iseq_go", seqValid)) {
+                    m_inputSeqWin.sel.outer       = (int)seqIdx;
+                    m_inputSeqWin.sel.inner       = 0;
+                    m_inputSeqWin.sel.scrollOuter = true;
+                    m_inputSeqWin.open            = true;
+                    m_inputSeqWin.pendingFocus    = true;
+                }
+            }
+        }
 
         // extradata (uint32_t, navigate to cancel-extra)
         // TK8: extradata pointer is always valid (game crashes on null); minimum valid index = 0
@@ -6017,8 +6035,9 @@ void MovesetEditorWindow::RenderSubWin_Projectiles()
 
 // -------------------------------------------------------------
 //  Input Sequences subwindow
-//  Left  : sequence list + sequence detail (input_window_frames, input_amount, _0x4)
-//  Right : inputs table for selected sequence (command hex64, inline editable)
+//  Pane 1 : sequence list
+//  Pane 2 : sequence header (input_window_frames; input_amount read-only)
+//  Pane 3 : inputs for selected sequence (command + direction/button)
 // -------------------------------------------------------------
 
 // After inserting one input at inputBlock[ipos], bump input_start_idx of every
@@ -6034,130 +6053,191 @@ static void ShiftInputStartRefs(MotbinData& d, const ParsedInputSequence& owner,
     }
 }
 
+static uint64_t ParseHexU64(const char* p)
+{
+    if (p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) p += 2;
+    uint64_t val = 0;
+    for (; *p; ++p) {
+        val <<= 4;
+        if      (*p >= '0' && *p <= '9') val |= (uint64_t)(*p - '0');
+        else if (*p >= 'a' && *p <= 'f') val |= (uint64_t)(*p - 'a' + 10);
+        else if (*p >= 'A' && *p <= 'F') val |= (uint64_t)(*p - 'A' + 10);
+    }
+    return val;
+}
+
+static uint32_t ParseHexU32(const char* p)
+{
+    return (uint32_t)ParseHexU64(p);
+}
+
+// Build "#N  n, b, n, b" (or "(empty)") from a sequence's inputs. Body capped at 50 chars.
+static void FormatInputSequenceListLabel(char* out, int outSz, int idx,
+                                         const ParsedInputSequence& seq,
+                                         const std::vector<ParsedInput>& inps)
+{
+    std::string body;
+    if (seq.input_start_idx != 0xFFFFFFFF && seq.input_amount > 0) {
+        for (uint32_t j = 0; j < seq.input_amount; ++j) {
+            const uint32_t k = seq.input_start_idx + j;
+            if (k >= (uint32_t)inps.size()) break;
+            std::string part = LabelDB::ParseCommand(inps[k].command);
+            while (!part.empty() && (part.front() == ' ' || part.front() == '\t'))
+                part.erase(part.begin());
+            while (!part.empty() && (part.back() == ' ' || part.back() == '\t'))
+                part.pop_back();
+            if (part.empty()) part = "NONE";
+            if (!body.empty()) body += ", ";
+            body += part;
+        }
+    }
+    if (body.empty())
+        body = "(empty)";
+    else if (body.size() > 50) {
+        body.resize(47);
+        body += "...";
+    }
+    snprintf(out, outSz, "#%d  %s", idx, body.c_str());
+}
+
 void MovesetEditorWindow::RenderSubWin_InputSequences()
 {
     if (!m_inputSeqWin.open) return;
-    ImGui::SetNextWindowSize(LayoutStore::Get().GetWin("InputSequences", 580.0f, 400.0f), ImGuiCond_FirstUseEver);
+    if (m_inputSeqWin.pendingFocus) { m_inputSeqWin.pendingFocus = false; return; }
+    ImGui::SetNextWindowSize(LayoutStore::Get().GetWin("InputSequences", 900.0f, 500.0f), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin(WinId("Input Sequences##blkwin").c_str(), &m_inputSeqWin.open, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking))
     { ImGui::End(); return; }
 
     auto& seqs = m_data.inputSequenceBlock;
     auto& inps = m_data.inputBlock;
 
-    const float spacing = ImGui::GetStyle().ItemSpacing.x;
-    const float totalW  = ImGui::GetContentRegionAvail().x;
-    float& leftW = SectionW("iseq_left", 0.0f);
-    if (leftW <= 0.0f) leftW = totalW * 0.40f;
-    const float listH   = 150.0f;
+    float& listW = SectionW("iseq_list", 260.0f);
+    float& hdrW  = SectionW("iseq_hdr",  220.0f);
 
-    // ---- Left: sequence list + detail ----
-    ImGui::BeginChild("##iseq_left", ImVec2(leftW, 0.0f), false);
+    // ---- Pane 1: sequence list ----
+    ImGui::BeginChild("##iseq_list", ImVec2(listW, 0.0f), true);
     {
-        ImGui::BeginChild("##iseqlist", ImVec2(0.0f, listH), true);
+        ImGui::TextDisabled("Input Sequences (%d)", (int)seqs.size());
+        ImGui::Separator();
+
+        ListAction pendAct = ListAction::None; int pendK = -1; bool pendInsAfter = false;
+
+        ImGui::BeginChild("##iseqlist_sl", ImVec2(0, 0), false);
+        for (int i = 0; i < (int)seqs.size(); ++i)
         {
-            int seqTotal = (int)seqs.size();
-            ImGui::TextDisabled("Input Sequences (%d)", seqTotal);            ImGui::Separator();
-
-            ListAction pendAct = ListAction::None; int pendK = -1; bool pendInsAfter = false;
-
-            ImGui::BeginChild("##iseqlist_sl", ImVec2(0, 0), false);
-            for (int i = 0; i < (int)seqs.size(); ++i)
-            {
-                char lbl[40];
-                snprintf(lbl, sizeof(lbl), "#%d  (amount=%u)", i, seqs[i].input_amount);
-                ImGui::PushID(i);
-                bool sel = (m_inputSeqWin.sel.outer == i);
-                if (ImGui::Selectable(lbl, sel, ImGuiSelectableFlags_AllowOverlap, ImVec2(0, ListRowHeight()))) { m_inputSeqWin.sel.outer = i; m_inputSeqWin.sel.inner = 0; }
-                if (sel && m_inputSeqWin.sel.scrollOuter)
-                {
-                    ImGui::SetScrollHereY(0.5f);
-                    m_inputSeqWin.sel.scrollOuter = false;
-                }
-                RowResult rr = ListRow(false, i > 0, i < (int)seqs.size() - 1, true, true, true, true, sel, /*insertOnly*/true);
-                if (rr.act != ListAction::None) { pendAct = rr.act; pendK = i; pendInsAfter = rr.insertAfter; }
-                ImGui::PopID();
+            char lbl[80];
+            FormatInputSequenceListLabel(lbl, sizeof(lbl), i, seqs[i], inps);
+            ImGui::PushID(i);
+            bool sel = (m_inputSeqWin.sel.outer == i);
+            if (ImGui::Selectable(lbl, sel, ImGuiSelectableFlags_AllowOverlap, ImVec2(0, ListRowHeight()))) {
+                m_inputSeqWin.sel.outer = i; m_inputSeqWin.sel.inner = 0;
             }
-            ImGui::EndChild();
-
-            // ---- Apply the deferred outer action (sequences are standalone; pure swap) ----
-            if (pendAct != ListAction::None && pendK >= 0) {
-                int idx = pendK;
-                if (pendAct == ListAction::Insert) {
-                    DisableLiveEditing();
-                    uint32_t ipos = pendInsAfter ? (uint32_t)idx + 1 : (uint32_t)idx;
-                    ParsedInputSequence ns{}; ns.input_start_idx = 0xFFFFFFFF;
-                    seqs.insert(seqs.begin() + ipos, ns);
-                    m_inputSeqWin.sel.outer = (int)ipos; m_inputSeqWin.sel.inner = 0; m_dirty = true;
-                } else if (pendAct == ListAction::Duplicate) {
-                    DisableLiveEditing();
-                    // Deep-copy: the sequence header only stores start_idx/amount into the shared
-                    // inputBlock. Copying the header alone would make the duplicate share the
-                    // ORIGINAL's inputs; append fresh copies and point the new sequence at them.
-                    ParsedInputSequence ns = seqs[idx];
-                    if (ns.input_start_idx != 0xFFFFFFFF && ns.input_amount > 0) {
-                        const uint32_t srcStart = ns.input_start_idx;
-                        const uint32_t newStart = (uint32_t)inps.size();
-                        inps.reserve(inps.size() + ns.input_amount);
-                        for (uint32_t j = 0; j < ns.input_amount && (srcStart + j) < inps.size(); ++j) {
-                            ParsedInput tmp = inps[srcStart + j];   // copy before push_back (may realloc)
-                            inps.push_back(tmp);
-                        }
-                        ns.input_start_idx = newStart;
-                    }
-                    seqs.insert(seqs.begin() + idx + 1, ns);
-                    m_inputSeqWin.sel.outer = idx + 1; m_inputSeqWin.sel.inner = 0; m_dirty = true;
-                } else if (pendAct == ListAction::Remove) {
-                    DisableLiveEditing();
-                    seqs.erase(seqs.begin() + idx);
-                    if (m_inputSeqWin.sel.outer >= (int)seqs.size())
-                        m_inputSeqWin.sel.outer = (std::max)(0, (int)seqs.size() - 1);
-                    m_inputSeqWin.sel.inner = 0; m_dirty = true;
-                } else if (pendAct == ListAction::MoveUp || pendAct == ListAction::MoveDown) {
-                    int ni = idx + (pendAct == ListAction::MoveUp ? -1 : 1);
-                    if (ni >= 0 && ni < (int)seqs.size()) {   // pure swap: each seq keeps its own inputs
-                        std::swap(seqs[idx], seqs[ni]);
-                        m_inputSeqWin.sel.outer = ni; m_dirty = true;
-                        QueueLiveTouch(LiveTouch::InputSequence, (uint32_t)idx, (uint32_t)ni);
-                    }
-                }
+            if (sel && m_inputSeqWin.sel.scrollOuter) {
+                ImGui::SetScrollHereY(0.5f);
+                m_inputSeqWin.sel.scrollOuter = false;
             }
+            RowResult rr = ListRow(false, i > 0, i < (int)seqs.size() - 1, true, true, true, true, sel, /*insertOnly*/true);
+            if (rr.act != ListAction::None) { pendAct = rr.act; pendK = i; pendInsAfter = rr.insertAfter; }
+            ImGui::PopID();
         }
         ImGui::EndChild();
 
-        if (m_inputSeqWin.sel.outer >= 0 && m_inputSeqWin.sel.outer < (int)seqs.size())
-        {
-            ParsedInputSequence& s = m_data.inputSequenceBlock[m_inputSeqWin.sel.outer];
-            ImGui::TextDisabled("input_sequence #%d", m_inputSeqWin.sel.outer); ImGui::Separator();
-            if (BeginPropTable("##iseqdt"))
-            {
-                if (RowU16Edit("##is_wf",  InputSeqLabel::InputWindowFrames, s.input_window_frames, FieldTT::InputSeq::InputWindowFrames)) { m_dirty = true; QueueLiveTouch(LiveTouch::InputSequence, (uint32_t)m_inputSeqWin.sel.outer); }
-                if (RowU16Edit("##is_amt", InputSeqLabel::InputAmount,       s.input_amount,        FieldTT::InputSeq::InputAmount))       { m_dirty = true; QueueLiveTouch(LiveTouch::InputSequence, (uint32_t)m_inputSeqWin.sel.outer); }
-                if (RowU32Edit("##is_0x4", InputSeqLabel::F0x4,              s._0x4,                FieldTT::InputSeq::F0x4))              { m_dirty = true; QueueLiveTouch(LiveTouch::InputSequence, (uint32_t)m_inputSeqWin.sel.outer); }
-                ImGui::EndTable();
+        if (pendAct != ListAction::None && pendK >= 0) {
+            int idx = pendK;
+            if (pendAct == ListAction::Insert) {
+                DisableLiveEditing();
+                uint32_t ipos = pendInsAfter ? (uint32_t)idx + 1 : (uint32_t)idx;
+                ParsedInputSequence ns{}; ns.input_start_idx = 0xFFFFFFFF;
+                seqs.insert(seqs.begin() + ipos, ns);
+                m_inputSeqWin.sel.outer = (int)ipos; m_inputSeqWin.sel.inner = 0; m_dirty = true;
+            } else if (pendAct == ListAction::Duplicate) {
+                DisableLiveEditing();
+                // Deep-copy inputs into fresh slots so the duplicate does not share the original slice.
+                ParsedInputSequence ns = seqs[idx];
+                if (ns.input_start_idx != 0xFFFFFFFF && ns.input_amount > 0) {
+                    const uint32_t srcStart = ns.input_start_idx;
+                    const uint32_t newStart = (uint32_t)inps.size();
+                    inps.reserve(inps.size() + ns.input_amount);
+                    for (uint32_t j = 0; j < ns.input_amount && (srcStart + j) < inps.size(); ++j) {
+                        ParsedInput tmp = inps[srcStart + j];
+                        inps.push_back(tmp);
+                    }
+                    ns.input_start_idx = newStart;
+                }
+                seqs.insert(seqs.begin() + idx + 1, ns);
+                m_inputSeqWin.sel.outer = idx + 1; m_inputSeqWin.sel.inner = 0; m_dirty = true;
+            } else if (pendAct == ListAction::Remove) {
+                DisableLiveEditing();
+                seqs.erase(seqs.begin() + idx);
+                if (m_inputSeqWin.sel.outer >= (int)seqs.size())
+                    m_inputSeqWin.sel.outer = (std::max)(0, (int)seqs.size() - 1);
+                m_inputSeqWin.sel.inner = 0; m_dirty = true;
+            } else if (pendAct == ListAction::MoveUp || pendAct == ListAction::MoveDown) {
+                int ni = idx + (pendAct == ListAction::MoveUp ? -1 : 1);
+                if (ni >= 0 && ni < (int)seqs.size()) {
+                    std::swap(seqs[idx], seqs[ni]);
+                    m_inputSeqWin.sel.outer = ni; m_dirty = true;
+                    QueueLiveTouch(LiveTouch::InputSequence, (uint32_t)idx, (uint32_t)ni);
+                }
             }
         }
     }
     ImGui::EndChild();
 
-    VSplitter("##iseq_sp", &leftW, 150.0f, 200.0f);
+    VSplitter("##iseq_sp1", &listW, 120.0f, 280.0f);
 
-    // ---- Right: inputs table for selected sequence ----
-    ImGui::BeginChild("##iseq_right", ImVec2(0.0f, 0.0f), true);
+    // ---- Pane 2: sequence header ----
+    ImGui::BeginChild("##iseq_hdr", ImVec2(hdrW, 0.0f), true);
+    if (m_inputSeqWin.sel.outer >= 0 && m_inputSeqWin.sel.outer < (int)seqs.size())
+    {
+        ParsedInputSequence& s = seqs[m_inputSeqWin.sel.outer];
+        ImGui::TextDisabled("input_sequence #%d", m_inputSeqWin.sel.outer);
+        ImGui::Separator();
+        if (BeginPropTable("##iseqdt", false, 140.0f))
+        {
+            if (RowU16Edit("##is_wf", InputSeqLabel::InputWindowFrames, s.input_window_frames,
+                           FieldTT::InputSeq::InputWindowFrames)) {
+                m_dirty = true;
+                QueueLiveTouch(LiveTouch::InputSequence, (uint32_t)m_inputSeqWin.sel.outer);
+            }
+            // Read-only: length is owned by pane-3 insert/remove/dup.
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::TextDisabled("%s", InputSeqLabel::InputAmount);
+            ShowFieldTooltip(FieldTT::InputSeq::InputAmount);
+            ImGui::TableSetColumnIndex(1);
+            ImGui::Text("%u", s.input_amount);
+            ImGui::EndTable();
+        }
+    }
+    else
+    {
+        ImGui::TextDisabled("No sequence selected");
+    }
+    ImGui::EndChild();
+
+    VSplitter("##iseq_sp2", &hdrW, 140.0f, 200.0f);
+
+    // ---- Pane 3: inputs for selected sequence ----
+    ImGui::BeginChild("##iseq_inputs", ImVec2(0.0f, 0.0f), true);
     if (m_inputSeqWin.sel.outer >= 0 && m_inputSeqWin.sel.outer < (int)seqs.size())
     {
         ParsedInputSequence& s = seqs[m_inputSeqWin.sel.outer];
 
-        ImGui::TextDisabled("inputs  (seq #%d,  amount=%u)", m_inputSeqWin.sel.outer, s.input_amount);        ImGui::Separator();
+        ImGui::TextDisabled("inputs  (seq #%d,  amount=%u)", m_inputSeqWin.sel.outer, s.input_amount);
+        ImGui::Separator();
 
         ListAction pendInpAct = ListAction::None; int pendInpK = -1; bool pendInpInsAfter = false;
 
         static constexpr ImVec4 kBlockBg = {0.14f, 0.14f, 0.18f, 1.00f};
         static constexpr ImVec4 kSelBg   = {0.22f, 0.22f, 0.30f, 1.00f};
         const ImGuiStyle& isty = ImGui::GetStyle();
-        // Header row carries the action buttons (taller than a text line); size to the
-        // button-row height so no per-card scrollbar appears.
+        // Header + command hex + label + direction + button rows
         float inpCardH = ListRowHeight() + 2.0f + isty.ItemSpacing.y
-                       + ImGui::GetFrameHeight() + isty.WindowPadding.y * 2.0f;
+                       + ImGui::GetFrameHeight() * 3.0f
+                       + ImGui::GetTextLineHeight()
+                       + isty.ItemSpacing.y * 3.0f
+                       + isty.WindowPadding.y * 2.0f;
 
         ImGui::BeginChild("##inp_scroll", ImVec2(0, 0), false);
         if (s.input_start_idx != 0xFFFFFFFF)
@@ -6165,6 +6245,7 @@ void MovesetEditorWindow::RenderSubWin_InputSequences()
             const uint32_t end = s.input_start_idx + s.input_amount;
             for (uint32_t k = s.input_start_idx; k < end && k < (uint32_t)inps.size(); ++k)
             {
+                ParsedInput& inp = inps[k];
                 const int localIdx = (int)(k - s.input_start_idx);
                 bool sel = (m_inputSeqWin.sel.inner == localIdx);
                 ImGui::PushStyleColor(ImGuiCol_ChildBg, sel ? kSelBg : kBlockBg);
@@ -6178,28 +6259,40 @@ void MovesetEditorWindow::RenderSubWin_InputSequences()
                     if (rr.act != ListAction::None) { pendInpAct = rr.act; pendInpK = localIdx; pendInpInsAfter = rr.insertAfter; }
 
                     ImGui::SetNextItemWidth(-1.0f);
-                    char inputId[24]; snprintf(inputId, sizeof(inputId), "##inp_cmd%u", k);
+                    char cmdId[24]; snprintf(cmdId, sizeof(cmdId), "##inp_cmd%u", k);
                     char hexBuf[20];
-                    snprintf(hexBuf, sizeof(hexBuf), "0x%016llX",
-                             (unsigned long long)m_data.inputBlock[k].command);
-                    if (ImGui::InputText(inputId, hexBuf, sizeof(hexBuf),
-                                         ImGuiInputTextFlags_CharsHexadecimal))
-                    {
-                        // parse on deactivate
+                    snprintf(hexBuf, sizeof(hexBuf), "0x%016llX", (unsigned long long)inp.command);
+                    ImGui::InputText(cmdId, hexBuf, sizeof(hexBuf), ImGuiInputTextFlags_CharsHexadecimal);
+                    if (ImGui::IsItemDeactivatedAfterEdit()) {
+                        inp.command = ParseHexU64(hexBuf);
+                        m_dirty = true;
+                        QueueLiveTouch(LiveTouch::Input, k);
                     }
-                    if (ImGui::IsItemDeactivatedAfterEdit())
-                    {
-                        const char* p = hexBuf;
-                        if (p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) p += 2;
-                        uint64_t val = 0;
-                        for (; *p; ++p)
-                        {
-                            val <<= 4;
-                            if (*p >= '0' && *p <= '9') val |= (uint64_t)(*p - '0');
-                            else if (*p >= 'a' && *p <= 'f') val |= (uint64_t)(*p - 'a' + 10);
-                            else if (*p >= 'A' && *p <= 'F') val |= (uint64_t)(*p - 'A' + 10);
-                        }
-                        m_data.inputBlock[k].command = val;
+
+                    ImGui::Text("Command: %s", LabelDB::ParseCommand(inp.command));
+
+                    ImGui::TextDisabled("direction");
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(-1.0f);
+                    char dirId[24]; snprintf(dirId, sizeof(dirId), "##inp_dir%u", k);
+                    char dirBuf[12];
+                    snprintf(dirBuf, sizeof(dirBuf), "0x%08X", inp.direction);
+                    ImGui::InputText(dirId, dirBuf, sizeof(dirBuf), ImGuiInputTextFlags_CharsHexadecimal);
+                    if (ImGui::IsItemDeactivatedAfterEdit()) {
+                        inp.direction = ParseHexU32(dirBuf);
+                        m_dirty = true;
+                        QueueLiveTouch(LiveTouch::Input, k);
+                    }
+
+                    ImGui::TextDisabled("button");
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(-1.0f);
+                    char btnId[24]; snprintf(btnId, sizeof(btnId), "##inp_btn%u", k);
+                    char btnBuf[12];
+                    snprintf(btnBuf, sizeof(btnBuf), "0x%08X", inp.button);
+                    ImGui::InputText(btnId, btnBuf, sizeof(btnBuf), ImGuiInputTextFlags_CharsHexadecimal);
+                    if (ImGui::IsItemDeactivatedAfterEdit()) {
+                        inp.button = ParseHexU32(btnBuf);
                         m_dirty = true;
                         QueueLiveTouch(LiveTouch::Input, k);
                     }
@@ -6211,7 +6304,6 @@ void MovesetEditorWindow::RenderSubWin_InputSequences()
         }
         ImGui::EndChild();
 
-        // ---- Apply the deferred inner-input action (range-based; reorder within sequence) ----
         if (pendInpAct != ListAction::None && pendInpK >= 0)
         {
             bool hasRange = (s.input_start_idx != 0xFFFFFFFF);
@@ -6221,8 +6313,6 @@ void MovesetEditorWindow::RenderSubWin_InputSequences()
                 uint32_t ipos = wasEmpty ? (uint32_t)inps.size()
                     : s.input_start_idx + (uint32_t)(pendInpInsAfter ? pendInpK + 1 : pendInpK);
                 inps.insert(inps.begin() + ipos, ParsedInput{});
-                // Shift start indices of OTHER sequences at/after the insert point; `s` itself
-                // is excluded (it keeps its range / gets its start set below).
                 ShiftInputStartRefs(m_data, s, ipos);
                 if (wasEmpty) s.input_start_idx = ipos;
                 s.input_amount++; m_dirty = true;
@@ -6231,7 +6321,7 @@ void MovesetEditorWindow::RenderSubWin_InputSequences()
                 DisableLiveEditing();
                 uint32_t absSrc = s.input_start_idx + (uint32_t)pendInpK;
                 uint32_t ipos   = s.input_start_idx + (uint32_t)pendInpK + 1;
-                ParsedInput copy = inps[absSrc];   // copy before insert; insert may reallocate inps
+                ParsedInput copy = inps[absSrc];
                 inps.insert(inps.begin() + ipos, copy);
                 ShiftInputStartRefs(m_data, s, ipos);
                 s.input_amount++; m_dirty = true;
@@ -6240,7 +6330,6 @@ void MovesetEditorWindow::RenderSubWin_InputSequences()
                 DisableLiveEditing();
                 uint32_t absPos = s.input_start_idx + (uint32_t)pendInpK;
                 inps.erase(inps.begin() + absPos);
-                // Manual fixup: decrement start indices > absPos; don't nullify == absPos.
                 for (auto& sq : m_data.inputSequenceBlock) {
                     if (sq.input_start_idx != 0xFFFFFFFF && sq.input_start_idx > absPos)
                         sq.input_start_idx--;
@@ -6254,12 +6343,16 @@ void MovesetEditorWindow::RenderSubWin_InputSequences()
                 if (nl >= 0 && (uint32_t)nl < s.input_amount) {
                     uint32_t a = s.input_start_idx + (uint32_t)pendInpK;
                     uint32_t b = s.input_start_idx + (uint32_t)nl;
-                    std::swap(inps[a], inps[b]);   // within the same range: start_idx unchanged
+                    std::swap(inps[a], inps[b]);
                     m_inputSeqWin.sel.inner = nl; m_dirty = true;
                     QueueLiveTouch(LiveTouch::Input, a, b);
                 }
             }
         }
+    }
+    else
+    {
+        ImGui::TextDisabled("No sequence selected");
     }
     ImGui::EndChild();
 
@@ -7141,10 +7234,11 @@ static void CmdToLabel(char* out, int outSz, uint64_t cmd)
     const char* exact = LabelDB::Get().Cmd(cmd);
     if (exact) { snprintf(out, outSz, "%s", exact); return; }
 
+    // Button lanes in hi32: pressed<<0, held<<9, released<<18
     uint64_t dirBits = cmd & 0x3FEULL;
     uint64_t pressed = (cmd >> 32) & 0x7F;
-    uint64_t held    = (cmd >> 40) & 0x7F;
-    uint64_t rel     = (cmd >> 48) & 0x7F;
+    uint64_t held    = (cmd >> 41) & 0x7F;
+    uint64_t rel     = (cmd >> 50) & 0x7F;
 
     char dirBuf[16] = "Any";
     if (dirBits) {
@@ -7168,8 +7262,9 @@ static constexpr uint64_t kCCModeReg     = 0x4000000000000000ULL;
 static constexpr uint64_t kCCModePartial = 0x2000000000000000ULL;
 static constexpr uint64_t kCCModeDirOnly = 0x8000000000000000ULL;
 static constexpr uint64_t kCCDirMask     = 0x00000000000003FEULL;
+// Button lanes: pressed @32, held @41 (<<9), released @50 (<<18)
 static constexpr uint64_t kCCBtnMaskAll  =
-    (uint64_t(0x7F) << 32) | (uint64_t(0x7F) << 40) | (uint64_t(0x7F) << 48);
+    (uint64_t(0x7F) << 32) | (uint64_t(0x7F) << 41) | (uint64_t(0x7F) << 50);
 
 void MovesetEditorWindow::RenderCommandCreator()
 {
@@ -7384,8 +7479,8 @@ void MovesetEditorWindow::RenderCommandCreator()
                         {"1",0x01},{"2",0x02},{"3",0x04},{"4",0x08},
                         {"H",0x10},{"SS",0x20},{"RA",0x40},
                     };
-                    static const int   kShifts[3]    = { 32, 40, 48 };
-                    static const char* kSecLbls[3]   = { "PRESSED","HELD","NOT HELD (RELEASE)" };
+                    static const int   kShifts[3]    = { 32, 41, 50 };
+                    static const char* kSecLbls[3]   = { "PRESSED","HELD","RELEASED" };
 
                     float smBtnW = (colW - sty.ItemSpacing.x * 4) / 5.0f;
                     for (int s = 0; s < 3; ++s) {
