@@ -4,6 +4,7 @@
 //  character uses, from the moveset's cinematic properties:
 //    0x838E "Trigger cinematic camera" -> rage (5-7) / throw (8+)   [game/ builder]
 //    0x8313 "Set Drama Type" + 0x8314 "Set Drama No." -> intro/outro [demo/ builder]
+//    0x8314 with no 0x8313 in its group               -> lose (game 3.03+, "los")
 //  Paths are built exactly like the game's decompiled builders (see
 //  _references/CinematicSequence_Paths_RE.md). Output: <folder>/polaris/cinematic.json
 //  — consumed later by the editor UI and by an external ModLoader to decide which uasset to redirect.
@@ -11,6 +12,7 @@
 //  Season folder / existence resolution (ResolveCineSeq), in order:
 //    1. live-game season table: slot out of range or value < 0 -> no sequence (always applied)
 //    2. CinematicSeqDB (res/cinematics/data.json): authoritative folder; not listed -> no asset
+//       (only for categories the DB knows -- a DB older than the lose cameras falls through to 3)
 //    3. fallback (DB unavailable): season from the live table
 //    4. neither available -> unresolved (nothing is guessed)
 // -------------------------------------------------------------
@@ -19,8 +21,9 @@
 
 struct MotbinData;
 
-// side ids (match the game's per-character cinematic data): rage=0, outro=1, intro=2, throw=3.
-enum { CINE_SIDE_RAGE = 0, CINE_SIDE_OUTRO = 1, CINE_SIDE_INTRO = 2, CINE_SIDE_THROW = 3 };
+// side ids (match the game's per-character cinematic data): rage=0, outro=1, intro=2, throw=3,
+// lose=4 (game 3.03+: the demo builder maps "los" to side 4).
+enum { CINE_SIDE_RAGE = 0, CINE_SIDE_OUTRO = 1, CINE_SIDE_INTRO = 2, CINE_SIDE_THROW = 3, CINE_SIDE_LOSE = 4 };
 
 enum class CineSeqState { Ok, EmptyInGame, NoAsset, Unresolved };
 
@@ -33,7 +36,7 @@ struct CineSeqResolve {
 // path tails below the season folder (filenames match the game / asset dump exactly)
 std::string CineRageTail (const std::string& code, const std::string& sub, const char* cam);
 std::string CineThrowTail(const std::string& code, int nn, const char* cam);
-std::string CineDemoTail (const std::string& code, const char* tok, int no); // tok: "sta" / "win"
+std::string CineDemoTail (const std::string& code, const char* tok, int no); // tok: "sta" / "win" / "los"
 
 // Resolves one sequence. base: "game" / "demo"; (side, index) address the live season table.
 CineSeqResolve ResolveCineSeq(const CineSeasonTable& table, const char* base,

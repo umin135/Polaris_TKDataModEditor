@@ -19,17 +19,68 @@
 
 // -------------------------------------------------------------
 //  Season-folder data chain (RE'd, see _references/CinematicSequence_Paths_RE.md §7).
-//  base+0x9881DE0 (global) -> subsystem -> category-4 container -> FNV1a(charId) map -> charData.
-//  Four std::vector<int32> at +0x70/+0xA0/+0x88/+0xB8 (side 0..3) hold season numbers; value>0 ->
-//  "polaris%02d", else "polaris". side/index per category (from the builders):
+//  global -> subsystem -> category-4 container -> FNV1a(charId) map -> charData.
+//  std::vector<int32> per side hold season numbers; value>0 -> "polaris%02d", else "polaris".
+//  side/index per category (from the builders):
 //    rage -> (0,0)   outro(win) -> (1,no)   intro(sta) -> (2,no)   throw -> (3,throwNN)
+//    lose(los) -> (4,no)   (game 3.03+)
+//  Both the global and the per-side vector offsets moved in game 3.03 (global 0x9880DE0 ->
+//  0x98D14E0; throw 0xB8 -> 0xD0, lose added at 0xB8), so they are read from the game:
+//    - global: the container getter  mov rax,[rip+G] / ret / int3 x8 / mov rax,[rcx+8] / movsxd rdx,edx
+//    - offsets: the season lookup's side switch (5 sides on 3.03+, 4 before), whose
+//      `mov eax,imm32` cases appear in the order side 4,3,2,1,0 (side 3,2,1,0 on the 4-side form)
 // -------------------------------------------------------------
-static const size_t kCineSideOff[4] = { 0x70, 0xA0, 0x88, 0xB8 };
+static const char* kPatternCineContainer =
+    "48 8B 05 ?? ?? ?? ?? C3 CC CC CC CC CC CC CC CC 48 8B 41 08 48 63 D2";
+static const char* kPatternCineSides5 =
+    "85 DB 74 ?? 83 EB 01 74 ?? 83 EB 01 74 ?? 83 EB 01 74 ?? 83 FB 01 0F 85 ?? ?? ?? ?? "
+    "B8 ?? ?? ?? ?? EB ?? B8 ?? ?? ?? ?? EB ?? B8 ?? ?? ?? ?? EB ?? B8 ?? ?? ?? ?? EB ?? B8";
+static const char* kPatternCineSides4 =
+    "85 DB 74 ?? 83 EB 01 74 ?? 83 EB 01 74 ?? 83 FB 01 75 ?? "
+    "B8 ?? ?? ?? ?? EB ?? B8 ?? ?? ?? ?? EB ?? B8 ?? ?? ?? ?? EB ?? B8";
+
+struct CineChainAddrs {
+    uintptr_t moduleBase = 0;              // process the values belong to
+    uintptr_t globalRva  = 0;              // 0 = not found
+    size_t    sideOff[kCineSideCount] = {}; // 0 = side not present in this build
+};
+
+static const CineChainAddrs& ResolveCineChain(const GameProcessInfo& proc)
+{
+    static CineChainAddrs s;
+    if (s.moduleBase == proc.moduleBase && s.globalRva) return s;
+    s = CineChainAddrs{};
+    s.moduleBase = proc.moduleBase;
+    const uintptr_t lo = proc.moduleBase + 0x1700000, hi = proc.moduleBase + 0x1A00000;
+
+    if (uintptr_t m = AobScan(proc, kPatternCineContainer, lo, hi)) {
+        int32_t disp = 0;
+        if (ReadGameValue(proc, m + 3, disp))
+            s.globalRva = (uintptr_t)((intptr_t)(m + 7) + disp) - proc.moduleBase;
+    }
+
+    auto readImm = [&](uintptr_t at, size_t& out) {
+        uint32_t v = 0;
+        if (ReadGameValue(proc, at, v) && v >= 0x40 && v < 0x400 && (v % 8) == 0) out = v;
+    };
+    if (uintptr_t m = AobScan(proc, kPatternCineSides5, lo, hi)) {
+        const int at[kCineSideCount] = { 57, 50, 43, 36, 29 };   // imm32 of side 0..4
+        for (int sd = 0; sd < kCineSideCount; ++sd) readImm(m + at[sd], s.sideOff[sd]);
+    } else if (uintptr_t m4 = AobScan(proc, kPatternCineSides4, lo, hi)) {
+        const int at[4] = { 41, 34, 27, 20 };                   // imm32 of side 0..3
+        for (int sd = 0; sd < 4; ++sd) readImm(m4 + at[sd], s.sideOff[sd]);
+    }
+    for (int sd = 0; sd < 4; ++sd)           // sides 0..3 exist on every build
+        if (!s.sideOff[sd]) { s.globalRva = 0; break; }
+    return s;
+}
 
 static uintptr_t GetCharCinematicData(const GameProcessInfo& proc, uint32_t charId)
 {
+    const CineChainAddrs& ca = ResolveCineChain(proc);
+    if (!ca.globalRva) return 0;
     uintptr_t subsystem = 0, p1 = 0, container = 0;
-    if (!ReadGamePointer(proc, proc.moduleBase + 0x9881DE0, subsystem) || !subsystem) return 0;
+    if (!ReadGamePointer(proc, proc.moduleBase + ca.globalRva, subsystem) || !subsystem) return 0;
     if (!ReadGamePointer(proc, subsystem + 8, p1) || !p1) return 0;
     if (!ReadGamePointer(proc, p1 + 8 * 4, container) || !container) return 0;
 
@@ -60,16 +111,19 @@ static uintptr_t GetCharCinematicData(const GameProcessInfo& proc, uint32_t char
     return charData;
 }
 
-// Reads the four per-side season vectors of a character's cinematic data (see CineSeasonTable).
+// Reads the per-side season vectors of a character's cinematic data (see CineSeasonTable).
+// A side the build doesn't have (lose before game 3.03) stays empty.
 // valid=false if charData is null or a vector header can't be read.
 static CineSeasonTable ReadCineSeasonTable(const GameProcessInfo& proc, uintptr_t charData)
 {
     CineSeasonTable t;
     if (!charData) return t;
-    for (int side = 0; side < 4; ++side) {
+    const CineChainAddrs& ca = ResolveCineChain(proc);
+    for (int side = 0; side < kCineSideCount; ++side) {
+        if (!ca.sideOff[side]) continue;
         uintptr_t begin = 0, end = 0;
-        if (!ReadGamePointer(proc, charData + kCineSideOff[side], begin) ||
-            !ReadGamePointer(proc, charData + kCineSideOff[side] + 8, end))
+        if (!ReadGamePointer(proc, charData + ca.sideOff[side], begin) ||
+            !ReadGamePointer(proc, charData + ca.sideOff[side] + 8, end))
             return CineSeasonTable{};
         if (!begin || end < begin) continue;             // empty vector
         size_t n = (size_t)(end - begin) / 4;
@@ -92,12 +146,12 @@ static CineSeasonTable ReadCineSeasonTable(const GameProcessInfo& proc, uintptr_
 //  cinematic data container is actually populated in the current game mode
 //  (e.g. training) BEFORE committing to a runtime resolver.
 //
-//  Chain (RE'd, imagebase 0x140000000 -> global at base+0x9881DE0):
-//    subsystem = *(base + 0x9881DE0)              (sub_1418B8C90)
-//    container = *(*(subsystem+8) + 8*4)          (sub_1418B8CA0, category 4)
-//    entry     = FNV1a(charId) bucket-walk        (sub_14181A0C0)
+//  Chain (global and side offsets resolved by ResolveCineChain):
+//    subsystem = *(base + global)                 (3.02: 0x9880DE0, 3.03: 0x98D14E0)
+//    container = *(*(subsystem+8) + 8*4)          (category 4)
+//    entry     = FNV1a(charId) bucket-walk
 //    charData  = *(entry + 24)
-//    arr[side] = charData + {0:0x70,1:0xA0,2:0x88,3:0xB8}  (std::vector<int32>)
+//    arr[side] = charData + sideOff[side]  (3.02: 0x70/0xA0/0x88/0xB8; 3.03: + throw 0xD0, lose 0xB8)
 //    suffix    = (arr[side][index] > 0) ? "%02d" : ""      -> polaris{suffix}
 // -------------------------------------------------------------
 static std::string DiagnoseCinematicFolderData(const GameProcessInfo& proc,
@@ -120,8 +174,14 @@ static std::string DiagnoseCinematicFolderData(const GameProcessInfo& proc,
 
     bool ok = true;
     uintptr_t subsystem = 0, p1 = 0, container = 0;
-    if (!ReadGamePointer(proc, proc.moduleBase + 0x9881DE0, subsystem) || !subsystem) {
-        line("[FAIL] subsystem global (base+0x9881DE0) is null -> data not loaded in this mode.");
+    const CineChainAddrs& ca = ResolveCineChain(proc);
+    line("chain: global RVA 0x%llX, side offsets 0x%zX 0x%zX 0x%zX 0x%zX 0x%zX (0 = absent)",
+         (unsigned long long)ca.globalRva, ca.sideOff[0], ca.sideOff[1], ca.sideOff[2], ca.sideOff[3], ca.sideOff[4]);
+    if (!ca.globalRva) {
+        line("[FAIL] season-table AOBs not found in this build.");
+        ok = false;
+    } else if (!ReadGamePointer(proc, proc.moduleBase + ca.globalRva, subsystem) || !subsystem) {
+        line("[FAIL] subsystem global is null -> data not loaded in this mode.");
         ok = false;
     } else {
         line("subsystem = 0x%llX", (unsigned long long)subsystem);
@@ -165,13 +225,13 @@ static std::string DiagnoseCinematicFolderData(const GameProcessInfo& proc,
     }
 
     if (charData) {
-        static const size_t sideOff[4] = { 0x70, 0xA0, 0x88, 0xB8 };
-        for (int s = 0; s < 4; ++s) {
+        for (int s = 0; s < kCineSideCount; ++s) {
+            if (!ca.sideOff[s]) { line("side %d: not in this build", s); continue; }
             uintptr_t begin = 0, end = 0;
-            ReadGamePointer(proc, charData + sideOff[s], begin);
-            ReadGamePointer(proc, charData + sideOff[s] + 8, end);
+            ReadGamePointer(proc, charData + ca.sideOff[s], begin);
+            ReadGamePointer(proc, charData + ca.sideOff[s] + 8, end);
             long count = (begin && end && end >= begin) ? (long)((end - begin) / 4) : -1;
-            line("side %d (+0x%02zX): count=%ld", s, sideOff[s], count);
+            line("side %d (+0x%02zX): count=%ld", s, ca.sideOff[s], count);
             for (long i = 0; i < count && i < 16; ++i) {
                 int32_t v = 0; ReadGameValue(proc, begin + 4 * i, v);
                 line("    [%ld] = %d%s", i, v, v > 0 ? "  -> polaris%02d" : "");

@@ -38,8 +38,23 @@ void CinematicSeqDB::Load(const std::string& dataJsonPath)
     }
     if (map.empty()) return;
 
+    // categories present: key "<base>/<code>/<cat>/..." -> "<base>/<cat>"
+    std::unordered_set<std::string> cats;
+    for (const auto& kv : map) {
+        const std::string& k = kv.first;
+        size_t a = k.find('/'), b = (a == std::string::npos) ? a : k.find('/', a + 1);
+        size_t c = (b == std::string::npos) ? b : k.find('/', b + 1);
+        if (c != std::string::npos) cats.insert(k.substr(0, a) + "/" + k.substr(b + 1, c - b - 1));
+    }
+
     m_seasonByKey.swap(map);
+    m_categories.swap(cats);
     m_loaded = true;
+}
+
+bool CinematicSeqDB::HasCategory(const std::string& base, const std::string& cat) const
+{
+    return m_categories.count(base + "/" + cat) != 0;
 }
 
 std::string CinematicSeqDB::FindSeason(const std::string& base, const std::string& tail) const

@@ -9,6 +9,7 @@
 // -------------------------------------------------------------
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 
 class CinematicSeqDB
 {
@@ -25,9 +26,15 @@ public:
     //   base: "game" / "demo"    tail: "<code>/<cat>/<sub>/<file>" (path below the season folder)
     std::string FindSeason(const std::string& base, const std::string& tail) const;
 
+    // Whether the DB lists any sequence of this category (base "demo", cat "los", ...). A DB made
+    // from a dump older than the category (e.g. lose cameras, game 3.03) knows nothing about it,
+    // so "not listed" means "unknown", not "no asset".
+    bool HasCategory(const std::string& base, const std::string& cat) const;
+
 private:
     CinematicSeqDB() = default;
 
     std::unordered_map<std::string, std::string> m_seasonByKey; // "base/tail" -> season folder
+    std::unordered_set<std::string> m_categories;               // "base/cat" present in the DB
     bool m_loaded = false;
 };

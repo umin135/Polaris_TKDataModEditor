@@ -15,6 +15,7 @@
   "91": {"Log": "# Moveset Update\n- Cinematic Minor Fix"},
   "92": {"Log": "# Moveset Update\n- Cinematic Minor Fix 2"},
   "93": {"Log": "# Moveset Update\n- Corrected ParsedMove field types/names: damage_override (int16), anim_len_adj, hitbox floats (8) + hit_line_flag.\n- Updated Requirement / ExtraProp dictionary (Heat State, Heat Dash Charge, Heat Meter, Story Battle IDs, and related labels).\n- Improved param labels for Heat State slots and DLC Story Battle Numbers."},
-  "94": {"Log": "# Moveset Update\n- Fixed some bugs in ParsedMove when creating a new empty move.\n- Revamped Input Sequence parsing and display."}
+  "94": {"Log": "# Moveset Update\n- Fixed some bugs in ParsedMove when creating a new empty move.\n- Revamped Input Sequence parsing and display."},
+  "95": {"Log": "# Moveset Update\n- Fixed some bugs"}
 }
 

@@ -5405,12 +5405,13 @@ static void RenderPropSection(
                     }
                     else if (e.id == 0x8314)
                     {
-                        // intro/outro resolved from the paired 0x8313 (Set Drama Type) in this group
+                        // intro/outro resolved from the paired 0x8313 (Set Drama Type) in this group;
+                        // no 0x8313 at all = lose camera (game 3.03+, see CinematicPaths)
                         int dtype = -1;
                         uint32_t gend = start + groups[sel.outer].second;
                         for (uint32_t k = start; k < gend && k < (uint32_t)block.size(); ++k)
                             if (block[k].id == 0x8313) { dtype = (int)block[k].value; break; }
-                        bool camType = (dtype == 1 || dtype == 2);
+                        bool camType = (dtype == 1 || dtype == 2 || dtype == -1);
                         snprintf(p0lbl, sizeof(p0lbl), "%s   (Cinematics)", ExtraPropLabel::Param0);
                         ImGui::TableNextRow();
                         ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("%s", p0lbl);
@@ -5421,7 +5422,7 @@ static void RenderPropSection(
                         if (GoButton("##cine_go2", camType) && navCtx.cineWinOpen) {
                             *navCtx.cineWinOpen = true;
                             if (navCtx.cineWinFocus) *navCtx.cineWinFocus = true;
-                            *navCtx.cineHlGroup = (dtype == 1) ? "intro" : "outro";
+                            *navCtx.cineHlGroup = (dtype == 1) ? "intro" : (dtype == -1) ? "lose" : "outro";
                             navCtx.cineHlSub->clear();
                             *navCtx.cineHlNum = (int)e.value;
                             *navCtx.cineScroll = true;
@@ -6667,8 +6668,9 @@ static std::string DefaultCineSrc(const CineManifest& m, const CineManifestEntry
     else if (e.group == "throw") { tail = CineThrowTail(m.code, e.num, e.cam.c_str()); }
     else {
         base = "demo";
-        side = (e.group == "intro") ? CINE_SIDE_INTRO : CINE_SIDE_OUTRO;
-        tail = CineDemoTail(m.code, e.group == "intro" ? "sta" : "win", e.num);
+        const bool intro = (e.group == "intro"), lose = (e.group == "lose");
+        side = intro ? CINE_SIDE_INTRO : lose ? CINE_SIDE_LOSE : CINE_SIDE_OUTRO;
+        tail = CineDemoTail(m.code, intro ? "sta" : lose ? "los" : "win", e.num);
     }
     CineSeqResolve r = ResolveCineSeq(m.seasons, base, side, idx, tail);
     std::string folder = (r.state == CineSeqState::Ok) ? r.folder
@@ -6707,6 +6709,7 @@ static std::string CineRowName(const CineManifestEntry& e)
     if (e.group == "rage")  return e.sub == "pre" ? "RageArt(PRE)" : e.sub == "finishko" ? "RageArtFinish" : "RageArt";
     if (e.group == "throw") return "throw " + std::to_string(e.num + 1);
     if (e.group == "intro") return "Intro " + std::to_string(e.num);
+    if (e.group == "lose")  return "Lose " + std::to_string(e.num);
     return "Outro " + std::to_string(e.num);
 }
 
@@ -6801,6 +6804,7 @@ void MovesetEditorWindow::RenderSubWin_Cinematics()
                     if (gg == "rage")  return sub == "pre" ? "RageArt(PRE)" : sub == "finishko" ? "RageArtFinish" : "RageArt";
                     if (gg == "throw") return "throw " + std::to_string(num + 1);
                     if (gg == "intro") return "Intro " + std::to_string(num);
+                    if (gg == "lose")  return "Lose " + std::to_string(num);
                     return "Outro " + std::to_string(num);
                 };
 
@@ -6883,7 +6887,7 @@ void MovesetEditorWindow::RenderSubWin_Cinematics()
                 ImGui::Spacing();
                 if (ImGui::Button("Add slot")) { pendingAddGroup = "throw"; pendingAddNum = next; }
                 ImGui::SameLine(); ImGui::TextDisabled("(adds throw %d)", next + 1);
-            } else if (g == "intro" || g == "outro") {
+            } else if (g == "intro" || g == "outro" || g == "lose") {
                 bool present[6] = { false }; int cnt = 0;
                 for (const auto& e : m_cine.entries)
                     if (e.group == g) { ++cnt; if (e.num >= 0 && e.num < 6) present[e.num] = true; }
@@ -6898,10 +6902,11 @@ void MovesetEditorWindow::RenderSubWin_Cinematics()
         ImGui::EndChild();
     };
 
-    // Rage | Intro | Outro | Throw tabs. A Go from a property force-selects the matching tab.
+    // Rage | Intro | Outro | Lose | Throw tabs. A Go from a property force-selects the matching tab.
+    // (Lose: game 3.03+ "los" cameras.)
     if (ImGui::BeginTabBar("##cine_tabs")) {
         struct CTab { const char* title; const char* group; };
-        static const CTab tabs[] = { {"Rage","rage"}, {"Intro","intro"}, {"Outro","outro"}, {"Throw","throw"} };
+        static const CTab tabs[] = { {"Rage","rage"}, {"Intro","intro"}, {"Outro","outro"}, {"Lose","lose"}, {"Throw","throw"} };
         for (const CTab& t : tabs) {
             int flags = (m_cineScrollPending && m_cineHlGroup == t.group) ? ImGuiTabItemFlags_SetSelected : 0;
             if (ImGui::BeginTabItem(t.title, nullptr, flags)) {
@@ -6934,7 +6939,7 @@ void MovesetEditorWindow::RenderSubWin_Cinematics()
                     m_cine.entries.push_back(e);
                     m_cineEdit.push_back(e.src);
                 }
-            } else { // intro / outro (demo builder)
+            } else { // intro / outro / lose (demo builder)
                 CineManifestEntry e;
                 e.group = g; e.num = nn; e.added = true;
                 e.id = g + "_" + std::to_string(nn);

@@ -47,9 +47,14 @@ CineSeqResolve ResolveCineSeq(const CineSeasonTable& table, const char* base,
         }
         live = arr[index];
     }
-    // 2. sequence DB: authoritative season folder + existence
+    // 2. sequence DB: authoritative season folder + existence -- for the categories it lists.
+    //    tail = "<code>/<cat>/...": a category the DB has never seen (e.g. "los" in a DB dumped
+    //    before game 3.03) is unknown to it, not missing, so it falls through to the live table.
     const CinematicSeqDB& db = CinematicSeqDB::Get();
-    if (db.IsLoaded()) {
+    std::string cat;
+    { size_t a = tail.find('/'), b = (a == std::string::npos) ? a : tail.find('/', a + 1);
+      if (b != std::string::npos) cat = tail.substr(a + 1, b - a - 1); }
+    if (db.IsLoaded() && db.HasCategory(base, cat)) {
         r.folder = db.FindSeason(base, tail);
         r.state  = r.folder.empty() ? CineSeqState::NoAsset : CineSeqState::Ok;
         r.verified = !r.folder.empty();
@@ -187,8 +192,21 @@ std::string WriteCinematicSequencesJson(const MotbinData& data,
         if (!any) excl838E.push_back(pv);   // stage gimmick / empty slot / missing asset
     }
 
+    // Drama type -1 = 0x8314 with no 0x8313 in its group. Game 3.03 added lose cameras ("los",
+    // demo builder side 4); their moves set only the drama no (Heihachi: no 0..5, untyped), the
+    // type comes from the game's lose sequence. Movesets from earlier builds have no untyped 0x8314.
+    // Each one is still resolved like any other sequence, so a non-lose untyped no without a
+    // los asset is dropped (and listed under excluded).
     for (const auto& pr : dramaPairs) {
         int type = pr.first; uint32_t no = pr.second;
+        if (type == -1) {
+            CineManifestEntry e;
+            e.group = "lose"; e.num = (int)no;
+            e.id = "lose_" + std::to_string(no);
+            if (!addSeq(e, "demo", CINE_SIDE_LOSE, (int)no, CineDemoTail(code, "los", (int)no)))
+                exclDrama.push_back("lose_" + std::to_string(no));
+            continue;
+        }
         if (type != 1 && type != 2) {
             const char* tl = MovesetDataDict::Get().GetDramaTypeLabel((uint32_t)type);
             char lbl[64];

@@ -3,7 +3,7 @@
 //  CinematicManifest -- in-memory model + (de)serializer for <moveset>/polaris/cinematic.json.
 //  One shared serializer is used by both the extractor (builds entries from live game data) and the
 //  editor GUI (edits Source/overrides + adds throws), so the on-disk format has a single source.
-//  Layout: section arrays (rage / intro / outro / throw), a per-id "overrides" map (id -> custom
+//  Layout: section arrays (rage / intro / outro / lose / throw), a per-id "overrides" map (id -> custom
 //  path; empty = use src), and "added_throws" (throw numbers the user added). No external JSON lib.
 // -------------------------------------------------------------
 #include <string>
@@ -12,7 +12,7 @@
 // One redirectable sequence path (one cam of a rage/throw entry, or one intro/outro).
 struct CineManifestEntry {
     std::string id;            // stable key, e.g. "rage_pre_cam1p" / "throw_00_cam2p" / "intro_0"
-    std::string group;         // "rage" | "throw" | "intro" | "outro"
+    std::string group;         // "rage" | "throw" | "intro" | "outro" | "lose" (game 3.03+)
     std::string sub;           // rage: "pre"/"finish"/"finishko"   (unused for others)
     std::string cam;           // "cam1p"/"cam2p"  (empty for intro/outro)
     int         num = -1;      // throw NN or drama no (-1 for rage)
@@ -23,12 +23,14 @@ struct CineManifestEntry {
     bool        added     = false; // throw entry the user added (not referenced by the moveset)
 };
 
-// Live-game season numbers per cinematic side (side 0 = rage, 1 = outro, 2 = intro, 3 = throw;
-// index = rage 0 / drama no / throw NN). value > 0 -> "polaris%02d", 0 -> "polaris", < 0 -> no
-// sequence in that slot. Captured at extraction and saved in the manifest ("season_table").
+// Live-game season numbers per cinematic side (side 0 = rage, 1 = outro, 2 = intro, 3 = throw,
+// 4 = lose (game 3.03+, empty before); index = rage 0 / drama no / throw NN). value > 0 ->
+// "polaris%02d", 0 -> "polaris", < 0 -> no sequence in that slot. Captured at extraction and
+// saved in the manifest ("season_table").
+static constexpr int kCineSideCount = 5;
 struct CineSeasonTable {
     bool             valid = false;
-    std::vector<int> side[4];
+    std::vector<int> side[kCineSideCount];
 };
 
 struct CineManifest {

@@ -147,6 +147,7 @@ CineManifest LoadCineManifest(const std::string& folderPath)
     LoadSection(js, "rage",  "rage",  man.entries);
     LoadSection(js, "intro", "intro", man.entries);
     LoadSection(js, "outro", "outro", man.entries);
+    LoadSection(js, "lose",  "lose",  man.entries);   // game 3.03+ (absent in older manifests)
     LoadSection(js, "throw", "throw", man.entries);
 
     // overrides map -> apply to entries by id
@@ -160,8 +161,8 @@ CineManifest LoadCineManifest(const std::string& folderPath)
 
     // season_table object -> per-side int arrays
     { size_t o, c; if (FindContainer(js, "season_table", '{', '}', o, c)) {
-        static const char* kSides[4] = { "rage", "outro", "intro", "throw" };
-        for (int s = 0; s < 4; ++s) {
+        static const char* kSides[kCineSideCount] = { "rage", "outro", "intro", "throw", "lose" };
+        for (int s = 0; s < kCineSideCount; ++s) {
             std::string pat = std::string("\"") + kSides[s] + "\"";
             size_t k = js.find(pat, o);
             if (k == std::string::npos || k >= c) continue;
@@ -197,7 +198,7 @@ static void WriteEntry(FILE* f, const CineManifestEntry& e, bool first)
     fprintf(f, first ? "\n    { \"id\": \"%s\"" : ",\n    { \"id\": \"%s\"", e.id.c_str());
     if (e.group == "rage")            fprintf(f, ", \"sub\": \"%s\", \"cam\": \"%s\"", e.sub.c_str(), e.cam.c_str());
     else if (e.group == "throw")      fprintf(f, ", \"nn\": %d, \"cam\": \"%s\"", e.num, e.cam.c_str());
-    else                              fprintf(f, ", \"no\": %d", e.num); // intro / outro
+    else                              fprintf(f, ", \"no\": %d", e.num); // intro / outro / lose
     fprintf(f, ", \"src\": \"%s\"", e.src.c_str());
     if (e.hasExists)  fprintf(f, ", \"exists\": %s", e.exists ? "true" : "false");
     if (e.added)      fprintf(f, ", \"added\": true");
@@ -225,7 +226,7 @@ bool SaveCineManifest(const std::string& folderPath, const CineManifest& man)
     fprintf(f, "{\n");
     fprintf(f, "  \"code\": \"%s\",\n", man.code.c_str());
     fprintf(f, "  \"folder_source\": \"%s\",\n", man.folderSource.c_str());
-    fprintf(f, "  \"note\": \"Camera cutscene manifest. Each entry's 'src' is the source character's path. Editing a sequence's Source in the editor stores the new value in 'overrides' (id -> path); empty override = use src. When this moveset is injected onto another slot, the Loader rebuilds that slot's request path from the section (rage/intro/outro/throw) + descriptors and redirects it to override||src. 'added_throws' = throw numbers added in the editor.\",\n");
+    fprintf(f, "  \"note\": \"Camera cutscene manifest. Each entry's 'src' is the source character's path. Editing a sequence's Source in the editor stores the new value in 'overrides' (id -> path); empty override = use src. When this moveset is injected onto another slot, the Loader rebuilds that slot's request path from the section (rage/intro/outro/lose/throw) + descriptors and redirects it to override||src. 'added_throws' = throw numbers added in the editor.\",\n");
 
     // overrides map (from entries with a non-empty overridePath)
     fprintf(f, "  \"overrides\": {");
@@ -240,13 +241,14 @@ bool SaveCineManifest(const std::string& folderPath, const CineManifest& man)
     WriteSection(f, man, "rage",  "rage");
     WriteSection(f, man, "intro", "intro");
     WriteSection(f, man, "outro", "outro");
+    WriteSection(f, man, "lose",  "lose");
     WriteSection(f, man, "throw", "throw");
 
     // live-game season table (info for the editor's add-slot resolution; Loader may ignore it)
     if (man.seasons.valid) {
-        static const char* kSides[4] = { "rage", "outro", "intro", "throw" };
+        static const char* kSides[kCineSideCount] = { "rage", "outro", "intro", "throw", "lose" };
         fprintf(f, "  \"season_table\": {");
-        for (int s = 0; s < 4; ++s) {
+        for (int s = 0; s < kCineSideCount; ++s) {
             fprintf(f, s ? ", \"%s\": [" : " \"%s\": [", kSides[s]);
             for (size_t i = 0; i < man.seasons.side[s].size(); ++i)
                 fprintf(f, i ? ", %d" : "%d", man.seasons.side[s][i]);
